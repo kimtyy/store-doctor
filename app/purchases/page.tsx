@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purchase';
+import CameraModal from '../../components/ui/CameraModal';
 
 const categoryOptions: PurchaseCategory[] = [
   'food_ingredients',
@@ -105,7 +106,8 @@ export default function PurchasesInputPage() {
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
-  const camerInputRef = useRef<HTMLInputElement>(null);
+  const [purchaseCameraOpen, setPurchaseCameraOpen] = useState(false);
+  const purchaseFallbackRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const totalAmount = useMemo(
@@ -222,6 +224,17 @@ export default function PurchasesInputPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-6 pb-32">
+      <CameraModal
+        isOpen={purchaseCameraOpen}
+        onCapture={(file) => setReceiptFile(file)}
+        onClose={() => setPurchaseCameraOpen(false)}
+        onFallback={() => purchaseFallbackRef.current?.click()}
+      />
+      <input ref={purchaseFallbackRef} type="file" accept="image/*" capture="environment" className="hidden"
+        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
+      <input ref={galleryInputRef} type="file" accept="image/*" className="hidden"
+        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
+
       <div className="max-w-2xl space-y-6">
         <div>
           <h1 className="text-3xl font-bold">매입 입력</h1>
@@ -262,27 +275,10 @@ export default function PurchasesInputPage() {
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
             <h2 className="text-lg font-semibold">영수증 사진</h2>
 
-            {/* 숨김 파일 입력 */}
-            <input
-              ref={camerInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-            />
-            <input
-              ref={galleryInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-            />
-
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => camerInputRef.current?.click()}
+                onClick={() => setPurchaseCameraOpen(true)}
                 className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
               >
                 📷 사진 찍기

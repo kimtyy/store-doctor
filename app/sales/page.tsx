@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { DailySales, SalesMenuItem } from '../../types/sales';
+import CameraModal from '../../components/ui/CameraModal';
 
 interface ParseResult {
   receipt?: DailySales;
@@ -33,10 +34,16 @@ export default function SalesInputPage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
-  const receiptCameraRef = useRef<HTMLInputElement>(null);
+  // 카메라 모달 상태
+  const [receiptCameraOpen, setReceiptCameraOpen] = useState(false);
+  const [menuCameraOpen, setMenuCameraOpen] = useState(false);
+
+  // 갤러리 fallback 입력
   const receiptGalleryRef = useRef<HTMLInputElement>(null);
-  const menuCameraRef = useRef<HTMLInputElement>(null);
   const menuGalleryRef = useRef<HTMLInputElement>(null);
+  // getUserMedia 실패 시 fallback용 (capture="environment")
+  const receiptFallbackRef = useRef<HTMLInputElement>(null);
+  const menuFallbackRef = useRef<HTMLInputElement>(null);
 
   async function handleReceiptParse() {
     if (!receiptFile) {
@@ -55,7 +62,6 @@ export default function SalesInputPage() {
       });
 
       const responseText = await response.text();
-
       if (!responseText || responseText.trim() === '') {
         throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       }
@@ -67,13 +73,8 @@ export default function SalesInputPage() {
         throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
       }
 
-      if (!response.ok) {
-        throw new Error(body.error || `서버 오류 (${response.status})`);
-      }
-
-      if (!body.data) {
-        throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
-      }
+      if (!response.ok) throw new Error(body.error || `서버 오류 (${response.status})`);
+      if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
 
       setResult((current) => ({ ...current, receipt: body.data }));
     } catch (err) {
@@ -100,7 +101,6 @@ export default function SalesInputPage() {
       });
 
       const responseText = await response.text();
-
       if (!responseText || responseText.trim() === '') {
         throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       }
@@ -112,13 +112,8 @@ export default function SalesInputPage() {
         throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
       }
 
-      if (!response.ok) {
-        throw new Error(body.error || `서버 오류 (${response.status})`);
-      }
-
-      if (!body.data) {
-        throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
-      }
+      if (!response.ok) throw new Error(body.error || `서버 오류 (${response.status})`);
+      if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
 
       setResult((current) => ({ ...current, menu: body.data }));
     } catch (err) {
@@ -134,6 +129,20 @@ export default function SalesInputPage() {
       return;
     }
 
+    // 저장 전 payload 확인
+    const requestBody = { receipt: result.receipt, menu: result.menu };
+    console.group('📤 매출 저장 payload 확인');
+    console.log('정산서:', {
+      date: result.receipt.date,
+      totalRevenue: result.receipt.totalRevenue,
+      netRevenue: result.receipt.netRevenue,
+    });
+    console.log('메뉴 포함 여부:', result.menu ? '✅ 있음' : '❌ 없음 (메뉴 파싱 안 함)');
+    console.log('menuItems 개수:', result.menu?.menuItems?.length ?? 0);
+    console.log('menuItems 목록:', result.menu?.menuItems ?? []);
+    console.log('전체 payload:', JSON.stringify(requestBody, null, 2));
+    console.groupEnd();
+
     setError(null);
     setSaveSuccess(null);
     setSaving(true);
@@ -142,10 +151,11 @@ export default function SalesInputPage() {
       const response = await fetch('/api/sales/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receipt: result.receipt, menu: result.menu }),
+        body: JSON.stringify(requestBody),
       });
 
       const responseText = await response.text();
+      console.log('📩 서버 응답:', responseText.slice(0, 300));
 
       if (!responseText || responseText.trim() === '') {
         throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
@@ -163,11 +173,13 @@ export default function SalesInputPage() {
       }
 
       if (body.success) {
+        console.log('✅ 저장 성공:', body.data);
         setSaveSuccess(body.message || '✅ 저장 완료!');
       } else {
         throw new Error('저장 결과를 확인할 수 없습니다.');
       }
     } catch (err) {
+      console.error('❌ 저장 오류:', err);
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setSaving(false);
@@ -176,6 +188,30 @@ export default function SalesInputPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-6 pb-32">
+      {/* 카메라 모달 */}
+      <CameraModal
+        isOpen={receiptCameraOpen}
+        onCapture={(file) => setReceiptFile(file)}
+        onClose={() => setReceiptCameraOpen(false)}
+        onFallback={() => receiptFallbackRef.current?.click()}
+      />
+      <CameraModal
+        isOpen={menuCameraOpen}
+        onCapture={(file) => setMenuFile(file)}
+        onClose={() => setMenuCameraOpen(false)}
+        onFallback={() => menuFallbackRef.current?.click()}
+      />
+
+      {/* 숨김 fallback 입력들 */}
+      <input ref={receiptFallbackRef} type="file" accept="image/*" capture="environment" className="hidden"
+        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
+      <input ref={receiptGalleryRef} type="file" accept="image/*" className="hidden"
+        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
+      <input ref={menuFallbackRef} type="file" accept="image/*" capture="environment" className="hidden"
+        onChange={(e) => setMenuFile(e.target.files?.[0] ?? null)} />
+      <input ref={menuGalleryRef} type="file" accept="image/*" className="hidden"
+        onChange={(e) => setMenuFile(e.target.files?.[0] ?? null)} />
+
       <div className="max-w-2xl space-y-6">
         <div>
           <h1 className="text-3xl font-bold">매출 입력</h1>
@@ -195,36 +231,13 @@ export default function SalesInputPage() {
           <h2 className="text-lg font-semibold text-slate-100">① POS 마감 정산서</h2>
           <p className="mt-2 text-xs text-slate-400">총매출, 현금/카드 구분 내용</p>
 
-          {/* 숨김 파일 입력 */}
-          <input
-            ref={receiptCameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-          />
-          <input
-            ref={receiptGalleryRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-          />
-
           <div className="mt-4 flex gap-3">
-            <button
-              type="button"
-              onClick={() => receiptCameraRef.current?.click()}
-              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
-            >
+            <button type="button" onClick={() => setReceiptCameraOpen(true)}
+              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition">
               📷 사진 찍기
             </button>
-            <button
-              type="button"
-              onClick={() => receiptGalleryRef.current?.click()}
-              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
-            >
+            <button type="button" onClick={() => receiptGalleryRef.current?.click()}
+              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition">
               🖼️ 갤러리에서 선택
             </button>
           </div>
@@ -232,12 +245,9 @@ export default function SalesInputPage() {
             <p className="mt-2 text-xs text-slate-400 truncate">선택됨: {receiptFile.name}</p>
           ) : null}
 
-          <button
-            type="button"
-            onClick={handleReceiptParse}
+          <button type="button" onClick={handleReceiptParse}
             disabled={loadingReceipt || !receiptFile}
-            className="mt-4 w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+            className="mt-4 w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
             {loadingReceipt ? '파싱 중...' : '정산서 파싱'}
           </button>
         </div>
@@ -247,36 +257,13 @@ export default function SalesInputPage() {
           <h2 className="text-lg font-semibold text-slate-100">② 메뉴별 매출 내역</h2>
           <p className="mt-2 text-xs text-slate-400">메뉴명, 수량, 금액</p>
 
-          {/* 숨김 파일 입력 */}
-          <input
-            ref={menuCameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => setMenuFile(e.target.files?.[0] ?? null)}
-          />
-          <input
-            ref={menuGalleryRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => setMenuFile(e.target.files?.[0] ?? null)}
-          />
-
           <div className="mt-4 flex gap-3">
-            <button
-              type="button"
-              onClick={() => menuCameraRef.current?.click()}
-              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
-            >
+            <button type="button" onClick={() => setMenuCameraOpen(true)}
+              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition">
               📷 사진 찍기
             </button>
-            <button
-              type="button"
-              onClick={() => menuGalleryRef.current?.click()}
-              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
-            >
+            <button type="button" onClick={() => menuGalleryRef.current?.click()}
+              className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition">
               🖼️ 갤러리에서 선택
             </button>
           </div>
@@ -284,17 +271,14 @@ export default function SalesInputPage() {
             <p className="mt-2 text-xs text-slate-400 truncate">선택됨: {menuFile.name}</p>
           ) : null}
 
-          <button
-            type="button"
-            onClick={handleMenuParse}
+          <button type="button" onClick={handleMenuParse}
             disabled={loadingMenu || !menuFile}
-            className="mt-4 w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+            className="mt-4 w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
             {loadingMenu ? '파싱 중...' : '메뉴 매출 파싱'}
           </button>
         </div>
 
-        {/* 결과 미리보기 */}
+        {/* 결과 미리보기 + 저장 */}
         {result.receipt || result.menu ? (
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
             <h2 className="text-lg font-semibold text-slate-100">파싱 결과</h2>
@@ -340,13 +324,10 @@ export default function SalesInputPage() {
               </div>
             ) : null}
 
-            <button
-              type="button"
-              onClick={handleSave}
+            <button type="button" onClick={handleSave}
               disabled={saving || !result.receipt}
-              className="mt-4 w-full rounded-2xl bg-slate-800 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? '저장 중...' : '저장하기'}
+              className="mt-4 w-full rounded-2xl bg-slate-800 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50">
+              {saving ? '저장 중...' : `저장하기 (정산서${result.menu ? ' + 메뉴 ' + result.menu.menuItems.length + '개' : ''})`}
             </button>
           </div>
         ) : null}
