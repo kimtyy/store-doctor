@@ -42,7 +42,7 @@ const PERIOD_LABELS: Record<Period, string> = {
   all: '전체',
 };
 
-const MENU_CATEGORIES = ['주류', '음료', '안주', '식사'] as const;
+const MENU_CATEGORIES = ['주류', '음료', '안주', '식사', '세트'] as const;
 type MenuCategory = (typeof MENU_CATEGORIES)[number];
 
 const MENU_CAT_COLORS: Record<string, string> = {
@@ -50,6 +50,7 @@ const MENU_CAT_COLORS: Record<string, string> = {
   음료: '#38bdf8',
   안주: '#fb923c',
   식사: '#34d399',
+  세트: '#c084fc',
   미지정: '#475569',
 };
 
@@ -58,6 +59,7 @@ const MENU_CAT_BG: Record<string, string> = {
   음료: 'bg-sky-900/60 text-sky-300',
   안주: 'bg-amber-900/60 text-amber-300',
   식사: 'bg-emerald-900/60 text-emerald-300',
+  세트: 'bg-purple-900/60 text-purple-300',
   미지정: 'bg-slate-800 text-slate-500',
 };
 
@@ -494,8 +496,9 @@ export default function AnalyticsPage() {
                     cat === '주류' ? 'bg-indigo-900/80 text-indigo-200 ring-indigo-500'
                     : cat === '음료' ? 'bg-sky-900/80 text-sky-200 ring-sky-500'
                     : cat === '안주' ? 'bg-amber-900/80 text-amber-200 ring-amber-500'
+                    : cat === '세트' ? 'bg-purple-900/80 text-purple-200 ring-purple-500'
                     : 'bg-emerald-900/80 text-emerald-200 ring-emerald-500'
-                  }`}
+                  } ${cat === '세트' ? 'col-span-2' : ''}`}
                 >
                   {cat}{editingMenu.current === cat ? ' ✓' : ''}
                 </button>
