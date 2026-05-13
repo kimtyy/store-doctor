@@ -140,18 +140,11 @@ export default function SalesInputPage() {
     }
   }
 
-  async function handleSave() {
+  async function handleSave(successMessage?: string) {
     if (!editableReceipt) {
-      setError('저장할 매출 데이터가 없습니다.');
+      setError('먼저 ① 정산서를 파싱해주세요.');
       return;
     }
-
-    console.group('📤 매출 저장 payload 확인');
-    console.log('정산서:', { date: editableReceipt.date, totalRevenue: editableReceipt.totalRevenue });
-    console.log('메뉴 포함:', menuParsed ? '✅' : '❌');
-    console.log('menuItems 개수:', editableMenuItems.length);
-    console.log('menuItems:', editableMenuItems);
-    console.groupEnd();
 
     setError(null);
     setSaveSuccess(null);
@@ -179,8 +172,7 @@ export default function SalesInputPage() {
 
       if (!response.ok) throw new Error(body.error || body.details || `서버 오류 (${response.status})`);
       if (body.success) {
-        console.log('✅ 저장 성공:', body.data);
-        setSaveSuccess(body.message || '✅ 저장 완료!');
+        setSaveSuccess(successMessage ?? body.message ?? '✅ 저장 완료!');
         setEditableReceipt(null);
         setEditableMenuItems([]);
         setMenuParsed(false);
@@ -190,7 +182,6 @@ export default function SalesInputPage() {
         throw new Error('저장 결과를 확인할 수 없습니다.');
       }
     } catch (err) {
-      console.error('❌ 저장 오류:', err);
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setSaving(false);
@@ -455,6 +446,19 @@ export default function SalesInputPage() {
                     {editableMenuItems.reduce((s, i) => s + i.amount, 0).toLocaleString()}원
                   </p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleSave('✅ 메뉴 저장 완료!')}
+                  disabled={saving || !editableReceipt}
+                  className="w-full rounded-2xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving
+                    ? '저장 중...'
+                    : !editableReceipt
+                    ? '① 정산서도 파싱해주세요'
+                    : `메뉴 저장하기 (${editableMenuItems.length}개)`}
+                </button>
               </div>
             ) : null}
           </div>
@@ -463,7 +467,7 @@ export default function SalesInputPage() {
           {editableReceipt ? (
             <button
               type="button"
-              onClick={handleSave}
+              onClick={() => handleSave()}
               disabled={saving}
               className="w-full rounded-2xl bg-slate-800 px-6 py-4 text-base font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >

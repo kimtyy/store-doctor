@@ -1,15 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const supabase =
-  supabaseUrl && supabaseServiceKey
-    ? createClient(supabaseUrl, supabaseServiceKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      })
-    : null;
+export const dynamic = 'force-dynamic';
 
 const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
 
@@ -47,14 +39,21 @@ function mapRow(row: Record<string, unknown>) {
 }
 
 export async function GET() {
-  try {
-    if (!supabase) {
-      return NextResponse.json(
-        { error: 'Supabase 환경 변수가 설정되지 않았습니다.' },
-        { status: 500 }
-      );
-    }
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return NextResponse.json(
+      { error: 'Supabase 환경 변수가 설정되지 않았습니다.' },
+      { status: 500 }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  try {
     const { data, error } = await supabase
       .from('daily_sales')
       .select('*, sales_menu_items(*)')
