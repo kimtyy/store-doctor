@@ -142,44 +142,58 @@ export default function SalesInputPage() {
     setSaving(true);
 
     try {
+      console.log('📤 저장 요청 시작...');
+      const requestBody = { receipt: result.receipt, menu: result.menu };
+      console.log('📋 요청 데이터:', requestBody);
+
       const response = await fetch('/api/sales/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receipt: result.receipt, menu: result.menu }),
+        body: JSON.stringify(requestBody),
       });
+
+      console.log('📩 응답 상태:', response.status, response.statusText);
 
       // 응답이 비어있는지 먼저 확인
       const responseText = await response.text();
+      console.log('📝 응답 텍스트:', responseText.slice(0, 200));
 
       if (!responseText || responseText.trim() === '') {
+        console.error('❌ 빈 응답');
         throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       }
 
       let body;
       try {
         body = JSON.parse(responseText);
+        console.log('✅ JSON 파싱 성공:', body);
       } catch (parseError) {
-        console.error('JSON 파싱 에러:', parseError, '응답 텍스트:', responseText);
+        console.error('❌ JSON 파싱 실패:', parseError);
+        console.error('응답 텍스트:', responseText);
         throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
       }
 
       if (!response.ok) {
-        const errorMessage = body.error || `서버 오류 (${response.status})`;
+        console.error('❌ API 오류 응답:', body);
+        const errorMessage = body.error || body.details || `서버 오류 (${response.status})`;
         throw new Error(errorMessage);
       }
 
       if (body.success) {
+        console.log('✅ 저장 성공!', body);
         setSaveSuccess(body.message || '✅ 저장 완료!');
         // 저장 성공 후 결과 초기화 (선택사항)
         // setResult({});
         // setReceiptFile(null);
         // setMenuFile(null);
       } else {
+        console.error('❌ success 플래그 없음:', body);
         throw new Error('저장 결과를 확인할 수 없습니다.');
       }
     } catch (err) {
-      console.error('Save error:', err);
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      console.error('❌ 저장 중 오류:', err);
+      const errorMsg = err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.';
+      setError(errorMsg);
     } finally {
       setSaving(false);
     }

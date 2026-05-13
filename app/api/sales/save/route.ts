@@ -22,24 +22,44 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 
 export async function POST(request: Request) {
   try {
+    console.log('=== 매출 저장 API 시작 ===');
     const payload = await request.json().catch(() => null);
 
     if (!payload) {
+      console.error('❌ 요청 본문 파싱 실패');
       return NextResponse.json({
         error: '요청 본문을 파싱할 수 없습니다.'
       }, { status: 400 });
     }
 
+    console.log('📥 받은 payload:', {
+      hasReceipt: !!payload.receipt,
+      hasMenu: !!payload.menu,
+      receiptDate: payload.receipt?.date,
+      receiptRevenue: payload.receipt?.totalRevenue
+    });
+
     const { receipt, menu } = payload;
 
     if (!receipt) {
+      console.error('❌ 매출 데이터 없음');
       return NextResponse.json({
         error: '매출 데이터가 필요합니다.'
       }, { status: 400 });
     }
 
+    // 환경 변수 확인
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('❌ 환경 변수 미설정:', { hasUrl: !!supabaseUrl, hasKey: !!supabaseServiceKey });
+      return NextResponse.json({
+        error: '서버 설정 오류: Supabase 환경 변수가 설정되지 않았습니다.'
+      }, { status: 500 });
+    }
+
     // 임시 store_id (나중에 실제 사용자 인증으로 변경)
     const tempStoreId = '550e8400-e29b-41d4-a716-446655440000';
+
+    console.log('🔄 데이터베이스 저장 시작...');
 
     // 트랜잭션으로 데이터 저장
     const { data: salesData, error: salesError } = await supabase
@@ -48,42 +68,50 @@ export async function POST(request: Request) {
         store_id: tempStoreId,
         date: receipt.date,
         total_revenue: receipt.totalRevenue,
-        discount: receipt.discount,
-        service_charge: receipt.serviceCharge,
-        tax: receipt.tax,
+        discount: receipt.discount || 0,
+        service_charge: receipt.serviceCharge || 0,
+        tax: receipt.tax || 0,
         net_revenue: receipt.netRevenue,
-        cash_count: receipt.cashCount,
-        cash_amount: receipt.cashAmount,
-        card_count: receipt.cardCount,
-        card_amount: receipt.cardAmount,
-        tables_used: receipt.tablesUsed,
-        guest_count: receipt.guestCount,
-        avg_spend: receipt.avgSpend,
-        open_time: receipt.openTime,
-        close_time: receipt.closeTime,
-        first_order_time: receipt.firstOrderTime,
+        cash_count: receipt.cashCount || 0,
+        cash_amount: receipt.cashAmount || 0,
+        card_count: receipt.cardCount || 0,
+        card_amount: receipt.cardAmount || 0,
+        tables_used: receipt.tablesUsed || 0,
+        guest_count: receipt.guestCount || 0,
+        avg_spend: receipt.avgSpend || 0,
+        open_time: receipt.openTime || null,
+        close_time: receipt.closeTime || null,
+        first_order_time: receipt.firstOrderTime || null,
         input_method: 'receipt_photo' as const,
-        receipt_image_url: receipt.receiptImageUrl
+        receipt_image_url: receipt.receiptImageUrl || null
       })
       .select('id')
       .single();
 
     if (salesError) {
-      console.error('Daily sales insert error:', salesError);
+      console.error('❌ 매출 데이터 저장 실패:', {
+        code: salesError.code,
+        message: salesError.message,
+        details: salesError.details
+      });
       return NextResponse.json({
-        error: '매출 데이터 저장에 실패했습니다.'
+        error: `매출 저장 실패: ${salesError.message}`,
+        details: salesError.details
       }, { status: 500 });
     }
 
+    console.log('✅ 매출 데이터 저장 성공:', { salesId: salesData?.id });
+
     // 메뉴 항목들 저장 (있는 경우)
     if (menu?.menuItems && menu.menuItems.length > 0) {
+      console.log(`🔄 메뉴 항목 ${menu.menuItems.length}개 저장 시작...`);
       const menuItems = menu.menuItems.map((item: SalesMenuItem) => ({
         daily_sale_id: salesData.id,
         name: item.name,
         quantity: item.quantity,
         amount: item.amount,
-        category: item.category,
-        menu_id: item.menuId
+        category: item.category || null,
+        menu_id: item.menuId || null
       }));
 
       const { error: menuError } = await supabase
@@ -91,12 +119,19 @@ export async function POST(request: Request) {
         .insert(menuItems);
 
       if (menuError) {
-        console.error('Menu items insert error:', menuError);
+        console.error('❌ 메뉴 항목 저장 실패:', {
+          code: menuError.code,
+          message: menuError.message,
+          details: menuError.details
+        });
         // 메뉴 저장 실패해도 기본 매출 데이터는 유지
-        console.warn('메뉴 항목 저장에 실패했지만 매출 데이터는 저장되었습니다.');
+        console.warn('⚠️ 메뉴 항목 저장에 실패했지만 매출 데이터는 저장되었습니다.');
+      } else {
+        console.log(`✅ 메뉴 항목 ${menu.menuItems.length}개 저장 성공`);
       }
     }
 
+    console.log('✅ 매출 저장 완료!');
     return NextResponse.json({
       success: true,
       message: '✅ 저장 완료!',
@@ -108,11 +143,14 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
-    console.error('Sales save error:', error);
+    console.error('❌ 예상치 못한 오류:', error);
 
     if (error instanceof Error) {
+      console.error('에러 메시지:', error.message);
+      console.error('에러 스택:', error.stack);
       return NextResponse.json({
-        error: error.message
+        error: error.message,
+        stack: error.stack
       }, { status: 500 });
     }
 
