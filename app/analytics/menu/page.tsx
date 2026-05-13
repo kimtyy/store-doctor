@@ -371,8 +371,7 @@ export default function AnalyticsPage() {
                       <p className="text-xs text-slate-500 mb-3">카테고리 조각을 탭하면 메뉴 목록을 볼 수 있습니다.</p>
                       <ResponsiveContainer width="100%" height={260}>
                         <PieChart margin={{ top: 10, bottom: 0, left: 0, right: 0 }}>
-                          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                          <Pie data={menuPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} onClick={(data: any) => setDrillCategory(data.name)} style={{ cursor: 'pointer' }}>
+                          <Pie data={menuPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} onClick={(data: { name: string }) => setDrillCategory(data.name)} style={{ cursor: 'pointer' }}>
                             {menuPieData.map((entry, index) => (
                               <Cell key={index} fill={entry.color} opacity={drillCategory && drillCategory !== entry.name ? 0.4 : 1} />
                             ))}
