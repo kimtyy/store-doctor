@@ -247,8 +247,8 @@ export default function MenuAnalyticsPage() {
                 <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
               ) : (
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                  <ResponsiveContainer width="100%" height={240}>
-                    <PieChart>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart margin={{ top: 10, bottom: 0, left: 0, right: 0 }}>
                       <Pie
                         data={pieData}
                         dataKey="value"
@@ -256,10 +256,6 @@ export default function MenuAnalyticsPage() {
                         cx="50%"
                         cy="50%"
                         outerRadius={90}
-                        label={({ name, percent }) =>
-                          percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ''
-                        }
-                        labelLine={false}
                       >
                         {pieData.map((entry, index) => (
                           <Cell key={index} fill={entry.color} />
