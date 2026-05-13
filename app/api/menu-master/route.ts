@@ -106,14 +106,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'items 배열이 필요합니다.' }, { status: 400 });
     }
 
-    const rows = (body.items as { menuName: string; category: string; aliases: string[] }[]).map(
-      (item) => ({
-        store_id: STORE_ID,
-        menu_name: item.menuName,
-        category: item.category || null,
-        aliases: item.aliases ?? [],
-      })
-    );
+    // Deduplicate by menu_name — keep last occurrence to avoid ON CONFLICT affecting same row twice
+    const seen = new Map<string, { menuName: string; category: string; aliases: string[] }>();
+    for (const item of body.items as { menuName: string; category: string; aliases: string[] }[]) {
+      if (item.menuName?.trim()) seen.set(item.menuName.trim(), item);
+    }
+
+    const rows = Array.from(seen.values()).map((item) => ({
+      store_id: STORE_ID,
+      menu_name: item.menuName.trim(),
+      category: item.category || null,
+      aliases: item.aliases ?? [],
+    }));
 
     const { error } = await supabase
       .from('menu_master')
