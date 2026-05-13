@@ -106,13 +106,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `기존 메뉴 삭제 실패: ${deleteError.message}` }, { status: 500 });
     }
 
+    // 기존에 지정된 카테고리 자동 적용 (학습 기능)
+    const uncategorizedNames = menuItems
+      .filter((i) => !i.category)
+      .map((i) => i.name)
+      .filter(Boolean);
+
+    const categoryLookup: Record<string, string> = {};
+    if (uncategorizedNames.length > 0) {
+      const { data: catRows } = await supabase
+        .from('sales_menu_items')
+        .select('name, category')
+        .in('name', uncategorizedNames)
+        .not('category', 'is', null)
+        .limit(uncategorizedNames.length * 10);
+
+      for (const row of catRows ?? []) {
+        if (row.category && !categoryLookup[row.name]) {
+          categoryLookup[row.name] = row.category as string;
+        }
+      }
+    }
+
     // 수정된 메뉴 항목 삽입
     const rows = menuItems.map((item) => ({
       daily_sale_id: salesId,
       name: item.name,
       quantity: item.quantity,
       amount: item.amount,
-      category: item.category ?? null,
+      category: item.category ?? categoryLookup[item.name] ?? null,
       menu_id: item.menuId ?? null,
     }));
 

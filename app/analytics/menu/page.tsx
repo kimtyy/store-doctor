@@ -24,12 +24,29 @@ interface AnalyticsData {
 
 type Period = '7' | '30' | 'all';
 
-const PIE_COLORS = ['#38bdf8', '#818cf8', '#34d399', '#fb923c', '#f472b6', '#94a3b8'];
-
 const PERIOD_LABELS: Record<Period, string> = {
   '7': '최근 7일',
   '30': '최근 30일',
   all: '전체',
+};
+
+const CATEGORIES = ['주류', '음료', '안주', '식사'] as const;
+type Category = (typeof CATEGORIES)[number];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  주류: '#818cf8',
+  음료: '#38bdf8',
+  안주: '#fb923c',
+  식사: '#34d399',
+  미지정: '#475569',
+};
+
+const CATEGORY_BG: Record<string, string> = {
+  주류: 'bg-indigo-900/60 text-indigo-300',
+  음료: 'bg-sky-900/60 text-sky-300',
+  안주: 'bg-amber-900/60 text-amber-300',
+  식사: 'bg-emerald-900/60 text-emerald-300',
+  미지정: 'bg-slate-800 text-slate-500',
 };
 
 function formatAmount(n: number) {
@@ -38,11 +55,23 @@ function formatAmount(n: number) {
     : n.toLocaleString();
 }
 
+function CategoryBadge({ category }: { category: string | null }) {
+  const label = category ?? '미지정';
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${CATEGORY_BG[label] ?? 'bg-slate-800 text-slate-400'}`}>
+      {label}
+    </span>
+  );
+}
+
 export default function MenuAnalyticsPage() {
   const [period, setPeriod] = useState<Period>('30');
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null } | null>(null);
+  const [updatingCategory, setUpdatingCategory] = useState(false);
 
   const fetchData = useCallback(async (p: Period) => {
     setLoading(true);
@@ -63,27 +92,46 @@ export default function MenuAnalyticsPage() {
     fetchData(period);
   }, [period, fetchData]);
 
+  async function handleCategorySelect(category: Category | null) {
+    if (!editingMenu || updatingCategory) return;
+    setUpdatingCategory(true);
+    try {
+      const res = await fetch('/api/analytics/menu', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menuName: editingMenu.name, category: category ?? '' }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? '업데이트 실패');
+      setEditingMenu(null);
+      await fetchData(period);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '오류가 발생했습니다.');
+    } finally {
+      setUpdatingCategory(false);
+    }
+  }
+
   const topByAmount = data?.byAmount.slice(0, 10) ?? [];
   const topByQuantity = data?.byQuantity.slice(0, 10) ?? [];
   const maxAmount = topByAmount[0]?.totalAmount ?? 1;
   const maxQuantity = topByQuantity[0]?.totalQuantity ?? 1;
 
-  // Pie: top 5 + 기타
+  // Pie: use fixed category colors; group unknowns into 기타
   const pieData = (() => {
     if (!data?.categoryStats.length) return [];
-    const top5 = data.categoryStats.slice(0, 5);
-    const rest = data.categoryStats.slice(5);
-    const result = top5.map((s) => ({ name: s.category, value: s.totalAmount }));
-    if (rest.length > 0) {
-      result.push({ name: '기타', value: rest.reduce((acc, s) => acc + s.totalAmount, 0) });
-    }
-    return result;
+    return data.categoryStats.map((s) => ({
+      name: s.category,
+      value: s.totalAmount,
+      color: CATEGORY_COLORS[s.category] ?? '#94a3b8',
+    }));
   })();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-24">
       <div className="mx-auto max-w-2xl px-4 pt-8">
-        <h1 className="text-xl font-bold text-slate-100 mb-6">메뉴 분석</h1>
+        <h1 className="text-xl font-bold text-slate-100 mb-1">메뉴 분석</h1>
+        <p className="text-xs text-slate-500 mb-6">메뉴를 탭하면 카테고리를 지정할 수 있습니다.</p>
 
         {/* Period tabs */}
         <div className="flex gap-2 mb-6">
@@ -126,12 +174,17 @@ export default function MenuAnalyticsPage() {
               ) : (
                 <div className="space-y-2">
                   {topByAmount.map((item, i) => (
-                    <div key={item.name} className="flex items-center gap-3">
+                    <button
+                      key={item.name}
+                      onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                      className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                    >
                       <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                          <span className="text-sm font-medium text-sky-400 ml-2 shrink-0">
+                          <CategoryBadge category={item.category} />
+                          <span className="text-sm font-medium text-sky-400 ml-auto shrink-0">
                             {item.totalAmount.toLocaleString()}원
                           </span>
                         </div>
@@ -142,7 +195,7 @@ export default function MenuAnalyticsPage() {
                           />
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -158,12 +211,17 @@ export default function MenuAnalyticsPage() {
               ) : (
                 <div className="space-y-2">
                   {topByQuantity.map((item, i) => (
-                    <div key={item.name} className="flex items-center gap-3">
+                    <button
+                      key={item.name}
+                      onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                      className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                    >
                       <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                          <span className="text-sm font-medium text-emerald-400 ml-2 shrink-0">
+                          <CategoryBadge category={item.category} />
+                          <span className="text-sm font-medium text-emerald-400 ml-auto shrink-0">
                             {item.totalQuantity}개
                           </span>
                         </div>
@@ -174,7 +232,7 @@ export default function MenuAnalyticsPage() {
                           />
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -199,12 +257,12 @@ export default function MenuAnalyticsPage() {
                         cy="50%"
                         outerRadius={90}
                         label={({ name, percent }) =>
-                          `${name} ${(percent * 100).toFixed(0)}%`
+                          percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ''
                         }
                         labelLine={false}
                       >
-                        {pieData.map((_, index) => (
-                          <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        {pieData.map((entry, index) => (
+                          <Cell key={index} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip
@@ -221,14 +279,13 @@ export default function MenuAnalyticsPage() {
                     </PieChart>
                   </ResponsiveContainer>
 
-                  {/* Category list */}
                   <div className="mt-3 space-y-1.5">
-                    {data.categoryStats.map((s, i) => (
+                    {data.categoryStats.map((s) => (
                       <div key={s.category} className="flex items-center justify-between text-sm">
                         <div className="flex items-center gap-2">
                           <span
                             className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
+                            style={{ background: CATEGORY_COLORS[s.category] ?? '#94a3b8' }}
                           />
                           <span className="text-slate-300">{s.category}</span>
                         </div>
@@ -242,6 +299,64 @@ export default function MenuAnalyticsPage() {
           </>
         )}
       </div>
+
+      {/* Category edit popup */}
+      {editingMenu && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => !updatingCategory && setEditingMenu(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-t-3xl bg-slate-900 border-t border-slate-700 p-6 pb-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4">
+              <p className="text-xs text-slate-500 mb-1">카테고리 지정</p>
+              <p className="text-base font-semibold text-slate-100 truncate">{editingMenu.name}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  disabled={updatingCategory}
+                  onClick={() => handleCategorySelect(cat)}
+                  className={`py-3 rounded-2xl text-sm font-semibold transition ${
+                    editingMenu.current === cat
+                      ? 'ring-2 ring-offset-2 ring-offset-slate-900'
+                      : ''
+                  } ${
+                    cat === '주류'
+                      ? 'bg-indigo-900/80 text-indigo-200 ring-indigo-500'
+                      : cat === '음료'
+                      ? 'bg-sky-900/80 text-sky-200 ring-sky-500'
+                      : cat === '안주'
+                      ? 'bg-amber-900/80 text-amber-200 ring-amber-500'
+                      : 'bg-emerald-900/80 text-emerald-200 ring-emerald-500'
+                  } disabled:opacity-50`}
+                >
+                  {updatingCategory && editingMenu.current !== cat ? cat : cat}
+                  {editingMenu.current === cat && ' ✓'}
+                </button>
+              ))}
+            </div>
+
+            {editingMenu.current && (
+              <button
+                disabled={updatingCategory}
+                onClick={() => handleCategorySelect(null)}
+                className="w-full py-2.5 rounded-2xl text-sm text-slate-400 bg-slate-800 hover:bg-slate-700 transition disabled:opacity-50"
+              >
+                미지정으로 초기화
+              </button>
+            )}
+
+            {updatingCategory && (
+              <p className="text-center text-xs text-slate-500 mt-3 animate-pulse">저장 중...</p>
+            )}
+          </div>
+        </div>
+      )}
 
       <BottomTabNav />
     </div>
