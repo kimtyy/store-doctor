@@ -138,6 +138,7 @@ export async function POST(request: Request) {
       });
       const menuItems = menu.menuItems.map((item: SalesMenuItem) => ({
         daily_sale_id: salesId,
+        store_id: tempStoreId,
         name: item.name,
         quantity: item.quantity,
         amount: item.amount,
@@ -147,7 +148,8 @@ export async function POST(request: Request) {
 
       const { data: insertedMenuItems, error: menuError } = await supabase
         .from('sales_menu_items')
-        .insert(menuItems) as { data: any; error: any };
+        .insert(menuItems)
+        .select() as { data: any; error: any };
 
       if (menuError) {
         console.error('❌ 메뉴 항목 저장 실패:', {

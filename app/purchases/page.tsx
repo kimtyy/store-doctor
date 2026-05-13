@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purchase';
 
 const categoryOptions: PurchaseCategory[] = [
@@ -48,10 +48,47 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+async function savePurchase(record: PurchaseRecord & { note?: string }): Promise<void> {
+  const response = await fetch('/api/purchases/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      vendorName: record.vendorName,
+      date: record.date,
+      totalAmount: record.totalAmount,
+      taxAmount: record.taxAmount,
+      netAmount: record.netAmount,
+      category: record.category,
+      items: record.items,
+      inputMethod: record.inputMethod,
+      note: record.note,
+    }),
+  });
+
+  const responseText = await response.text();
+  if (!responseText || responseText.trim() === '') {
+    throw new Error('서버로부터 빈 응답을 받았습니다.');
+  }
+
+  const body = JSON.parse(responseText);
+  if (!response.ok) {
+    throw new Error(body.error || `서버 오류 (${response.status})`);
+  }
+  if (!body.success) {
+    throw new Error('저장 결과를 확인할 수 없습니다.');
+  }
+}
+
 export default function PurchasesInputPage() {
   const [activeTab, setActiveTab] = useState<'photo' | 'manual'>('photo');
+
+  // 사진 탭
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<PurchaseRecord | null>(null);
+  const [loadingParse, setLoadingParse] = useState(false);
+  const [savingPhoto, setSavingPhoto] = useState(false);
+
+  // 수동 탭
   const [manualRecord, setManualRecord] = useState<PurchaseRecord>({
     date: new Date().toISOString().split('T')[0],
     vendorName: '',
@@ -63,8 +100,13 @@ export default function PurchasesInputPage() {
     inputMethod: 'manual',
   });
   const [note, setNote] = useState('');
+  const [savingManual, setSavingManual] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  const camerInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const totalAmount = useMemo(
     () => manualRecord.items.reduce((sum, item) => sum + item.amount, 0),
@@ -99,7 +141,8 @@ export default function PurchasesInputPage() {
       return;
     }
     setError(null);
-    setLoading(true);
+    setSaveSuccess(null);
+    setLoadingParse(true);
 
     try {
       const dataUrl = await fileToDataUrl(receiptFile);
@@ -116,7 +159,64 @@ export default function PurchasesInputPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
-      setLoading(false);
+      setLoadingParse(false);
+    }
+  }
+
+  async function handleSavePhoto() {
+    if (!parseResult) {
+      setError('저장할 매입 데이터가 없습니다.');
+      return;
+    }
+    setError(null);
+    setSaveSuccess(null);
+    setSavingPhoto(true);
+
+    try {
+      await savePurchase({ ...parseResult, inputMethod: 'receipt_photo' });
+      setSaveSuccess('✅ 저장 완료!');
+      setParseResult(null);
+      setReceiptFile(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+    } finally {
+      setSavingPhoto(false);
+    }
+  }
+
+  async function handleSaveManual() {
+    if (!manualRecord.vendorName) {
+      setError('구매처를 입력해주세요.');
+      return;
+    }
+    setError(null);
+    setSaveSuccess(null);
+    setSavingManual(true);
+
+    try {
+      await savePurchase({
+        ...manualRecord,
+        totalAmount,
+        netAmount: totalAmount,
+        note,
+        inputMethod: 'manual',
+      });
+      setSaveSuccess('✅ 저장 완료!');
+      setManualRecord({
+        date: new Date().toISOString().split('T')[0],
+        vendorName: '',
+        totalAmount: 0,
+        taxAmount: 0,
+        netAmount: 0,
+        category: 'food_ingredients',
+        items: [],
+        inputMethod: 'manual',
+      });
+      setNote('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+    } finally {
+      setSavingManual(false);
     }
   }
 
@@ -130,6 +230,10 @@ export default function PurchasesInputPage() {
 
         {error ? (
           <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>
+        ) : null}
+
+        {saveSuccess ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{saveSuccess}</div>
         ) : null}
 
         {/* 탭 */}
@@ -157,35 +261,74 @@ export default function PurchasesInputPage() {
         {activeTab === 'photo' ? (
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
             <h2 className="text-lg font-semibold">영수증 사진</h2>
+
+            {/* 숨김 파일 입력 */}
             <input
+              ref={camerInputRef}
               type="file"
               accept="image/*"
               capture="environment"
-              onChange={(event) => setReceiptFile(event.target.files?.[0] ?? null)}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-4 text-sm text-slate-100"
+              className="hidden"
+              onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
             />
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+            />
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => camerInputRef.current?.click()}
+                className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
+              >
+                📷 사진 찍기
+              </button>
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
+              >
+                🖼️ 갤러리에서 선택
+              </button>
+            </div>
+            {receiptFile ? (
+              <p className="text-xs text-slate-400 truncate">선택됨: {receiptFile.name}</p>
+            ) : null}
+
             <button
               type="button"
               onClick={handlePurchaseParse}
-              disabled={loading || !receiptFile}
+              disabled={loadingParse || !receiptFile}
               className="w-full rounded-2xl bg-rose-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? '파싱 중...' : '영수증 파싱하기'}
+              {loadingParse ? '파싱 중...' : '영수증 파싱하기'}
             </button>
-            
+
             {parseResult ? (
-              <div className="mt-4 rounded-2xl bg-slate-950/80 p-5 space-y-3">
+              <div className="rounded-2xl bg-slate-950/80 p-5 space-y-3">
                 <p className="text-xs font-medium text-slate-400">파싱 결과</p>
                 <p className="font-medium text-slate-100">{parseResult.vendorName}</p>
                 <p className="text-2xl font-bold text-emerald-400">{parseResult.totalAmount.toLocaleString()}원</p>
                 <p className="text-xs text-slate-400">카테고리: {categoryLabels[parseResult.category]}</p>
+                <button
+                  type="button"
+                  onClick={handleSavePhoto}
+                  disabled={savingPhoto}
+                  className="w-full rounded-2xl bg-slate-800 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingPhoto ? '저장 중...' : '저장하기'}
+                </button>
               </div>
             ) : null}
           </div>
         ) : (
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
             <h2 className="text-lg font-semibold">빠른 수동 입력</h2>
-            
+
             {/* 기본 정보 */}
             <div className="space-y-3">
               <div>
@@ -308,9 +451,11 @@ export default function PurchasesInputPage() {
 
             <button
               type="button"
-              className="w-full rounded-2xl bg-slate-800 px-6 py-4 text-base font-semibold text-slate-100 transition hover:bg-slate-700"
+              onClick={handleSaveManual}
+              disabled={savingManual || !manualRecord.vendorName}
+              className="w-full rounded-2xl bg-slate-800 px-6 py-4 text-base font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              저장하기
+              {savingManual ? '저장 중...' : '저장하기'}
             </button>
           </div>
         )}
