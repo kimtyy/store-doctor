@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purchase';
 import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
@@ -66,8 +66,40 @@ async function savePurchase(record: EditablePurchase & { note?: string }): Promi
   if (!body.success) throw new Error('저장 결과를 확인할 수 없습니다.');
 }
 
+interface PurchaseHistoryRecord {
+  id: string;
+  date: string;
+  vendor_name: string;
+  total_amount: number;
+  category: string;
+  note: string | null;
+}
+
 export default function PurchasesInputPage() {
-  const [activeTab, setActiveTab] = useState<'photo' | 'manual'>('photo');
+  const [activeTab, setActiveTab] = useState<'photo' | 'manual' | 'history'>('photo');
+
+  const [historyList, setHistoryList] = useState<PurchaseHistoryRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch('/api/purchases');
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
+      setHistoryList(json.data ?? []);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : '오류가 발생했습니다.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history') fetchHistory();
+  }, [activeTab, fetchHistory]);
 
   // 사진 탭
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -294,7 +326,7 @@ export default function PurchasesInputPage() {
             <button
               type="button"
               onClick={() => setActiveTab('photo')}
-              className={`flex-1 rounded-xl py-3 text-base font-semibold transition ${
+              className={`flex-1 rounded-xl py-3 text-sm font-semibold transition ${
                 activeTab === 'photo' ? 'bg-slate-800 text-white' : 'bg-transparent text-slate-400'
               }`}
             >
@@ -303,15 +335,79 @@ export default function PurchasesInputPage() {
             <button
               type="button"
               onClick={() => setActiveTab('manual')}
-              className={`flex-1 rounded-xl py-3 text-base font-semibold transition ${
+              className={`flex-1 rounded-xl py-3 text-sm font-semibold transition ${
                 activeTab === 'manual' ? 'bg-slate-800 text-white' : 'bg-transparent text-slate-400'
               }`}
             >
-              ✏️  수동
+              ✏️ 수동
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              className={`flex-1 rounded-xl py-3 text-sm font-semibold transition ${
+                activeTab === 'history' ? 'bg-slate-800 text-white' : 'bg-transparent text-slate-400'
+              }`}
+            >
+              📋 내역
             </button>
           </div>
 
-          {activeTab === 'photo' ? (
+          {activeTab === 'history' ? (
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">매입 내역</h2>
+                <button
+                  type="button"
+                  onClick={fetchHistory}
+                  disabled={historyLoading}
+                  className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40"
+                >
+                  새로고침
+                </button>
+              </div>
+
+              {historyLoading && (
+                <p className="text-sm text-slate-400 animate-pulse text-center py-6">불러오는 중...</p>
+              )}
+
+              {historyError && (
+                <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+                  {historyError}
+                </div>
+              )}
+
+              {!historyLoading && !historyError && historyList.length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-8">저장된 매입 내역이 없습니다.</p>
+              )}
+
+              {!historyLoading && !historyError && historyList.length > 0 && (
+                <div className="space-y-2">
+                  {historyList.map((record) => (
+                    <div
+                      key={record.id}
+                      className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-slate-500">{record.date}</span>
+                        <span className="text-sm font-semibold text-emerald-400">
+                          {record.total_amount.toLocaleString()}원
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-200 truncate mr-2">{record.vendor_name}</span>
+                        <span className="shrink-0 rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-400">
+                          {categoryLabels[record.category as PurchaseCategory] ?? record.category}
+                        </span>
+                      </div>
+                      {record.note ? (
+                        <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'photo' ? (
             <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
               <h2 className="text-lg font-semibold">영수증 사진</h2>
 

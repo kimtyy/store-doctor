@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import BottomTabNav from '../../../components/BottomTabNav';
 
+// ── types ────────────────────────────────────────────────────────────────────
+
 interface MenuStat {
   name: string;
   totalAmount: number;
@@ -16,13 +18,23 @@ interface CategoryStat {
   totalAmount: number;
 }
 
-interface AnalyticsData {
+interface MenuAnalyticsData {
   byAmount: MenuStat[];
   byQuantity: MenuStat[];
   categoryStats: CategoryStat[];
 }
 
+interface PurchaseAnalyticsData {
+  totalPurchase: number;
+  totalRevenue: number;
+  costRatioPercent: number;
+  categoryStats: CategoryStat[];
+}
+
+// ── constants ────────────────────────────────────────────────────────────────
+
 type Period = '7' | '30' | 'all';
+type Section = 'menu' | 'purchase';
 
 const PERIOD_LABELS: Record<Period, string> = {
   '7': '최근 7일',
@@ -30,10 +42,10 @@ const PERIOD_LABELS: Record<Period, string> = {
   all: '전체',
 };
 
-const CATEGORIES = ['주류', '음료', '안주', '식사'] as const;
-type Category = (typeof CATEGORIES)[number];
+const MENU_CATEGORIES = ['주류', '음료', '안주', '식사'] as const;
+type MenuCategory = (typeof MENU_CATEGORIES)[number];
 
-const CATEGORY_COLORS: Record<string, string> = {
+const MENU_CAT_COLORS: Record<string, string> = {
   주류: '#818cf8',
   음료: '#38bdf8',
   안주: '#fb923c',
@@ -41,7 +53,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   미지정: '#475569',
 };
 
-const CATEGORY_BG: Record<string, string> = {
+const MENU_CAT_BG: Record<string, string> = {
   주류: 'bg-indigo-900/60 text-indigo-300',
   음료: 'bg-sky-900/60 text-sky-300',
   안주: 'bg-amber-900/60 text-amber-300',
@@ -49,50 +61,112 @@ const CATEGORY_BG: Record<string, string> = {
   미지정: 'bg-slate-800 text-slate-500',
 };
 
+const PURCHASE_CAT_COLORS: Record<string, string> = {
+  food_ingredients: '#34d399',
+  alcohol: '#818cf8',
+  consumables: '#fb923c',
+  labor: '#f472b6',
+  rent: '#a78bfa',
+  electricity: '#facc15',
+  gas: '#f97316',
+  water: '#60a5fa',
+  telecom: '#2dd4bf',
+  pos_fee: '#e879f9',
+  insurance: '#4ade80',
+  other: '#64748b',
+};
+
+const PURCHASE_CAT_LABELS: Record<string, string> = {
+  food_ingredients: '식자재',
+  alcohol: '주류',
+  consumables: '소모품',
+  labor: '인건비',
+  rent: '임대료',
+  electricity: '전기요금',
+  gas: '가스요금',
+  water: '수도요금',
+  telecom: '통신비',
+  pos_fee: 'POS 사용료',
+  insurance: '보험료',
+  other: '기타',
+};
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
 function formatAmount(n: number) {
-  return n >= 10000
-    ? `${Math.round(n / 1000).toLocaleString()}천`
-    : n.toLocaleString();
+  if (n >= 10000000) return `${(n / 10000000).toFixed(1)}천만`;
+  if (n >= 10000) return `${Math.round(n / 10000).toLocaleString()}만`;
+  return n.toLocaleString();
 }
 
 function CategoryBadge({ category }: { category: string | null }) {
   const label = category ?? '미지정';
   return (
-    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${CATEGORY_BG[label] ?? 'bg-slate-800 text-slate-400'}`}>
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${MENU_CAT_BG[label] ?? 'bg-slate-800 text-slate-400'}`}>
       {label}
     </span>
   );
 }
 
-export default function MenuAnalyticsPage() {
-  const [period, setPeriod] = useState<Period>('30');
-  const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+const PERIODS: Period[] = ['7', '30', 'all'];
 
+// ── main component ───────────────────────────────────────────────────────────
+
+export default function AnalyticsPage() {
+  const [section, setSection] = useState<Section>('menu');
+
+  // menu analytics state
+  const [menuPeriod, setMenuPeriod] = useState<Period>('30');
+  const [menuData, setMenuData] = useState<MenuAnalyticsData | null>(null);
+  const [menuLoading, setMenuLoading] = useState(true);
+  const [menuError, setMenuError] = useState<string | null>(null);
+
+  // purchase analytics state
+  const [purchasePeriod, setPurchasePeriod] = useState<Period>('30');
+  const [purchaseData, setPurchaseData] = useState<PurchaseAnalyticsData | null>(null);
+  const [purchaseLoading, setPurchaseLoading] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+
+  // category edit popup state
   const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null } | null>(null);
   const [updatingCategory, setUpdatingCategory] = useState(false);
 
-  const fetchData = useCallback(async (p: Period) => {
-    setLoading(true);
-    setError(null);
+  const fetchMenuData = useCallback(async (p: Period) => {
+    setMenuLoading(true);
+    setMenuError(null);
     try {
       const res = await fetch(`/api/analytics/menu?period=${p}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
-      setData(json);
+      setMenuData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '오류가 발생했습니다.');
+      setMenuError(e instanceof Error ? e.message : '오류가 발생했습니다.');
     } finally {
-      setLoading(false);
+      setMenuLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchData(period);
-  }, [period, fetchData]);
+  const fetchPurchaseData = useCallback(async (p: Period) => {
+    setPurchaseLoading(true);
+    setPurchaseError(null);
+    try {
+      const res = await fetch(`/api/analytics/purchases?period=${p}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
+      setPurchaseData(json);
+    } catch (e) {
+      setPurchaseError(e instanceof Error ? e.message : '오류가 발생했습니다.');
+    } finally {
+      setPurchaseLoading(false);
+    }
+  }, []);
 
-  async function handleCategorySelect(category: Category | null) {
+  useEffect(() => { fetchMenuData(menuPeriod); }, [menuPeriod, fetchMenuData]);
+  useEffect(() => {
+    if (section === 'purchase') fetchPurchaseData(purchasePeriod);
+  }, [section, purchasePeriod, fetchPurchaseData]);
+
+  async function handleCategorySelect(category: MenuCategory | null) {
     if (!editingMenu || updatingCategory) return;
     setUpdatingCategory(true);
     try {
@@ -104,7 +178,7 @@ export default function MenuAnalyticsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '업데이트 실패');
       setEditingMenu(null);
-      await fetchData(period);
+      await fetchMenuData(menuPeriod);
     } catch (e) {
       alert(e instanceof Error ? e.message : '오류가 발생했습니다.');
     } finally {
@@ -112,186 +186,283 @@ export default function MenuAnalyticsPage() {
     }
   }
 
-  const topByAmount = data?.byAmount.slice(0, 10) ?? [];
-  const topByQuantity = data?.byQuantity.slice(0, 10) ?? [];
+  // menu chart data
+  const topByAmount = menuData?.byAmount.slice(0, 10) ?? [];
+  const topByQuantity = menuData?.byQuantity.slice(0, 10) ?? [];
   const maxAmount = topByAmount[0]?.totalAmount ?? 1;
   const maxQuantity = topByQuantity[0]?.totalQuantity ?? 1;
 
-  // Pie: use fixed category colors; group unknowns into 기타
-  const pieData = (() => {
-    if (!data?.categoryStats.length) return [];
-    return data.categoryStats.map((s) => ({
-      name: s.category,
-      value: s.totalAmount,
-      color: CATEGORY_COLORS[s.category] ?? '#94a3b8',
-    }));
-  })();
+  const menuPieData = (menuData?.categoryStats ?? []).map((s) => ({
+    name: s.category,
+    value: s.totalAmount,
+    color: MENU_CAT_COLORS[s.category] ?? '#94a3b8',
+  }));
+
+  // purchase chart data
+  const purchasePieData = (purchaseData?.categoryStats ?? []).map((s) => ({
+    name: PURCHASE_CAT_LABELS[s.category] ?? s.category,
+    value: s.totalAmount,
+    color: PURCHASE_CAT_COLORS[s.category] ?? '#94a3b8',
+  }));
+
+  const costRatio = purchaseData?.costRatioPercent ?? 0;
+  const costRatioColor =
+    costRatio < 30 ? 'text-emerald-400' : costRatio < 55 ? 'text-amber-400' : 'text-rose-400';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-24">
       <div className="mx-auto max-w-2xl px-4 pt-8">
-        <h1 className="text-xl font-bold text-slate-100 mb-1">메뉴 분석</h1>
-        <p className="text-xs text-slate-500 mb-6">메뉴를 탭하면 카테고리를 지정할 수 있습니다.</p>
+        <h1 className="text-xl font-bold text-slate-100 mb-5">분석</h1>
 
-        {/* Period tabs */}
-        <div className="flex gap-2 mb-6">
-          {(['7', '30', 'all'] as Period[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition ${
-                period === p
-                  ? 'bg-sky-500 text-slate-950'
-                  : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {PERIOD_LABELS[p]}
-            </button>
-          ))}
+        {/* Section tabs */}
+        <div className="flex gap-1 rounded-2xl bg-slate-900/80 p-1.5 mb-6">
+          <button
+            onClick={() => setSection('menu')}
+            className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition ${
+              section === 'menu' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            🍽️ 메뉴 분석
+          </button>
+          <button
+            onClick={() => setSection('purchase')}
+            className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition ${
+              section === 'purchase' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            📦 매입 분석
+          </button>
         </div>
 
-        {loading && (
-          <div className="flex items-center justify-center py-20">
-            <div className="text-slate-400 text-sm animate-pulse">불러오는 중...</div>
-          </div>
-        )}
-
-        {error && (
-          <div className="rounded-2xl border border-red-800 bg-red-950/40 p-4 text-red-400 text-sm">
-            {error}
-          </div>
-        )}
-
-        {!loading && !error && data && (
+        {/* ── MENU ANALYTICS ─────────────────────────────────────────────── */}
+        {section === 'menu' && (
           <>
-            {/* Sales ranking */}
-            <section className="mb-8">
-              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                매출 랭킹
-              </h2>
-              {topByAmount.length === 0 ? (
-                <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
-              ) : (
-                <div className="space-y-2">
-                  {topByAmount.map((item, i) => (
-                    <button
-                      key={item.name}
-                      onClick={() => setEditingMenu({ name: item.name, current: item.category })}
-                      className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
-                    >
-                      <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                          <CategoryBadge category={item.category} />
-                          <span className="text-sm font-medium text-sky-400 ml-auto shrink-0">
-                            {item.totalAmount.toLocaleString()}원
-                          </span>
-                        </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-sky-500 rounded-full"
-                            style={{ width: `${(item.totalAmount / maxAmount) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
+            <p className="text-xs text-slate-500 mb-4">메뉴를 탭하면 카테고리를 지정할 수 있습니다.</p>
+            <div className="flex gap-2 mb-6">
+              {PERIODS.map((tab) => (
+                <button key={tab} onClick={() => setMenuPeriod(tab)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${menuPeriod === tab ? 'bg-sky-500 text-slate-950' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+                  {PERIOD_LABELS[tab]}
+                </button>
+              ))}
+            </div>
 
-            {/* Quantity ranking */}
-            <section className="mb-8">
-              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                판매 수량 랭킹
-              </h2>
-              {topByQuantity.length === 0 ? (
-                <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
-              ) : (
-                <div className="space-y-2">
-                  {topByQuantity.map((item, i) => (
-                    <button
-                      key={item.name}
-                      onClick={() => setEditingMenu({ name: item.name, current: item.category })}
-                      className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
-                    >
-                      <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                          <CategoryBadge category={item.category} />
-                          <span className="text-sm font-medium text-emerald-400 ml-auto shrink-0">
-                            {item.totalQuantity}개
-                          </span>
-                        </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-emerald-500 rounded-full"
-                            style={{ width: `${(item.totalQuantity / maxQuantity) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
+            {menuLoading && (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-slate-400 text-sm animate-pulse">불러오는 중...</div>
+              </div>
+            )}
+            {menuError && (
+              <div className="rounded-2xl border border-red-800 bg-red-950/40 p-4 text-red-400 text-sm">{menuError}</div>
+            )}
 
-            {/* Category pie chart */}
-            <section className="mb-8">
-              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                카테고리 비율
-              </h2>
-              {pieData.length === 0 ? (
-                <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
-              ) : (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <PieChart margin={{ top: 10, bottom: 0, left: 0, right: 0 }}>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={90}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={index} fill={entry.color} />
+            {!menuLoading && !menuError && menuData && (
+              <>
+                {/* Sales ranking */}
+                <section className="mb-8">
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">매출 랭킹</h2>
+                  {topByAmount.length === 0 ? (
+                    <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {topByAmount.map((item, i) => (
+                        <button
+                          key={item.name}
+                          onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                          className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                        >
+                          <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm text-slate-200 truncate">{item.name}</span>
+                              <CategoryBadge category={item.category} />
+                              <span className="text-sm font-medium text-sky-400 ml-auto shrink-0">
+                                {item.totalAmount.toLocaleString()}원
+                              </span>
+                            </div>
+                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-full bg-sky-500 rounded-full" style={{ width: `${(item.totalAmount / maxAmount) * 100}%` }} />
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* Quantity ranking */}
+                <section className="mb-8">
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">판매 수량 랭킹</h2>
+                  {topByQuantity.length === 0 ? (
+                    <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {topByQuantity.map((item, i) => (
+                        <button
+                          key={item.name}
+                          onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                          className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                        >
+                          <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm text-slate-200 truncate">{item.name}</span>
+                              <CategoryBadge category={item.category} />
+                              <span className="text-sm font-medium text-emerald-400 ml-auto shrink-0">
+                                {item.totalQuantity}개
+                              </span>
+                            </div>
+                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(item.totalQuantity / maxQuantity) * 100}%` }} />
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* Category pie */}
+                <section className="mb-8">
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">카테고리 비율</h2>
+                  {menuPieData.length === 0 ? (
+                    <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart margin={{ top: 10, bottom: 0, left: 0, right: 0 }}>
+                          <Pie data={menuPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}>
+                            {menuPieData.map((entry, index) => (
+                              <Cell key={index} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: number) => [`${value.toLocaleString()}원`, '매출']}
+                            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                            labelStyle={{ color: '#94a3b8' }}
+                            itemStyle={{ color: '#e2e8f0' }}
+                          />
+                          <Legend formatter={(value) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{value}</span>} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-3 space-y-1.5">
+                        {menuData.categoryStats.map((s) => (
+                          <div key={s.category} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: MENU_CAT_COLORS[s.category] ?? '#94a3b8' }} />
+                              <span className="text-slate-300">{s.category}</span>
+                            </div>
+                            <span className="text-slate-400">{formatAmount(s.totalAmount)}원</span>
+                          </div>
                         ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value: number) => [`${value.toLocaleString()}원`, '매출']}
-                        contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                        labelStyle={{ color: '#94a3b8' }}
-                        itemStyle={{ color: '#e2e8f0' }}
-                      />
-                      <Legend
-                        formatter={(value) => (
-                          <span style={{ color: '#94a3b8', fontSize: 12 }}>{value}</span>
-                        )}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-
-                  <div className="mt-3 space-y-1.5">
-                    {data.categoryStats.map((s) => (
-                      <div key={s.category} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ background: CATEGORY_COLORS[s.category] ?? '#94a3b8' }}
-                          />
-                          <span className="text-slate-300">{s.category}</span>
-                        </div>
-                        <span className="text-slate-400">{formatAmount(s.totalAmount)}원</span>
                       </div>
-                    ))}
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── PURCHASE ANALYTICS ─────────────────────────────────────────── */}
+        {section === 'purchase' && (
+          <>
+            <div className="flex gap-2 mb-6">
+              {PERIODS.map((tab) => (
+                <button key={tab} onClick={() => setPurchasePeriod(tab)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${purchasePeriod === tab ? 'bg-sky-500 text-slate-950' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+                  {PERIOD_LABELS[tab]}
+                </button>
+              ))}
+            </div>
+
+            {purchaseLoading && (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-slate-400 text-sm animate-pulse">불러오는 중...</div>
+              </div>
+            )}
+            {purchaseError && (
+              <div className="rounded-2xl border border-red-800 bg-red-950/40 p-4 text-red-400 text-sm">{purchaseError}</div>
+            )}
+
+            {!purchaseLoading && !purchaseError && purchaseData && (
+              <>
+                {/* Summary cards */}
+                <section className="mb-6">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                      <p className="text-xs text-slate-500 mb-1">기간 총 매입</p>
+                      <p className="text-lg font-bold text-rose-400">
+                        {formatAmount(purchaseData.totalPurchase)}원
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                      <p className="text-xs text-slate-500 mb-1">매출 대비 원가율</p>
+                      <p className={`text-lg font-bold ${costRatioColor}`}>
+                        {purchaseData.totalRevenue > 0
+                          ? `${costRatio.toFixed(1)}%`
+                          : '—'}
+                      </p>
+                      {purchaseData.totalRevenue > 0 && (
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          매출 {formatAmount(purchaseData.totalRevenue)}원
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </section>
+                </section>
+
+                {/* Category pie */}
+                <section className="mb-8">
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">카테고리별 매입</h2>
+                  {purchasePieData.length === 0 ? (
+                    <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart margin={{ top: 10, bottom: 0, left: 0, right: 0 }}>
+                          <Pie data={purchasePieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}>
+                            {purchasePieData.map((entry, index) => (
+                              <Cell key={index} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: number) => [`${value.toLocaleString()}원`, '매입']}
+                            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+                            labelStyle={{ color: '#94a3b8' }}
+                            itemStyle={{ color: '#e2e8f0' }}
+                          />
+                          <Legend formatter={(value) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{value}</span>} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-3 space-y-1.5">
+                        {purchaseData.categoryStats.map((s) => (
+                          <div key={s.category} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ background: PURCHASE_CAT_COLORS[s.category] ?? '#94a3b8' }}
+                              />
+                              <span className="text-slate-300">
+                                {PURCHASE_CAT_LABELS[s.category] ?? s.category}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-slate-400">{formatAmount(s.totalAmount)}원</span>
+                              {purchaseData.totalPurchase > 0 && (
+                                <span className="text-xs text-slate-600 ml-2">
+                                  {((s.totalAmount / purchaseData.totalPurchase) * 100).toFixed(0)}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
           </>
         )}
       </div>
@@ -312,27 +483,21 @@ export default function MenuAnalyticsPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-4">
-              {CATEGORIES.map((cat) => (
+              {MENU_CATEGORIES.map((cat) => (
                 <button
                   key={cat}
                   disabled={updatingCategory}
                   onClick={() => handleCategorySelect(cat)}
-                  className={`py-3 rounded-2xl text-sm font-semibold transition ${
-                    editingMenu.current === cat
-                      ? 'ring-2 ring-offset-2 ring-offset-slate-900'
-                      : ''
+                  className={`py-3 rounded-2xl text-sm font-semibold transition disabled:opacity-50 ${
+                    editingMenu.current === cat ? 'ring-2 ring-offset-2 ring-offset-slate-900' : ''
                   } ${
-                    cat === '주류'
-                      ? 'bg-indigo-900/80 text-indigo-200 ring-indigo-500'
-                      : cat === '음료'
-                      ? 'bg-sky-900/80 text-sky-200 ring-sky-500'
-                      : cat === '안주'
-                      ? 'bg-amber-900/80 text-amber-200 ring-amber-500'
-                      : 'bg-emerald-900/80 text-emerald-200 ring-emerald-500'
-                  } disabled:opacity-50`}
+                    cat === '주류' ? 'bg-indigo-900/80 text-indigo-200 ring-indigo-500'
+                    : cat === '음료' ? 'bg-sky-900/80 text-sky-200 ring-sky-500'
+                    : cat === '안주' ? 'bg-amber-900/80 text-amber-200 ring-amber-500'
+                    : 'bg-emerald-900/80 text-emerald-200 ring-emerald-500'
+                  }`}
                 >
-                  {updatingCategory && editingMenu.current !== cat ? cat : cat}
-                  {editingMenu.current === cat && ' ✓'}
+                  {cat}{editingMenu.current === cat ? ' ✓' : ''}
                 </button>
               ))}
             </div>
