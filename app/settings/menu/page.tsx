@@ -60,6 +60,7 @@ export default function MenuMasterPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,6 +152,21 @@ export default function MenuMasterPage() {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '저장 실패' });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function syncExisting() {
+    setSyncing(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/menu-master/sync', { method: 'POST' });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? '동기화 실패');
+      setMessage({ type: 'success', text: body.message ?? '동기화 완료' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '동기화 실패' });
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -352,6 +368,15 @@ export default function MenuMasterPage() {
             className="w-full rounded-2xl bg-sky-500 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? '저장 중...' : dirtyCount > 0 ? `일괄 저장 (${dirtyCount}개 변경)` : '변경 사항 없음'}
+          </button>
+
+          {/* 기존 데이터 동기화 */}
+          <button
+            onClick={syncExisting}
+            disabled={syncing}
+            className="w-full rounded-2xl border border-slate-700 bg-transparent py-4 text-sm font-semibold text-slate-400 transition hover:border-emerald-600 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {syncing ? '동기화 중...' : '기존 데이터 동기화'}
           </button>
 
         </div>
