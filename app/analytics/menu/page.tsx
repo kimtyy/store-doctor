@@ -188,13 +188,21 @@ export default function AnalyticsPage() {
     if (!editingMenu || updatingCategory) return;
     setUpdatingCategory(true);
     try {
-      const res = await fetch('/api/analytics/menu', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menuName: editingMenu.name, category: category ?? '' }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? '업데이트 실패');
+      // Update sales_menu_items (existing records) + menu_master (future OCR saves) in parallel
+      const [salesRes] = await Promise.all([
+        fetch('/api/analytics/menu', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ menuName: editingMenu.name, category: category ?? '' }),
+        }),
+        fetch('/api/menu-master', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ menuName: editingMenu.name, category: category ?? '' }),
+        }),
+      ]);
+      const json = await salesRes.json();
+      if (!salesRes.ok) throw new Error(json.error ?? '업데이트 실패');
       setEditingMenu(null);
       await fetchMenuData(menuPeriod);
     } catch (e) {

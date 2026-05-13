@@ -153,6 +153,44 @@ export async function PUT(request: Request) {
   }
 }
 
+// PATCH /api/menu-master — update category only (preserves aliases)
+// Body: { menuName, category }
+export async function PATCH(request: Request) {
+  try {
+    const supabase = makeClient();
+    const body = await request.json().catch(() => null);
+    if (!body?.menuName) {
+      return NextResponse.json({ error: 'menuName이 필요합니다.' }, { status: 400 });
+    }
+
+    const menuName = String(body.menuName).trim();
+    const category = body.category || null;
+
+    // Try to update existing entry — preserves aliases unchanged
+    const { data: updated, error: updateError } = await supabase
+      .from('menu_master')
+      .update({ category })
+      .eq('store_id', STORE_ID)
+      .eq('menu_name', menuName)
+      .select('id');
+
+    if (updateError) throw new Error(updateError.message);
+
+    // If no row existed, insert a new one with empty aliases
+    if (!updated || updated.length === 0) {
+      const { error: insertError } = await supabase
+        .from('menu_master')
+        .insert({ store_id: STORE_ID, menu_name: menuName, category, aliases: [] });
+      if (insertError) throw new Error(insertError.message);
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '알 수 없는 오류';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
 // DELETE /api/menu-master?id=xxx — delete one entry
 export async function DELETE(request: Request) {
   try {
