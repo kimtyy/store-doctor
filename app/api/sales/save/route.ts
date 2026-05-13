@@ -102,14 +102,56 @@ export async function POST(request: Request) {
 
     // 메뉴 항목 저장
     if (menu?.menuItems && menu.menuItems.length > 0) {
-      const menuItems = menu.menuItems.map((item: SalesMenuItem) => ({
-        daily_sale_id: salesId,
-        name: item.name,
-        quantity: item.quantity,
-        amount: item.amount,
-        category: item.category ?? null,
-        menu_id: item.menuId ?? null,
-      }));
+      // menu_master에서 정식명 + 카테고리 매핑
+      const { data: masterRows } = await supabase
+        .from('menu_master')
+        .select('menu_name, category, aliases')
+        .eq('store_id', STORE_ID);
+
+      const masterByName: Record<string, { category: string | null }> = {};
+      const masterByAlias: Record<string, { canonicalName: string; category: string | null }> = {};
+      for (const m of masterRows ?? []) {
+        masterByName[m.menu_name] = { category: m.category };
+        for (const alias of m.aliases ?? []) {
+          masterByAlias[alias] = { canonicalName: m.menu_name, category: m.category };
+        }
+      }
+
+      // sales_menu_items 기존 카테고리 학습 (fallback)
+      const rawNames = (menu.menuItems as SalesMenuItem[]).map((i) => i.name).filter(Boolean);
+      const categoryFallback: Record<string, string> = {};
+      if (rawNames.length > 0) {
+        const { data: catRows } = await supabase
+          .from('sales_menu_items')
+          .select('name, category')
+          .in('name', rawNames)
+          .not('category', 'is', null)
+          .limit(rawNames.length * 10);
+        for (const row of catRows ?? []) {
+          if (row.category && !categoryFallback[row.name]) {
+            categoryFallback[row.name] = row.category as string;
+          }
+        }
+      }
+
+      const menuItems = (menu.menuItems as SalesMenuItem[]).map((item) => {
+        const aliasMatch = masterByAlias[item.name];
+        const canonicalName = aliasMatch ? aliasMatch.canonicalName : item.name;
+        const masterEntry = aliasMatch ?? masterByName[canonicalName];
+        const resolvedCategory =
+          item.category ||
+          (masterEntry?.category ?? null) ||
+          categoryFallback[canonicalName] ||
+          null;
+        return {
+          daily_sale_id: salesId,
+          name: canonicalName,
+          quantity: item.quantity,
+          amount: item.amount,
+          category: resolvedCategory,
+          menu_id: item.menuId ?? null,
+        };
+      });
 
       const { error: menuError } = await supabase
         .from('sales_menu_items')

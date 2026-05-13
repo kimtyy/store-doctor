@@ -106,37 +106,57 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `기존 메뉴 삭제 실패: ${deleteError.message}` }, { status: 500 });
     }
 
-    // 기존에 지정된 카테고리 자동 적용 (학습 기능)
-    const uncategorizedNames = menuItems
-      .filter((i) => !i.category)
-      .map((i) => i.name)
-      .filter(Boolean);
+    // menu_master에서 정식명 + 카테고리 매핑 구성
+    const { data: masterRows } = await supabase
+      .from('menu_master')
+      .select('menu_name, category, aliases')
+      .eq('store_id', STORE_ID);
 
-    const categoryLookup: Record<string, string> = {};
-    if (uncategorizedNames.length > 0) {
+    const masterByName: Record<string, { category: string | null }> = {};
+    const masterByAlias: Record<string, { canonicalName: string; category: string | null }> = {};
+    for (const m of masterRows ?? []) {
+      masterByName[m.menu_name] = { category: m.category };
+      for (const alias of m.aliases ?? []) {
+        masterByAlias[alias] = { canonicalName: m.menu_name, category: m.category };
+      }
+    }
+
+    // sales_menu_items 기존 카테고리 학습 (fallback)
+    const allNames = menuItems.map((i) => i.name).filter(Boolean);
+    const categoryFallback: Record<string, string> = {};
+    if (allNames.length > 0) {
       const { data: catRows } = await supabase
         .from('sales_menu_items')
         .select('name, category')
-        .in('name', uncategorizedNames)
+        .in('name', allNames)
         .not('category', 'is', null)
-        .limit(uncategorizedNames.length * 10);
-
+        .limit(allNames.length * 10);
       for (const row of catRows ?? []) {
-        if (row.category && !categoryLookup[row.name]) {
-          categoryLookup[row.name] = row.category as string;
+        if (row.category && !categoryFallback[row.name]) {
+          categoryFallback[row.name] = row.category as string;
         }
       }
     }
 
-    // 수정된 메뉴 항목 삽입
-    const rows = menuItems.map((item) => ({
-      daily_sale_id: salesId,
-      name: item.name,
-      quantity: item.quantity,
-      amount: item.amount,
-      category: item.category ?? categoryLookup[item.name] ?? null,
-      menu_id: item.menuId ?? null,
-    }));
+    // 수정된 메뉴 항목 삽입 (alias 정규화 + 카테고리 적용)
+    const rows = menuItems.map((item) => {
+      const aliasMatch = masterByAlias[item.name];
+      const canonicalName = aliasMatch ? aliasMatch.canonicalName : item.name;
+      const masterEntry = aliasMatch ?? masterByName[canonicalName];
+      const resolvedCategory =
+        item.category ||
+        (masterEntry?.category ?? null) ||
+        categoryFallback[canonicalName] ||
+        null;
+      return {
+        daily_sale_id: salesId,
+        name: canonicalName,
+        quantity: item.quantity,
+        amount: item.amount,
+        category: resolvedCategory,
+        menu_id: item.menuId ?? null,
+      };
+    });
 
     const { error: insertError } = await supabase.from('sales_menu_items').insert(rows);
 
