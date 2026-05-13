@@ -30,6 +30,8 @@ export default function SalesInputPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
   const [loadingMenu, setLoadingMenu] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   async function handleReceiptParse() {
     if (!receiptFile) {
@@ -129,6 +131,60 @@ export default function SalesInputPage() {
     }
   }
 
+  async function handleSave() {
+    if (!result.receipt) {
+      setError('저장할 매출 데이터가 없습니다.');
+      return;
+    }
+
+    setError(null);
+    setSaveSuccess(null);
+    setSaving(true);
+
+    try {
+      const response = await fetch('/api/sales/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receipt: result.receipt, menu: result.menu }),
+      });
+
+      // 응답이 비어있는지 먼저 확인
+      const responseText = await response.text();
+
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
+      }
+
+      let body;
+      try {
+        body = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON 파싱 에러:', parseError, '응답 텍스트:', responseText);
+        throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
+      }
+
+      if (!response.ok) {
+        const errorMessage = body.error || `서버 오류 (${response.status})`;
+        throw new Error(errorMessage);
+      }
+
+      if (body.success) {
+        setSaveSuccess(body.message || '✅ 저장 완료!');
+        // 저장 성공 후 결과 초기화 (선택사항)
+        // setResult({});
+        // setReceiptFile(null);
+        // setMenuFile(null);
+      } else {
+        throw new Error('저장 결과를 확인할 수 없습니다.');
+      }
+    } catch (err) {
+      console.error('Save error:', err);
+      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-6 pb-32">
       <div className="max-w-2xl space-y-6">
@@ -139,6 +195,10 @@ export default function SalesInputPage() {
 
         {error ? (
           <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>
+        ) : null}
+
+        {saveSuccess ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{saveSuccess}</div>
         ) : null}
 
         {/* 정산서 입력 */}
@@ -231,9 +291,11 @@ export default function SalesInputPage() {
 
             <button
               type="button"
-              className="mt-4 w-full rounded-2xl bg-slate-800 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
+              onClick={handleSave}
+              disabled={saving || !result.receipt}
+              className="mt-4 w-full rounded-2xl bg-slate-800 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              저장하기
+              {saving ? '저장 중...' : '저장하기'}
             </button>
           </div>
         ) : null}
