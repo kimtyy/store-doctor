@@ -9,24 +9,22 @@ interface SalesMenuItem {
   menuId?: string;
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// mock 모드 확인 (SUPABASE_SERVICE_ROLE_KEY가 없으면 mock 모드)
-const useMockSave = !supabaseServiceKey || supabaseServiceKey.trim() === '';
-
-// Service role key로 Supabase 클라이언트 생성 (RLS 우회)
-const supabase = !useMockSave ? createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-}) : null;
+const supabase = supabaseUrl && supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
+  : null;
 
 export async function POST(request: Request) {
   try {
     console.log('=== 매출 저장 API 시작 ===');
-    console.log('🔧 저장 모드:', useMockSave ? 'MOCK' : 'REAL');
+    console.log('🔧 저장 모드: REAL');
     
     const payload = await request.json().catch(() => null);
 
@@ -40,6 +38,7 @@ export async function POST(request: Request) {
     console.log('📥 받은 payload:', {
       hasReceipt: !!payload.receipt,
       hasMenu: !!payload.menu,
+      menuItemCount: Array.isArray(payload.menu?.menuItems) ? payload.menu.menuItems.length : 0,
       receiptDate: payload.receipt?.date,
       receiptRevenue: payload.receipt?.totalRevenue
     });
@@ -51,22 +50,6 @@ export async function POST(request: Request) {
       return NextResponse.json({
         error: '매출 데이터가 필요합니다.'
       }, { status: 400 });
-    }
-
-    // Mock 모드에서 저장
-    if (useMockSave) {
-      console.log('💾 MOCK 모드로 저장...');
-      const mockSalesId = '550e8400-e29b-41d4-a716-446655440000';
-      return NextResponse.json({
-        success: true,
-        message: '✅ 저장 완료! (테스트 모드)',
-        data: {
-          salesId: mockSalesId,
-          date: receipt.date,
-          totalRevenue: receipt.totalRevenue,
-          mode: 'mock'
-        }
-      });
     }
 
     // 환경 변수 확인
@@ -82,7 +65,6 @@ export async function POST(request: Request) {
 
     console.log('🔄 데이터베이스 저장 시작...', { storeId: tempStoreId });
 
-    // 트랜잭션으로 데이터 저장
     const { data: salesData, error: salesError } = await supabase
       .from('daily_sales')
       .insert({
@@ -116,15 +98,14 @@ export async function POST(request: Request) {
         details: salesError.details,
         hint: salesError.hint
       });
-      
-      // 상세한 Supabase 에러 메시지 반환
+
       let errorMsg = salesError.message;
       if (salesError.code === '23503') {
         errorMsg = '❌ 매장 ID가 잘못되었습니다. (FK 제약 조건) - Supabase에 stores 테이블 데이터를 추가해주세요.';
       } else if (salesError.code === '23505') {
         errorMsg = '❌ 같은 날짜의 매출이 이미 존재합니다.';
       }
-      
+
       return NextResponse.json({
         error: errorMsg,
         supabaseError: {
@@ -136,35 +117,61 @@ export async function POST(request: Request) {
       }, { status: 500 });
     }
 
-    console.log('✅ 매출 데이터 저장 성공:', { salesId: salesData?.id });
+    const salesId = salesData?.id;
+    if (!salesId) {
+      console.error('❌ 저장된 매출 ID를 찾을 수 없습니다.');
+      return NextResponse.json({
+        error: '저장된 매출 ID를 찾을 수 없습니다. 다시 시도해주세요.'
+      }, { status: 500 });
+    }
+
+    console.log('✅ 매출 데이터 저장 성공:', { salesId });
 
     // 메뉴 항목들 저장 (있는 경우)
     if (menu?.menuItems && menu.menuItems.length > 0) {
-      console.log(`🔄 메뉴 항목 ${menu.menuItems.length}개 저장 시작...`);
+      console.log(`🔄 메뉴 항목 ${menu.menuItems.length}개 저장 시작...`, {
+        sampleMenuItems: menu.menuItems.slice(0, 5).map((item: SalesMenuItem) => ({
+          name: item.name,
+          quantity: item.quantity,
+          amount: item.amount
+        }))
+      });
       const menuItems = menu.menuItems.map((item: SalesMenuItem) => ({
-        daily_sale_id: salesData.id,
+        daily_sale_id: salesId,
         name: item.name,
         quantity: item.quantity,
         amount: item.amount,
-        category: item.category || null,
-        menu_id: item.menuId || null
+        category: item.category ?? null,
+        menu_id: item.menuId ?? null
       }));
 
-      const { error: menuError } = await supabase
+      const { data: insertedMenuItems, error: menuError } = await supabase
         .from('sales_menu_items')
-        .insert(menuItems);
+        .insert(menuItems) as { data: any; error: any };
 
       if (menuError) {
         console.error('❌ 메뉴 항목 저장 실패:', {
           code: menuError.code,
           message: menuError.message,
-          details: menuError.details
+          details: menuError.details,
+          hint: menuError.hint
         });
-        // 메뉴 저장 실패해도 기본 매출 데이터는 유지
-        console.warn('⚠️ 메뉴 항목 저장에 실패했지만 매출 데이터는 저장되었습니다.');
-      } else {
-        console.log(`✅ 메뉴 항목 ${menu.menuItems.length}개 저장 성공`);
+        return NextResponse.json({
+          error: '메뉴 항목 저장에 실패했습니다.',
+          supabaseError: {
+            code: menuError.code,
+            message: menuError.message,
+            details: menuError.details,
+            hint: menuError.hint
+          }
+        }, { status: 500 });
       }
+
+      const insertedCount = Array.isArray(insertedMenuItems)
+        ? insertedMenuItems.length
+        : menu.menuItems.length;
+
+      console.log(`✅ 메뉴 항목 ${insertedCount}개 저장 성공`);
     }
 
     console.log('✅ 매출 저장 완료!');
