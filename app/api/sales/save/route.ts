@@ -77,10 +77,10 @@ export async function POST(request: Request) {
       }, { status: 500 });
     }
 
-    // 임시 store_id (나중에 실제 사용자 인증으로 변경)
-    const tempStoreId = '550e8400-e29b-41d4-a716-446655440000';
+    // 고정 매장 ID 사용
+    const tempStoreId = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
 
-    console.log('🔄 데이터베이스 저장 시작...');
+    console.log('🔄 데이터베이스 저장 시작...', { storeId: tempStoreId });
 
     // 트랜잭션으로 데이터 저장
     const { data: salesData, error: salesError } = await supabase
