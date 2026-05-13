@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purchase';
 import CameraModal from '../../components/ui/CameraModal';
 
@@ -107,8 +107,6 @@ export default function PurchasesInputPage() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   const [purchaseCameraOpen, setPurchaseCameraOpen] = useState(false);
-  const purchaseFallbackRef = useRef<HTMLInputElement>(null);
-  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const totalAmount = useMemo(
     () => manualRecord.items.reduce((sum, item) => sum + item.amount, 0),
@@ -228,12 +226,16 @@ export default function PurchasesInputPage() {
         isOpen={purchaseCameraOpen}
         onCapture={(file) => setReceiptFile(file)}
         onClose={() => setPurchaseCameraOpen(false)}
-        onFallback={() => purchaseFallbackRef.current?.click()}
+        galleryInputId="purchase-gallery-input"
       />
-      <input ref={purchaseFallbackRef} type="file" accept="image/*" capture="environment" className="hidden"
-        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
-      <input ref={galleryInputRef} type="file" accept="image/*" className="hidden"
-        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
+      {/* 갤러리 input — label/htmlFor 로 트리거 */}
+      <input
+        id="purchase-gallery-input"
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+      />
 
       <div className="max-w-2xl space-y-6">
         <div>
@@ -283,13 +285,12 @@ export default function PurchasesInputPage() {
               >
                 📷 사진 찍기
               </button>
-              <button
-                type="button"
-                onClick={() => galleryInputRef.current?.click()}
-                className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
+              <label
+                htmlFor="purchase-gallery-input"
+                className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition text-center cursor-pointer"
               >
                 🖼️ 갤러리에서 선택
-              </button>
+              </label>
             </div>
             {receiptFile ? (
               <p className="text-xs text-slate-400 truncate">선택됨: {receiptFile.name}</p>

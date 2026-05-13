@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   }
 
   const prompt = `한국 식당 매입 영수증 이미지를 JSON으로 추출해주세요: date, vendorName, totalAmount, taxAmount, netAmount, category, items(name, quantity, unitPrice, amount).`;
-  const raw = await callClaudeVision(prompt);
+  const raw = await callClaudeVision(prompt, images ?? (imageUrl ? [imageUrl] : undefined));
   const parsed = parsePurchaseResponse(raw);
 
   return NextResponse.json({ data: parsed });

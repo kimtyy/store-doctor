@@ -69,12 +69,17 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
 
     // 이미지가 제공된 경우 추가
     if (images && images.length > 0) {
+      const dataUrl = images[0];
+      const mediaTypeMatch = dataUrl.match(/^data:(image\/[^;]+);base64,/);
+      const mediaType = (mediaTypeMatch?.[1] ?? 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      const base64Data = dataUrl.replace(/^data:image\/[^;]+;base64,/, '');
+
       messages[0].content.push({
         type: 'image',
         source: {
           type: 'base64',
-          media_type: 'image/jpeg',
-          data: images[0].replace(/^data:image\/[^;]+;base64,/, '') // data URL에서 base64 부분만 추출
+          media_type: mediaType,
+          data: base64Data,
         }
       } as any);
     }

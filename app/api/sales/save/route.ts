@@ -138,7 +138,6 @@ export async function POST(request: Request) {
       });
       const menuItems = menu.menuItems.map((item: SalesMenuItem) => ({
         daily_sale_id: salesId,
-        store_id: tempStoreId,
         name: item.name,
         quantity: item.quantity,
         amount: item.amount,
