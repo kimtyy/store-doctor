@@ -13,6 +13,8 @@ function mapRow(row: Record<string, unknown>) {
     totalRevenue: row.total_revenue,
     discount: row.discount ?? 0,
     serviceCharge: row.service_charge ?? 0,
+    serviceAmount: row.service_amount ?? row.service_charge ?? 0,
+    actualSales: row.actual_sales ?? row.total_revenue ?? 0,
     tax: row.tax ?? 0,
     netRevenue: row.net_revenue,
     cashCount: row.cash_count ?? 0,

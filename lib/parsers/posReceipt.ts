@@ -4,11 +4,16 @@ import { parseClaudeJson } from '../claude';
 export function parsePosReceiptResponse(rawText: string): DailySales {
   const parsed = parseClaudeJson<Record<string, unknown>>(rawText);
 
+  const totalRevenue = Number(parsed.totalRevenue ?? 0);
+  const serviceAmount = Number(parsed.serviceAmount ?? parsed.serviceCharge ?? 0);
+
   return {
     date: String(parsed.date ?? ''),
-    totalRevenue: Number(parsed.totalRevenue ?? 0),
+    totalRevenue,
     discount: Number(parsed.discount ?? 0),
-    serviceCharge: Number(parsed.serviceCharge ?? 0),
+    serviceCharge: serviceAmount,
+    serviceAmount,
+    actualSales: Number(parsed.actualSales ?? (totalRevenue - serviceAmount)),
     tax: Number(parsed.tax ?? 0),
     netRevenue: Number(parsed.netRevenue ?? 0),
     cashCount: Number(parsed.cashCount ?? 0),

@@ -15,6 +15,8 @@ export interface DailySales {
   totalRevenue: number;
   discount: number;
   serviceCharge: number;
+  serviceAmount: number;
+  actualSales: number;
   tax: number;
   netRevenue: number;
   cashCount: number;

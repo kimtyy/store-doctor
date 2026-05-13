@@ -29,6 +29,8 @@ export function generateMockDailySalesData(days: number = 120): DailySales[] {
       totalRevenue: revenue,
       discount: 0,
       serviceCharge: 0,
+      serviceAmount: 0,
+      actualSales: revenue,
       tax,
       netRevenue,
       cashCount: Math.floor(Math.random() * 5) + 3,

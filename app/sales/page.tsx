@@ -84,6 +84,8 @@ export default function SalesInputPage() {
         totalRevenue: parsed.totalRevenue ?? 0,
         discount: parsed.discount ?? 0,
         serviceCharge: parsed.serviceCharge ?? 0,
+        serviceAmount: parsed.serviceAmount ?? parsed.serviceCharge ?? 0,
+        actualSales: parsed.actualSales ?? ((parsed.totalRevenue ?? 0) - (parsed.serviceAmount ?? parsed.serviceCharge ?? 0)),
         tax: parsed.tax ?? 0,
         netRevenue: parsed.netRevenue ?? 0,
         cashCount: parsed.cashCount ?? 0,
@@ -320,6 +322,24 @@ export default function SalesInputPage() {
                       type="number"
                       value={editableReceipt.totalRevenue}
                       onChange={(e) => setEditableReceipt((c) => c ? { ...c, totalRevenue: Number(e.target.value) } : c)}
+                      className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-sm text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400">서비스금액</label>
+                    <input
+                      type="number"
+                      value={editableReceipt.serviceAmount ?? 0}
+                      onChange={(e) => setEditableReceipt((c) => c ? { ...c, serviceAmount: Number(e.target.value) } : c)}
+                      className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-sm text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400">매출금액</label>
+                    <input
+                      type="number"
+                      value={editableReceipt.actualSales ?? 0}
+                      onChange={(e) => setEditableReceipt((c) => c ? { ...c, actualSales: Number(e.target.value) } : c)}
                       className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-sm text-slate-100"
                     />
                   </div>

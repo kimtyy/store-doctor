@@ -155,6 +155,9 @@ export default function DashboardPage() {
                               })}
                             </p>
                             <p className="mt-1 text-sm text-slate-400">매출 {(dayRevenue / 10000).toFixed(0)}만원</p>
+                            {(day.serviceAmount ?? 0) > 0 && (
+                              <p className="mt-0.5 text-xs text-slate-600">서비스 {((day.serviceAmount ?? 0) / 10000).toFixed(1)}만원</p>
+                            )}
                           </div>
                           <div className="text-right">
                             <p className={`text-lg font-bold ${dayProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>

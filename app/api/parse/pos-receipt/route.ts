@@ -27,10 +27,12 @@ export async function POST(request: Request) {
   "storeName": "매장명",
   "date": "2026-05-11",
   "totalRevenue": 224500,
+  "serviceAmount": 29800,
+  "actualSales": 194700,
   "discount": 0,
-  "serviceCharge": 0,
-  "tax": 20407,
-  "netRevenue": 204093,
+  "serviceCharge": 29800,
+  "tax": 17700,
+  "netRevenue": 177000,
   "cashCount": 5,
   "cashAmount": 131800,
   "cardCount": 1,
@@ -46,11 +48,20 @@ export async function POST(request: Request) {
   ]
 }
 
+필드 설명:
+- totalRevenue: 총매출금액 (영수증에서 "총매출금액" 또는 "매출합계" 항목)
+- serviceAmount: 서비스금액 (무료로 제공된 서비스 금액, 없으면 0)
+- actualSales: 매출금액 = 총매출금액 - 서비스금액 (영수증에 "매출금액"으로 표시)
+- tax: 부가세
+- netRevenue: 순매출금액 = 매출금액 - 부가세
+
 주의사항:
 - 모든 금액은 숫자로만 입력 (쉼표 제거)
 - 시간은 HH:MM 형식
 - 날짜는 YYYY-MM-DD 형식
-- menuItems는 정산서에 있는 메뉴들만 포함`;
+- 부가세는 절대 자동 계산하지 말고 영수증에 명시된 값만 사용
+- menuItems는 정산서에 있는 메뉴들만 포함 (없으면 빈 배열)
+- 서비스금액이 없으면 serviceAmount: 0, actualSales = totalRevenue`;
 
     const raw = await callClaudeVision(prompt, images);
 
