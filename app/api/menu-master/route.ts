@@ -12,10 +12,22 @@ function makeClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+// Normalize for comparison: trim edges + collapse internal whitespace
+function norm(s: string): string {
+  return s.trim().replace(/\s+/g, ' ');
+}
+
 // GET /api/menu-master — all menu_master rows + distinct menu names from sales_menu_items
 export async function GET() {
   try {
     const supabase = makeClient();
+
+    const salesIdsRes = await supabase
+      .from('daily_sales')
+      .select('id')
+      .eq('store_id', STORE_ID);
+
+    const salesIds = salesIdsRes.data?.map((r) => r.id) ?? [];
 
     const [masterRes, salesNamesRes] = await Promise.all([
       supabase
@@ -23,35 +35,44 @@ export async function GET() {
         .select('id, menu_name, category, aliases, created_at')
         .eq('store_id', STORE_ID)
         .order('menu_name'),
-      supabase
-        .from('sales_menu_items')
-        .select('name, category')
-        .in(
-          'daily_sale_id',
-          (
-            await supabase.from('daily_sales').select('id').eq('store_id', STORE_ID)
-          ).data?.map((r) => r.id) ?? []
-        ),
+      salesIds.length > 0
+        ? supabase.from('sales_menu_items').select('name, category').in('daily_sale_id', salesIds)
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     if (masterRes.error) throw new Error(masterRes.error.message);
 
-    // Aggregate distinct names from sales_menu_items
-    const nameMap: Record<string, string | null> = {};
-    for (const row of salesNamesRes.data ?? []) {
-      if (!(row.name in nameMap)) {
-        nameMap[row.name] = row.category ?? null;
-      }
-      // prefer non-null category
-      if (row.category && !nameMap[row.name]) {
-        nameMap[row.name] = row.category;
+    // Build exclusion set from menu_master: normalized menu_name + all aliases
+    const excluded = new Set<string>();
+    for (const m of masterRes.data ?? []) {
+      excluded.add(norm(m.menu_name));
+      for (const alias of m.aliases ?? []) {
+        excluded.add(norm(alias));
       }
     }
 
-    const masterNames = new Set((masterRes.data ?? []).map((r) => r.menu_name));
-    const unmapped = Object.entries(nameMap)
-      .filter(([name]) => !masterNames.has(name))
-      .map(([name, category]) => ({ name, category }));
+    // Aggregate distinct names from sales_menu_items, keyed by normalized name
+    // but preserve the original name for display
+    const normToOriginal: Record<string, string> = {};
+    const normToCategory: Record<string, string | null> = {};
+
+    for (const row of salesNamesRes.data ?? []) {
+      if (!row.name?.trim()) continue;
+      const key = norm(row.name);
+      if (!(key in normToOriginal)) {
+        normToOriginal[key] = row.name;
+        normToCategory[key] = row.category ?? null;
+      }
+      // prefer non-null category
+      if (row.category && !normToCategory[key]) {
+        normToCategory[key] = row.category;
+      }
+    }
+
+    // Only return names not already covered by menu_master (name or alias)
+    const unmapped = Object.keys(normToOriginal)
+      .filter((key) => !excluded.has(key))
+      .map((key) => ({ name: normToOriginal[key], category: normToCategory[key] }));
 
     return NextResponse.json({
       master: masterRes.data ?? [],
