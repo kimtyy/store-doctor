@@ -66,6 +66,13 @@ async function savePurchase(record: EditablePurchase & { note?: string }): Promi
   if (!body.success) throw new Error('저장 결과를 확인할 수 없습니다.');
 }
 
+interface PurchaseHistoryItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
 interface PurchaseHistoryRecord {
   id: string;
   date: string;
@@ -73,6 +80,7 @@ interface PurchaseHistoryRecord {
   total_amount: number;
   category: string;
   note: string | null;
+  items: PurchaseHistoryItem[];
 }
 
 export default function PurchasesInputPage() {
@@ -81,6 +89,9 @@ export default function PurchasesInputPage() {
   const [historyList, setHistoryList] = useState<PurchaseHistoryRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [draftItems, setDraftItems] = useState<Record<string, PurchaseHistoryItem[]>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -100,6 +111,64 @@ export default function PurchasesInputPage() {
   useEffect(() => {
     if (activeTab === 'history') fetchHistory();
   }, [activeTab, fetchHistory]);
+
+  function toggleExpand(record: PurchaseHistoryRecord) {
+    if (expandedId === record.id) {
+      setExpandedId(null);
+    } else {
+      setExpandedId(record.id);
+      if (!draftItems[record.id]) {
+        setDraftItems((prev) => ({ ...prev, [record.id]: record.items.map((i) => ({ ...i })) }));
+      }
+    }
+  }
+
+  function updateDraftItem(recordId: string, idx: number, patch: Partial<PurchaseHistoryItem>) {
+    setDraftItems((prev) => {
+      const items = [...(prev[recordId] ?? [])];
+      items[idx] = { ...items[idx], ...patch };
+      return { ...prev, [recordId]: items };
+    });
+  }
+
+  function deleteDraftItem(recordId: string, idx: number) {
+    setDraftItems((prev) => ({
+      ...prev,
+      [recordId]: (prev[recordId] ?? []).filter((_, i) => i !== idx),
+    }));
+  }
+
+  function addDraftItem(recordId: string) {
+    setDraftItems((prev) => ({
+      ...prev,
+      [recordId]: [...(prev[recordId] ?? []), { name: '', quantity: 1, unitPrice: 0, amount: 0 }],
+    }));
+  }
+
+  async function saveDraftItems(record: PurchaseHistoryRecord) {
+    const items = draftItems[record.id] ?? record.items;
+    const totalAmount = items.reduce((s, i) => s + i.amount, 0) || record.total_amount;
+    setSavingId(record.id);
+    setError(null);
+    try {
+      const res = await fetch('/api/purchases', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: record.id, items, totalAmount }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? '저장 실패');
+      setHistoryList((prev) =>
+        prev.map((r) => (r.id === record.id ? { ...r, items, total_amount: totalAmount } : r))
+      );
+      setSaveSuccess('✅ 품목 수정 완료!');
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '오류가 발생했습니다.');
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   // 사진 탭
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -382,28 +451,121 @@ export default function PurchasesInputPage() {
 
               {!historyLoading && !historyError && historyList.length > 0 && (
                 <div className="space-y-2">
-                  {historyList.map((record) => (
-                    <div
-                      key={record.id}
-                      className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-slate-500">{record.date}</span>
-                        <span className="text-sm font-semibold text-emerald-400">
-                          {record.total_amount.toLocaleString()}원
-                        </span>
+                  {historyList.map((record) => {
+                    const isExpanded = expandedId === record.id;
+                    const draft = draftItems[record.id] ?? record.items;
+                    const itemCount = record.items?.length ?? 0;
+
+                    return (
+                      <div key={record.id} className="rounded-2xl border border-slate-800 bg-slate-950/60">
+                        {/* Header row — tap to expand */}
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(record)}
+                          className="w-full px-4 py-3 text-left"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-slate-500">{record.date}</span>
+                            <span className="text-sm font-semibold text-emerald-400">
+                              {record.total_amount.toLocaleString()}원
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-slate-200 truncate flex-1">{record.vendor_name}</span>
+                            <span className="shrink-0 rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-400">
+                              {categoryLabels[record.category as PurchaseCategory] ?? record.category}
+                            </span>
+                            <span className="shrink-0 text-xs text-slate-500">
+                              {itemCount > 0 ? `${itemCount}개 품목` : '품목 없음'} {isExpanded ? '▲' : '▼'}
+                            </span>
+                          </div>
+                          {record.note ? (
+                            <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
+                          ) : null}
+                        </button>
+
+                        {/* Expanded — item list */}
+                        {isExpanded && (
+                          <div className="border-t border-slate-800 px-4 pb-4 pt-3 space-y-3">
+                            {draft.length === 0 && (
+                              <p className="text-xs text-slate-500 text-center py-2">품목이 없습니다.</p>
+                            )}
+
+                            {draft.map((item, idx) => (
+                              <div key={idx} className="rounded-xl border border-slate-800 bg-slate-900 p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-slate-500">품목 {idx + 1}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteDraftItem(record.id, idx)}
+                                    className="text-xs text-rose-400 hover:text-rose-300"
+                                  >
+                                    삭제
+                                  </button>
+                                </div>
+                                <input
+                                  type="text"
+                                  value={item.name}
+                                  onChange={(e) => updateDraftItem(record.id, idx, { name: e.target.value })}
+                                  placeholder="품목명"
+                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                />
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div>
+                                    <p className="text-xs text-slate-500 mb-1">수량</p>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={item.quantity}
+                                      onChange={(e) => updateDraftItem(record.id, idx, { quantity: Number(e.target.value) })}
+                                      className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-slate-500 mb-1">단가</p>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={item.unitPrice}
+                                      onChange={(e) => updateDraftItem(record.id, idx, { unitPrice: Number(e.target.value) })}
+                                      className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-slate-500 mb-1">금액</p>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={item.amount}
+                                      onChange={(e) => updateDraftItem(record.id, idx, { amount: Number(e.target.value) })}
+                                      className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+
+                            <button
+                              type="button"
+                              onClick={() => addDraftItem(record.id)}
+                              className="w-full rounded-xl border border-dashed border-slate-700 py-2 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 transition"
+                            >
+                              + 품목 추가
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => saveDraftItems(record)}
+                              disabled={savingId === record.id}
+                              className="w-full rounded-2xl bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50 transition"
+                            >
+                              {savingId === record.id ? '저장 중...' : '저장하기'}
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-slate-200 truncate mr-2">{record.vendor_name}</span>
-                        <span className="shrink-0 rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-400">
-                          {categoryLabels[record.category as PurchaseCategory] ?? record.category}
-                        </span>
-                      </div>
-                      {record.note ? (
-                        <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
-                      ) : null}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
