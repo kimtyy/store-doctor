@@ -47,12 +47,33 @@ export default function SalesInputPage() {
         body: JSON.stringify({ images: [dataUrl] }),
       });
 
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(body.error ?? '파싱에 실패했습니다.');
+      // 응답이 비어있는지 먼저 확인
+      const responseText = await response.text();
+
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       }
+
+      let body;
+      try {
+        body = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON 파싱 에러:', parseError, '응답 텍스트:', responseText);
+        throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
+      }
+
+      if (!response.ok) {
+        const errorMessage = body.error || `서버 오류 (${response.status})`;
+        throw new Error(errorMessage);
+      }
+
+      if (!body.data) {
+        throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
+      }
+
       setResult((current) => ({ ...current, receipt: body.data }));
     } catch (err) {
+      console.error('Receipt parsing error:', err);
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setLoadingReceipt(false);
@@ -75,12 +96,33 @@ export default function SalesInputPage() {
         body: JSON.stringify({ images: [dataUrl] }),
       });
 
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(body.error ?? '파싱에 실패했습니다.');
+      // 응답이 비어있는지 먼저 확인
+      const responseText = await response.text();
+
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       }
+
+      let body;
+      try {
+        body = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON 파싱 에러:', parseError, '응답 텍스트:', responseText);
+        throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
+      }
+
+      if (!response.ok) {
+        const errorMessage = body.error || `서버 오류 (${response.status})`;
+        throw new Error(errorMessage);
+      }
+
+      if (!body.data) {
+        throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
+      }
+
       setResult((current) => ({ ...current, menu: body.data }));
     } catch (err) {
+      console.error('Menu parsing error:', err);
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setLoadingMenu(false);
