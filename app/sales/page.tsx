@@ -21,6 +21,8 @@ export default function SalesInputPage() {
   const [editableReceipt, setEditableReceipt] = useState<EditableReceipt | null>(null);
   const [editableMenuItems, setEditableMenuItems] = useState<SalesMenuItem[]>([]);
   const [menuParsed, setMenuParsed] = useState(false);
+  const [menuDate, setMenuDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [savingMenu, setSavingMenu] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
@@ -185,6 +187,37 @@ export default function SalesInputPage() {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveMenuOnly() {
+    if (editableMenuItems.length === 0) {
+      setError('저장할 메뉴 항목이 없습니다.');
+      return;
+    }
+    setError(null);
+    setSaveSuccess(null);
+    setSavingMenu(true);
+
+    try {
+      const response = await fetch('/api/sales/save-menu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: menuDate, menuItems: editableMenuItems }),
+      });
+
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || `서버 오류 (${response.status})`);
+      if (!body?.success) throw new Error('저장 결과를 확인할 수 없습니다.');
+
+      setSaveSuccess(body.message ?? '✅ 메뉴 저장 완료!');
+      setEditableMenuItems([]);
+      setMenuParsed(false);
+      setMenuFile(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+    } finally {
+      setSavingMenu(false);
     }
   }
 
@@ -447,18 +480,38 @@ export default function SalesInputPage() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleSave('✅ 메뉴 저장 완료!')}
-                  disabled={saving || !editableReceipt}
-                  className="w-full rounded-2xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saving
-                    ? '저장 중...'
-                    : !editableReceipt
-                    ? '① 정산서도 파싱해주세요'
-                    : `메뉴 저장하기 (${editableMenuItems.length}개)`}
-                </button>
+                {/* 정산서 없을 때: 날짜 선택 후 메뉴 단독 저장 */}
+                {!editableReceipt ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-slate-400">저장할 날짜</label>
+                      <input
+                        type="date"
+                        value={menuDate}
+                        onChange={(e) => setMenuDate(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-sm text-slate-100"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSaveMenuOnly}
+                      disabled={savingMenu}
+                      className="w-full rounded-2xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {savingMenu ? '저장 중...' : `메뉴 저장하기 (${editableMenuItems.length}개)`}
+                    </button>
+                  </div>
+                ) : (
+                  /* 정산서 있을 때: 정산서+메뉴 통합 저장 */
+                  <button
+                    type="button"
+                    onClick={() => handleSave('✅ 메뉴 저장 완료!')}
+                    disabled={saving}
+                    className="w-full rounded-2xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {saving ? '저장 중...' : `메뉴 저장하기 (${editableMenuItems.length}개)`}
+                  </button>
+                )}
               </div>
             ) : null}
           </div>
