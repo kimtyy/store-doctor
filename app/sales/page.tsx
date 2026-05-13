@@ -3,25 +3,11 @@
 import { useState } from 'react';
 import { DailySales, SalesMenuItem } from '../../types/sales';
 import CameraModal from '../../components/ui/CameraModal';
+import { compressImage } from '../../lib/compressImage';
 
 interface ParseResult {
   receipt?: DailySales;
   menu?: { date?: string; menuItems: SalesMenuItem[] };
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result);
-      } else {
-        reject(new Error('파일을 읽을 수 없습니다.'));
-      }
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 export default function SalesInputPage() {
@@ -46,7 +32,7 @@ export default function SalesInputPage() {
     setLoadingReceipt(true);
 
     try {
-      const dataUrl = await fileToDataUrl(receiptFile);
+      const dataUrl = await compressImage(receiptFile);
       const response = await fetch('/api/parse/pos-receipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,7 +69,7 @@ export default function SalesInputPage() {
     setLoadingMenu(true);
 
     try {
-      const dataUrl = await fileToDataUrl(menuFile);
+      const dataUrl = await compressImage(menuFile);
       const response = await fetch('/api/parse/menu-sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purchase';
 import CameraModal from '../../components/ui/CameraModal';
+import { compressImage } from '../../lib/compressImage';
 
 const categoryOptions: PurchaseCategory[] = [
   'food_ingredients',
@@ -33,21 +34,6 @@ const categoryLabels: Record<PurchaseCategory, string> = {
   insurance: '보험료',
   other: '기타',
 };
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result);
-      } else {
-        reject(new Error('파일을 읽을 수 없습니다.'));
-      }
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
 
 async function savePurchase(record: PurchaseRecord & { note?: string }): Promise<void> {
   const response = await fetch('/api/purchases/save', {
@@ -145,7 +131,7 @@ export default function PurchasesInputPage() {
     setLoadingParse(true);
 
     try {
-      const dataUrl = await fileToDataUrl(receiptFile);
+      const dataUrl = await compressImage(receiptFile);
       const response = await fetch('/api/parse/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
