@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import BottomTabNav from '../../../components/BottomTabNav';
 
@@ -148,6 +148,7 @@ export default function AnalyticsPage() {
   // category edit popup state
   const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null } | null>(null);
   const [updatingCategory, setUpdatingCategory] = useState(false);
+  const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
   const fetchMenuData = useCallback(async (p: Period) => {
     setMenuLoading(true);
@@ -230,6 +231,18 @@ export default function AnalyticsPage() {
     value: s.totalAmount,
     color: PURCHASE_CAT_COLORS[s.category] ?? '#94a3b8',
   }));
+
+  const drillMenus = useMemo(
+    () =>
+      !drillCategory || !menuData
+        ? []
+        : menuData.byAmount.filter((item) => (item.category ?? '미지정') === drillCategory),
+    [drillCategory, menuData]
+  );
+
+  useEffect(() => {
+    if (drillCategory !== null && drillMenus.length === 0) setDrillCategory(null);
+  }, [drillMenus.length, drillCategory]);
 
   const costRatio = purchaseData?.costRatioPercent ?? 0;
   const costRatioColor =
@@ -355,11 +368,13 @@ export default function AnalyticsPage() {
                     <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
                   ) : (
                     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                      <p className="text-xs text-slate-500 mb-3">카테고리 조각을 탭하면 메뉴 목록을 볼 수 있습니다.</p>
                       <ResponsiveContainer width="100%" height={260}>
                         <PieChart margin={{ top: 10, bottom: 0, left: 0, right: 0 }}>
-                          <Pie data={menuPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}>
+                          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                          <Pie data={menuPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} onClick={(data: any) => setDrillCategory(data.name)} style={{ cursor: 'pointer' }}>
                             {menuPieData.map((entry, index) => (
-                              <Cell key={index} fill={entry.color} />
+                              <Cell key={index} fill={entry.color} opacity={drillCategory && drillCategory !== entry.name ? 0.4 : 1} />
                             ))}
                           </Pie>
                           <Tooltip
@@ -371,15 +386,22 @@ export default function AnalyticsPage() {
                           <Legend formatter={(value) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{value}</span>} />
                         </PieChart>
                       </ResponsiveContainer>
-                      <div className="mt-3 space-y-1.5">
+                      <div className="mt-3 space-y-1">
                         {menuData.categoryStats.map((s) => (
-                          <div key={s.category} className="flex items-center justify-between text-sm">
+                          <button
+                            key={s.category}
+                            onClick={() => setDrillCategory(s.category)}
+                            className="w-full flex items-center justify-between text-sm rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition"
+                          >
                             <div className="flex items-center gap-2">
                               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: MENU_CAT_COLORS[s.category] ?? '#94a3b8' }} />
                               <span className="text-slate-300">{s.category}</span>
                             </div>
-                            <span className="text-slate-400">{formatAmount(s.totalAmount)}원</span>
-                          </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400">{formatAmount(s.totalAmount)}원</span>
+                              <span className="text-slate-600 text-xs">›</span>
+                            </div>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -587,6 +609,44 @@ export default function AnalyticsPage() {
           </>
         )}
       </div>
+
+      {/* Category drill-down bottom sheet */}
+      {drillCategory && !editingMenu && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setDrillCategory(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-t-3xl bg-slate-900 border-t border-slate-700 p-6 pb-10 max-h-[75vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ background: MENU_CAT_COLORS[drillCategory] ?? '#94a3b8' }}
+                />
+                <p className="text-base font-semibold text-slate-100">{drillCategory}</p>
+                <span className="text-xs text-slate-500">{drillMenus.length}개</span>
+              </div>
+              <button onClick={() => setDrillCategory(null)} className="text-slate-500 hover:text-slate-300 text-xl leading-none">×</button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">메뉴를 탭하면 카테고리를 변경할 수 있습니다.</p>
+            <div className="overflow-y-auto space-y-1">
+              {drillMenus.map((item: MenuStat) => (
+                <button
+                  key={item.name}
+                  onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                  className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                >
+                  <span className="text-sm text-slate-200 truncate flex-1 mr-3">{item.name}</span>
+                  <span className="text-sm font-medium text-sky-400 shrink-0">{formatAmount(item.totalAmount)}원</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Category edit popup */}
       {editingMenu && (
