@@ -48,56 +48,6 @@ const samplePurchaseResponse = JSON.stringify({
   ]
 });
 
-const anthropicKey = process.env.ANTHROPIC_API_KEY;
-const useMock = !anthropicKey;
-
-const sampleSalesResponse = JSON.stringify({
-  storeName: '설맥(현리점)',
-  date: '2026-05-11',
-  totalRevenue: 224500,
-  discount: 0,
-  serviceCharge: 0,
-  tax: 20407,
-  netRevenue: 204093,
-  cashCount: 5,
-  cashAmount: 131800,
-  cardCount: 1,
-  cardAmount: 92700,
-  tablesUsed: 6,
-  guestCount: 6,
-  avgSpend: 37416,
-  openTime: '18:17',
-  closeTime: '00:03',
-  firstOrderTime: '21:09',
-  menuItems: [
-    { name: '설맥치킨', quantity: 1, amount: 18900 },
-    { name: '손살양념치킨', quantity: 1, amount: 10900 },
-    { name: '고르곤졸라피자', quantity: 1, amount: 13900 }
-  ]
-});
-
-const sampleMenuResponse = JSON.stringify({
-  date: '2026-05-11',
-  menuItems: [
-    { name: '설맥치킨', quantity: 1, amount: 18900 },
-    { name: '손살양념치킨', quantity: 1, amount: 10900 },
-    { name: '고르곤졸라피자', quantity: 1, amount: 13900 }
-  ]
-});
-
-const samplePurchaseResponse = JSON.stringify({
-  date: '2026-05-11',
-  vendorName: '홈플러스',
-  totalAmount: 120000,
-  taxAmount: 10909,
-  netAmount: 109091,
-  category: 'food_ingredients',
-  items: [
-    { name: '냉장육', quantity: 2, unitPrice: 30000, amount: 60000 },
-    { name: '채소', quantity: 1, unitPrice: 20000, amount: 20000 }
-  ]
-});
-
 export async function callClaudeVision(prompt: string, images?: string[]) {
   if (useMock) {
     return mockResponseByPrompt(prompt);
