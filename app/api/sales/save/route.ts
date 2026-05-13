@@ -12,17 +12,22 @@ interface SalesMenuItem {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+// mock 모드 확인 (SUPABASE_SERVICE_ROLE_KEY가 없으면 mock 모드)
+const useMockSave = !supabaseServiceKey || supabaseServiceKey.trim() === '';
+
 // Service role key로 Supabase 클라이언트 생성 (RLS 우회)
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+const supabase = !useMockSave ? createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
   }
-});
+}) : null;
 
 export async function POST(request: Request) {
   try {
     console.log('=== 매출 저장 API 시작 ===');
+    console.log('🔧 저장 모드:', useMockSave ? 'MOCK' : 'REAL');
+    
     const payload = await request.json().catch(() => null);
 
     if (!payload) {
@@ -48,9 +53,25 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
+    // Mock 모드에서 저장
+    if (useMockSave) {
+      console.log('💾 MOCK 모드로 저장...');
+      const mockSalesId = '550e8400-e29b-41d4-a716-446655440000';
+      return NextResponse.json({
+        success: true,
+        message: '✅ 저장 완료! (테스트 모드)',
+        data: {
+          salesId: mockSalesId,
+          date: receipt.date,
+          totalRevenue: receipt.totalRevenue,
+          mode: 'mock'
+        }
+      });
+    }
+
     // 환경 변수 확인
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('❌ 환경 변수 미설정:', { hasUrl: !!supabaseUrl, hasKey: !!supabaseServiceKey });
+    if (!supabaseUrl || !supabase) {
+      console.error('❌ 환경 변수 미설정');
       return NextResponse.json({
         error: '서버 설정 오류: Supabase 환경 변수가 설정되지 않았습니다.'
       }, { status: 500 });
@@ -92,11 +113,26 @@ export async function POST(request: Request) {
       console.error('❌ 매출 데이터 저장 실패:', {
         code: salesError.code,
         message: salesError.message,
-        details: salesError.details
+        details: salesError.details,
+        hint: salesError.hint
       });
+      
+      // 상세한 Supabase 에러 메시지 반환
+      let errorMsg = salesError.message;
+      if (salesError.code === '23503') {
+        errorMsg = '❌ 매장 ID가 잘못되었습니다. (FK 제약 조건) - Supabase에 stores 테이블 데이터를 추가해주세요.';
+      } else if (salesError.code === '23505') {
+        errorMsg = '❌ 같은 날짜의 매출이 이미 존재합니다.';
+      }
+      
       return NextResponse.json({
-        error: `매출 저장 실패: ${salesError.message}`,
-        details: salesError.details
+        error: errorMsg,
+        supabaseError: {
+          code: salesError.code,
+          message: salesError.message,
+          details: salesError.details,
+          hint: salesError.hint
+        }
       }, { status: 500 });
     }
 
