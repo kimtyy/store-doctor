@@ -15,42 +15,64 @@ function NumericTextInput({
   onChange: (n: number) => void;
   className?: string;
 }) {
-  const [raw, setRaw] = useState(String(value));
+  const [isNeg, setIsNeg] = useState(value < 0);
+  const [raw, setRaw] = useState(String(Math.abs(value)));
   const externalRef = useRef(value);
 
   useEffect(() => {
     if (externalRef.current !== value) {
       externalRef.current = value;
-      setRaw(String(value));
+      setIsNeg(value < 0);
+      setRaw(String(Math.abs(value)));
     }
   }, [value]);
 
+  function commit(digits: string, neg: boolean) {
+    const abs = digits === '' ? 0 : Number(digits);
+    const n = neg && abs !== 0 ? -abs : abs;
+    externalRef.current = n;
+    onChange(n);
+  }
+
+  function toggleSign() {
+    const next = !isNeg;
+    setIsNeg(next);
+    commit(raw, next);
+  }
+
   return (
-    <input
-      type="text"
-      inputMode="numeric"
-      value={raw}
-      className={className}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (v === '' || v === '-' || /^-?\d+$/.test(v)) {
-          setRaw(v);
-          const n = v === '' || v === '-' ? 0 : Number(v);
-          externalRef.current = n;
-          onChange(n);
-        }
-      }}
-      onFocus={(e) => {
-        if (raw === '0' || raw === '') e.target.select();
-      }}
-      onBlur={() => {
-        if (raw === '-' || raw === '') {
-          setRaw('0');
-          externalRef.current = 0;
-          onChange(0);
-        }
-      }}
-    />
+    <div className="flex gap-1">
+      <button
+        type="button"
+        onClick={toggleSign}
+        className={`shrink-0 rounded-lg px-2.5 text-sm font-bold border transition ${
+          isNeg
+            ? 'border-rose-500 text-rose-400 bg-rose-950/40'
+            : 'border-slate-700 text-slate-500 bg-slate-950'
+        }`}
+      >
+        {isNeg ? '−' : '+'}
+      </button>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={raw}
+        className={`min-w-0 flex-1 ${className ?? ''}`}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (/^\d*$/.test(v)) {
+            setRaw(v);
+            commit(v, isNeg);
+          }
+        }}
+        onFocus={(e) => {
+          if (raw === '0' || raw === '') e.target.select();
+        }}
+        onBlur={() => {
+          if (raw === '') setRaw('0');
+        }}
+      />
+    </div>
   );
 }
 
