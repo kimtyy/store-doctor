@@ -138,7 +138,7 @@ export async function GET() {
       .from('daily_sales')
       .select('*, sales_menu_items(*)')
       .eq('store_id', STORE_ID)
-      .order('date', { ascending: false });
+      .order('date', { ascending: true });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
