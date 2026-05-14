@@ -40,7 +40,9 @@ function NumericTextInput({
           onChange(n);
         }
       }}
-      onFocus={(e) => e.target.select()}
+      onFocus={(e) => {
+        if (raw === '0' || raw === '') e.target.select();
+      }}
       onBlur={() => {
         if (raw === '-' || raw === '') {
           setRaw('0');
