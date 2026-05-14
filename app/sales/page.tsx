@@ -86,7 +86,6 @@ export default function SalesInputPage() {
   const [editableMenuItems, setEditableMenuItems] = useState<SalesMenuItem[]>([]);
   const [menuParsed, setMenuParsed] = useState(false);
   const [menuDate, setMenuDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [savingMenu, setSavingMenu] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
   const [loadingMenu, setLoadingMenu] = useState(false);
@@ -94,6 +93,12 @@ export default function SalesInputPage() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [receiptCameraOpen, setReceiptCameraOpen] = useState(false);
   const [menuCameraOpen, setMenuCameraOpen] = useState(false);
+  // step-save state (full mode)
+  const [savingReceipt, setSavingReceipt] = useState(false);
+  const [savingMenuItems, setSavingMenuItems] = useState(false);
+  const [savedSalesId, setSavedSalesId] = useState<string | null>(null);
+  const [receiptSaved, setReceiptSaved] = useState(false);
+  const [menuSaved, setMenuSaved] = useState(false);
 
   // history state
   const [historyData, setHistoryData] = useState<DailySales[]>([]);
@@ -271,6 +276,51 @@ export default function SalesInputPage() {
     finally { setLoadingMenu(false); }
   }
 
+  function resetInput() {
+    setReceiptFile(null); setMenuFile(null);
+    setEditableReceipt(null); setEditableMenuItems([]);
+    setMenuParsed(false); setReceiptSaved(false);
+    setMenuSaved(false); setSavedSalesId(null);
+    setSaveSuccess(null); setError(null);
+  }
+
+  async function handleSaveReceipt() {
+    if (!editableReceipt) return;
+    setError(null); setSavingReceipt(true);
+    try {
+      const res = await fetch('/api/sales/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receipt: editableReceipt }),
+      });
+      const text = await res.text();
+      let body;
+      try { body = JSON.parse(text); } catch { throw new Error('서버 응답 처리 실패'); }
+      if (!res.ok) throw new Error(body?.error || body?.details || `서버 오류 (${res.status})`);
+      setSavedSalesId(body.data?.salesId ?? null);
+      setReceiptSaved(true);
+      setSaveSuccess('✅ 정산서 저장 완료');
+    } catch (err) { setError(err instanceof Error ? err.message : '저장 실패'); }
+    finally { setSavingReceipt(false); }
+  }
+
+  async function handleSaveMenuItems() {
+    if (!savedSalesId) { setError('먼저 정산서를 저장해주세요.'); return; }
+    if (editableMenuItems.length === 0) { setError('저장할 메뉴 항목이 없습니다.'); return; }
+    if (!editableReceipt) return;
+    setError(null); setSavingMenuItems(true);
+    try {
+      const res = await fetch('/api/sales', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: savedSalesId, receipt: editableReceipt, menuItems: editableMenuItems }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || `서버 오류 (${res.status})`);
+      setMenuSaved(true);
+      setSaveSuccess('✅ 오늘 입력 완료!');
+    } catch (err) { setError(err instanceof Error ? err.message : '저장 실패'); }
+    finally { setSavingMenuItems(false); }
+  }
+
   async function handleSave(successMessage?: string) {
     if (!editableReceipt) { setError('먼저 정산서 또는 메뉴 내역을 파싱해주세요.'); return; }
     setError(null); setSaveSuccess(null); setSaving(true);
@@ -294,28 +344,10 @@ export default function SalesInputPage() {
       if (!res.ok) throw new Error(body.error || body.details || `서버 오류 (${res.status})`);
       if (body.success) {
         setSaveSuccess(successMessage ?? body.message ?? '✅ 저장 완료!');
-        setEditableReceipt(null); setEditableMenuItems([]); setMenuParsed(false);
-        setReceiptFile(null); setMenuFile(null);
+        resetInput();
       } else throw new Error('저장 결과를 확인할 수 없습니다.');
     } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
     finally { setSaving(false); }
-  }
-
-  async function handleSaveMenuOnly() {
-    if (editableMenuItems.length === 0) { setError('저장할 메뉴 항목이 없습니다.'); return; }
-    setError(null); setSaveSuccess(null); setSavingMenu(true);
-    try {
-      const res = await fetch('/api/sales/save-menu', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: menuDate, menuItems: editableMenuItems }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(body?.error || `서버 오류 (${res.status})`);
-      if (!body?.success) throw new Error('저장 결과를 확인할 수 없습니다.');
-      setSaveSuccess(body.message ?? '✅ 메뉴 저장 완료!');
-      setEditableMenuItems([]); setMenuParsed(false); setMenuFile(null);
-    } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
-    finally { setSavingMenu(false); }
   }
 
   const btnBase = 'flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition text-center cursor-pointer';
@@ -361,81 +393,112 @@ export default function SalesInputPage() {
               {/* ── FULL MODE ──────────────────────────────────────────────────── */}
               {parseMode === 'full' && (
                 <>
-                  {/* ① POS 마감 정산서 */}
-                  <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
-                    <div>
-                      <h2 className="text-lg font-semibold">① POS 마감 정산서</h2>
-                      <p className="mt-1 text-xs text-slate-400">총매출, 현금/카드 구분 내용</p>
+                  {/* 완료 상태 */}
+                  {receiptSaved && menuSaved ? (
+                    <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-8 text-center space-y-4">
+                      <p className="text-4xl">🎉</p>
+                      <p className="text-xl font-bold text-emerald-300">오늘 입력 완료!</p>
+                      <p className="text-sm text-slate-400">
+                        {editableReceipt?.date} 매출 · 메뉴 {editableMenuItems.length}개
+                      </p>
+                      <button type="button" onClick={resetInput}
+                        className="mt-2 rounded-2xl bg-slate-700 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-600">
+                        새로 입력
+                      </button>
                     </div>
-                    <div className="flex gap-3">
-                      <button type="button" onClick={() => setReceiptCameraOpen(true)} className={btnBase}>📷 사진 찍기</button>
-                      <label htmlFor="receipt-gallery-input" className={btnBase}>🖼️ 갤러리에서 선택</label>
-                    </div>
-                    {receiptFile && <p className="text-xs text-slate-400 truncate">선택됨: {receiptFile.name}</p>}
-                    <button type="button" onClick={handleReceiptParse} disabled={loadingReceipt || !receiptFile}
-                      className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
-                      {loadingReceipt ? '파싱 중...' : '정산서 파싱'}
-                    </button>
-                    {editableReceipt && (
-                      <div className="rounded-2xl bg-slate-950/80 p-5 space-y-4">
-                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">정산서 결과 — 수정 가능</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div><label className="text-xs text-slate-400">날짜</label><input type="date" value={editableReceipt.date} onChange={(e) => setEditableReceipt((c) => c ? { ...c, date: e.target.value } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">총매출</label><input type="number" value={editableReceipt.totalRevenue} onChange={(e) => setEditableReceipt((c) => c ? { ...c, totalRevenue: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={editableReceipt.serviceAmount ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, serviceAmount: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">매출금액</label><input type="number" value={editableReceipt.actualSales ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, actualSales: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">순매출</label><input type="number" value={editableReceipt.netRevenue} onChange={(e) => setEditableReceipt((c) => c ? { ...c, netRevenue: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={editableReceipt.tax ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, tax: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">현금</label><input type="number" value={editableReceipt.cashAmount} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cashAmount: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">카드</label><input type="number" value={editableReceipt.cardAmount} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cardAmount: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={editableReceipt.guestCount ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, guestCount: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">객단가</label><input type="number" value={editableReceipt.avgSpend ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, avgSpend: Number(e.target.value) } : c)} className={iCls} /></div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ② 메뉴별 매출 */}
-                  <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
-                    <div>
-                      <h2 className="text-lg font-semibold">② 메뉴별 매출 내역</h2>
-                      <p className="mt-1 text-xs text-slate-400">메뉴명, 수량, 금액 (선택)</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <button type="button" onClick={() => setMenuCameraOpen(true)} className={btnBase}>📷 사진 찍기</button>
-                      <label htmlFor="menu-gallery-input" className={btnBase}>🖼️ 갤러리에서 선택</label>
-                    </div>
-                    {menuFile && <p className="text-xs text-slate-400 truncate">선택됨: {menuFile.name}</p>}
-                    <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile}
-                      className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
-                      {loadingMenu ? '파싱 중...' : '메뉴 매출 파싱'}
-                    </button>
-                    {menuParsed && (
-                      <>
-                        <MenuItemsEditor items={editableMenuItems} onUpdate={updateMenuItem} onDelete={deleteMenuItem} onAdd={addMenuItem} />
-                        {!editableReceipt ? (
-                          <div className="space-y-3">
-                            <div><label className="text-xs text-slate-400">저장할 날짜</label><input type="date" value={menuDate} onChange={(e) => setMenuDate(e.target.value)} className={iCls} /></div>
-                            <button type="button" onClick={handleSaveMenuOnly} disabled={savingMenu}
-                              className="w-full rounded-2xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">
-                              {savingMenu ? '저장 중...' : `메뉴 저장하기 (${editableMenuItems.length}개)`}
-                            </button>
+                  ) : (
+                    <>
+                      {/* ① POS 마감 정산서 */}
+                      <div className={`rounded-3xl border bg-slate-900/90 p-6 space-y-4 ${receiptSaved ? 'border-emerald-600/40' : 'border-slate-800'}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h2 className="text-lg font-semibold">① POS 마감 정산서</h2>
+                            <p className="mt-1 text-xs text-slate-400">총매출, 현금/카드 구분 내용</p>
                           </div>
-                        ) : (
-                          <button type="button" onClick={() => handleSave('✅ 메뉴 저장 완료!')} disabled={saving}
-                            className="w-full rounded-2xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">
-                            {saving ? '저장 중...' : `메뉴 저장하기 (${editableMenuItems.length}개)`}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
+                          {receiptSaved && <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300">✅ 저장됨</span>}
+                        </div>
 
-                  {editableReceipt && (
-                    <button type="button" onClick={() => handleSave()} disabled={saving}
-                      className="w-full rounded-2xl bg-slate-800 px-6 py-4 text-base font-semibold text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50">
-                      {saving ? '저장 중...' : menuParsed ? `저장하기 (메뉴 ${editableMenuItems.length}개 포함)` : '저장하기'}
-                    </button>
+                        {!receiptSaved && (
+                          <>
+                            <div className="flex gap-3">
+                              <button type="button" onClick={() => setReceiptCameraOpen(true)} className={btnBase}>📷 사진 찍기</button>
+                              <label htmlFor="receipt-gallery-input" className={btnBase}>🖼️ 갤러리에서 선택</label>
+                            </div>
+                            {receiptFile && <p className="text-xs text-slate-400 truncate">선택됨: {receiptFile.name}</p>}
+                            <button type="button" onClick={handleReceiptParse} disabled={loadingReceipt || !receiptFile}
+                              className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
+                              {loadingReceipt ? '파싱 중...' : '정산서 파싱'}
+                            </button>
+                          </>
+                        )}
+
+                        {editableReceipt && (
+                          <>
+                            <div className="rounded-2xl bg-slate-950/80 p-5 space-y-4">
+                              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                                {receiptSaved ? '저장된 정산서' : '정산서 결과 — 수정 가능'}
+                              </p>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div><label className="text-xs text-slate-400">날짜</label><input type="date" value={editableReceipt.date} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, date: e.target.value } : c)} className={iCls} /></div>
+                                <div><label className="text-xs text-slate-400">총매출</label><input type="number" value={editableReceipt.totalRevenue} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, totalRevenue: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={editableReceipt.serviceAmount ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, serviceAmount: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div><label className="text-xs text-slate-400">순매출</label><input type="number" value={editableReceipt.netRevenue} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, netRevenue: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div><label className="text-xs text-slate-400">현금</label><input type="number" value={editableReceipt.cashAmount} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cashAmount: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div><label className="text-xs text-slate-400">카드</label><input type="number" value={editableReceipt.cardAmount} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cardAmount: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={editableReceipt.guestCount ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, guestCount: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={editableReceipt.tax ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, tax: Number(e.target.value) } : c)} className={iCls} /></div>
+                              </div>
+                            </div>
+
+                            {!receiptSaved && (
+                              <button type="button" onClick={handleSaveReceipt} disabled={savingReceipt}
+                                className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
+                                {savingReceipt ? '저장 중...' : '정산서 저장'}
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* ② 메뉴별 매출 */}
+                      <div className={`rounded-3xl border bg-slate-900/90 p-6 space-y-4 ${menuSaved ? 'border-emerald-600/40' : 'border-slate-800'}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h2 className="text-lg font-semibold">② 메뉴별 매출 내역</h2>
+                            <p className="mt-1 text-xs text-slate-400">메뉴명, 수량, 금액 (선택)</p>
+                          </div>
+                          {menuSaved && <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300">✅ 저장됨</span>}
+                        </div>
+
+                        {!menuSaved && (
+                          <>
+                            <div className="flex gap-3">
+                              <button type="button" onClick={() => setMenuCameraOpen(true)} className={btnBase}>📷 사진 찍기</button>
+                              <label htmlFor="menu-gallery-input" className={btnBase}>🖼️ 갤러리에서 선택</label>
+                            </div>
+                            {menuFile && <p className="text-xs text-slate-400 truncate">선택됨: {menuFile.name}</p>}
+                            <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile}
+                              className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
+                              {loadingMenu ? '파싱 중...' : '메뉴 매출 파싱'}
+                            </button>
+                          </>
+                        )}
+
+                        {menuParsed && !menuSaved && (
+                          <>
+                            <MenuItemsEditor items={editableMenuItems} onUpdate={updateMenuItem} onDelete={deleteMenuItem} onAdd={addMenuItem} />
+                            {!receiptSaved ? (
+                              <p className="text-center text-xs text-amber-400">먼저 ① 정산서를 저장해주세요</p>
+                            ) : (
+                              <button type="button" onClick={handleSaveMenuItems} disabled={savingMenuItems}
+                                className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
+                                {savingMenuItems ? '저장 중...' : `메뉴 저장 (${editableMenuItems.length}개)`}
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </>
                   )}
                 </>
               )}
