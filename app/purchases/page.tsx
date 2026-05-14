@@ -518,6 +518,7 @@ export default function PurchasesInputPage() {
                                       min={1}
                                       value={item.quantity}
                                       onChange={(e) => updateDraftItem(record.id, idx, { quantity: Number(e.target.value) })}
+                                      onFocus={(e) => e.target.select()}
                                       className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                     />
                                   </div>
@@ -525,9 +526,9 @@ export default function PurchasesInputPage() {
                                     <p className="text-xs text-slate-500 mb-1">단가</p>
                                     <input
                                       type="number"
-                                      min={0}
                                       value={item.unitPrice}
                                       onChange={(e) => updateDraftItem(record.id, idx, { unitPrice: Number(e.target.value) })}
+                                      onFocus={(e) => e.target.select()}
                                       className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                     />
                                   </div>
@@ -535,9 +536,9 @@ export default function PurchasesInputPage() {
                                     <p className="text-xs text-slate-500 mb-1">금액</p>
                                     <input
                                       type="number"
-                                      min={0}
                                       value={item.amount}
                                       onChange={(e) => updateDraftItem(record.id, idx, { amount: Number(e.target.value) })}
+                                      onFocus={(e) => e.target.select()}
                                       className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                     />
                                   </div>
@@ -692,6 +693,7 @@ export default function PurchasesInputPage() {
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) => updateEditableItem(index, { quantity: Number(e.target.value) })}
+                                onFocus={(e) => e.target.select()}
                                 className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                               />
                             </div>
@@ -699,9 +701,9 @@ export default function PurchasesInputPage() {
                               <p className="text-xs text-slate-500 mb-1">금액</p>
                               <input
                                 type="number"
-                                min={0}
                                 value={item.amount}
                                 onChange={(e) => updateEditableItem(index, { amount: Number(e.target.value) })}
+                                onFocus={(e) => e.target.select()}
                                 className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                               />
                             </div>
@@ -832,14 +834,15 @@ export default function PurchasesInputPage() {
                           min={1}
                           value={item.quantity}
                           onChange={(e) => updateManualItem(index, { quantity: Number(e.target.value) })}
+                          onFocus={(e) => e.target.select()}
                           placeholder="수량"
                           className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                         />
                         <input
                           type="number"
-                          min={0}
                           value={item.amount}
                           onChange={(e) => updateManualItem(index, { amount: Number(e.target.value) })}
+                          onFocus={(e) => e.target.select()}
                           placeholder="금액"
                           className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                         />

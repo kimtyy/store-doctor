@@ -151,11 +151,11 @@ function MenuItemsEditor({ items, onUpdate, onDelete, onAdd }: MenuItemsEditorPr
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="text-xs text-slate-500 mb-1">수량</p>
-                  <input type="number" min={1} value={item.quantity} onChange={(e) => onUpdate(index, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+                  <input type="number" min={1} value={item.quantity} onChange={(e) => onUpdate(index, { quantity: Number(e.target.value) })} onFocus={(e) => e.target.select()} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 mb-1">금액</p>
-                  <input type="number" min={0} value={item.amount} onChange={(e) => onUpdate(index, { amount: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+                  <input type="number" value={item.amount} onChange={(e) => onUpdate(index, { amount: Number(e.target.value) })} onFocus={(e) => e.target.select()} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
                 </div>
               </div>
             </div>
