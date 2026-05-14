@@ -309,7 +309,11 @@ export default function PurchasesInputPage() {
   function updateManualItem(index: number, value: Partial<PurchaseItem>) {
     setManualRecord((current) => {
       const items = [...current.items];
-      items[index] = { ...items[index], ...value };
+      const updated = { ...items[index], ...value };
+      if (('unitPrice' in value || 'quantity' in value) && updated.unitPrice !== 0) {
+        updated.amount = updated.quantity * updated.unitPrice;
+      }
+      items[index] = updated;
       return { ...current, items };
     });
   }
@@ -903,21 +907,35 @@ export default function PurchasesInputPage() {
                         placeholder="품목명"
                         className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                       />
-                      <div className="grid gap-2" style={{ gridTemplateColumns: '3rem 1fr' }}>
-                        <input
-                          type="number"
-                          min={1}
-                          value={item.quantity}
-                          onChange={(e) => updateManualItem(index, { quantity: Number(e.target.value) })}
-                          onFocus={(e) => e.target.select()}
-                          placeholder="수량"
-                          className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-                        />
-                        <NumericTextInput
-                          value={item.amount}
-                          onChange={(n) => updateManualItem(index, { amount: n })}
-                          className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-                        />
+                      <div className="grid gap-2" style={{ gridTemplateColumns: '2rem 1.4fr 1.8fr' }}>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">수량</p>
+                          <input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) => updateManualItem(index, { quantity: Number(e.target.value) })}
+                            onFocus={(e) => e.target.select()}
+                            placeholder="수량"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">단가</p>
+                          <NumericTextInput
+                            value={item.unitPrice}
+                            onChange={(n) => updateManualItem(index, { unitPrice: n })}
+                            className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">금액</p>
+                          <NumericTextInput
+                            value={item.amount}
+                            onChange={(n) => updateManualItem(index, { amount: n })}
+                            className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                          />
+                        </div>
                       </div>
                     </div>
                   ))}
