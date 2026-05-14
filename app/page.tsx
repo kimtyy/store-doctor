@@ -97,6 +97,33 @@ export default function DashboardPage() {
 
   const recentDays = useMemo(() => salesData.slice(-7).reverse(), [salesData]);
 
+  const monthSummary = useMemo(() => {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const thisMonth = salesData.filter((d) => d.date.startsWith(ym));
+    if (thisMonth.length === 0) return null;
+    const totalRevenue = thisMonth.reduce((s, d) => s + d.netRevenue, 0);
+    let totalCost = 0;
+    let hasAnyReal = false;
+    for (const d of thisMonth) {
+      const real = purchaseByDate[d.date];
+      if (real !== undefined) {
+        totalCost += real;
+        hasAnyReal = true;
+      } else {
+        totalCost += d.netRevenue * 0.4;
+      }
+    }
+    return {
+      days: thisMonth.length,
+      totalRevenue,
+      totalCost,
+      totalProfit: totalRevenue - totalCost,
+      costRatioPct: totalRevenue > 0 ? (totalCost / totalRevenue) * 100 : 0,
+      hasAnyReal,
+    };
+  }, [salesData, purchaseByDate]);
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
@@ -153,6 +180,40 @@ export default function DashboardPage() {
                   )}
                 </div>
               ) : null}
+
+              {monthSummary && (
+                <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-slate-100">이번 달 현황</h3>
+                    <span className="text-xs text-slate-500">{monthSummary.days}일 영업{!monthSummary.hasAnyReal && ' · 원가 추정'}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
+                      <p className="text-xs text-slate-400 mb-1">총 매출</p>
+                      <p className="text-lg font-bold text-slate-100">{Math.round(monthSummary.totalRevenue / 10000)}만</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
+                      <p className="text-xs text-slate-400 mb-1">총 매입</p>
+                      <p className="text-lg font-bold text-amber-400">{Math.round(monthSummary.totalCost / 10000)}만</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
+                      <p className="text-xs text-slate-400 mb-1">순이익</p>
+                      <p className={`text-lg font-bold ${monthSummary.totalProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {monthSummary.totalProfit >= 0 ? '+' : ''}{Math.round(monthSummary.totalProfit / 10000)}만
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="h-2 flex-1 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-amber-500"
+                        style={{ width: `${Math.min(monthSummary.costRatioPct, 100).toFixed(1)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-slate-400 shrink-0">원가율 {monthSummary.costRatioPct.toFixed(1)}%</span>
+                  </div>
+                </div>
+              )}
 
               {chartData.length >= 2 ? (
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
