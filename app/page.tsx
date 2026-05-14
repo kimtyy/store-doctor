@@ -95,7 +95,7 @@ export default function DashboardPage() {
     };
   }, [salesData, purchaseByDate]);
 
-  const recentDays = useMemo(() => salesData.slice(-7).reverse(), [salesData]);
+  const recentDays = useMemo(() => salesData.slice(0, 7), [salesData]);
 
   const monthSummary = useMemo(() => {
     const now = new Date();
@@ -232,10 +232,6 @@ export default function DashboardPage() {
                 <div className="mt-4 space-y-3">
                   {recentDays.map((day, idx) => {
                     const dayRevenue = day.netRevenue;
-                    const realDayCost = purchaseByDate[day.date];
-                    const hasReal = realDayCost !== undefined;
-                    const dayCost = hasReal ? realDayCost : dayRevenue * 0.4;
-                    const dayProfit = dayRevenue - dayCost;
 
                     return (
                       <div key={`${day.date}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
@@ -248,19 +244,15 @@ export default function DashboardPage() {
                                 weekday: 'short',
                               })}
                             </p>
-                            <p className="mt-1 text-sm text-slate-400">매출 {(dayRevenue / 10000).toFixed(0)}만원</p>
-                            {hasReal && (
-                              <p className="mt-0.5 text-xs text-slate-500">매입 {(dayCost / 10000).toFixed(1)}만원</p>
-                            )}
-                            {(day.serviceAmount ?? 0) > 0 && (
-                              <p className="mt-0.5 text-xs text-slate-600">서비스 {((day.serviceAmount ?? 0) / 10000).toFixed(1)}만원</p>
-                            )}
+                            <p className="mt-1 text-sm text-slate-400">
+                              테이블 {day.tablesUsed}개 · {day.guestCount}명
+                            </p>
                           </div>
                           <div className="text-right">
-                            <p className={`text-lg font-bold ${dayProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {dayProfit >= 0 ? '+' : ''}{(dayProfit / 10000).toFixed(1)}만원
+                            <p className="text-lg font-bold text-slate-100">
+                              {(dayRevenue / 10000).toFixed(1)}만원
                             </p>
-                            <p className="mt-1 text-xs text-slate-400">{hasReal ? '실제 수익' : '추정 수익'}</p>
+                            <p className="mt-1 text-xs text-slate-500">순매출</p>
                           </div>
                         </div>
                       </div>
