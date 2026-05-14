@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { DailySales, SalesMenuItem } from '../../types/sales';
+import { correctMenuName, MenuMasterEntry } from '../../lib/menuCorrection';
 import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
@@ -16,6 +17,52 @@ type EditableReceipt = Partial<DailySales> & {
   cashAmount: number;
   cardAmount: number;
 };
+
+interface SalesMenuItemWithMeta extends SalesMenuItem {
+  _originalName?: string;
+  _correctionStatus?: 'exact' | 'auto' | 'suggest' | 'none';
+  _suggestedName?: string;
+  _suggestionAccepted?: boolean;
+}
+
+function fixYear(dateStr: string): string {
+  const currentYear = new Date().getFullYear().toString();
+  const m = dateStr.match(/^(\d{4})/);
+  if (m && m[1] !== currentYear) return dateStr.replace(/^\d{4}/, currentYear);
+  return dateStr;
+}
+
+function stripMeta(items: SalesMenuItemWithMeta[]): SalesMenuItem[] {
+  return items.map(({ _originalName: _a, _correctionStatus: _b, _suggestedName: _c, _suggestionAccepted: _d, ...item }) => item);
+}
+
+async function applyCorrections(items: SalesMenuItemWithMeta[]): Promise<SalesMenuItemWithMeta[]> {
+  try {
+    const res = await fetch('/api/menu-master');
+    if (!res.ok) return items;
+    const body = await res.json();
+    const masters: MenuMasterEntry[] = (body.data ?? []).map(
+      (r: { menu_name: string; aliases: string[] | null }) => ({
+        menuName: r.menu_name,
+        aliases: r.aliases ?? [],
+      })
+    );
+    if (masters.length === 0) return items;
+    return items.map((item) => {
+      const result = correctMenuName(item.name, masters);
+      if (result.status === 'none') return item;
+      return {
+        ...item,
+        name: result.correctedName,
+        _originalName: result.originalName,
+        _correctionStatus: result.status,
+        _suggestedName: result.suggestedName,
+      };
+    });
+  } catch {
+    return items;
+  }
+}
 
 interface HistoryDraft {
   totalRevenue: number;
@@ -33,13 +80,15 @@ const iCls = 'mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 
 const iClsDark = 'mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-100';
 
 interface MenuItemsEditorProps {
-  items: SalesMenuItem[];
-  onUpdate: (index: number, patch: Partial<SalesMenuItem>) => void;
+  items: SalesMenuItemWithMeta[];
+  onUpdate: (index: number, patch: Partial<SalesMenuItemWithMeta>) => void;
   onDelete: (index: number) => void;
   onAdd: () => void;
 }
 
 function MenuItemsEditor({ items, onUpdate, onDelete, onAdd }: MenuItemsEditorProps) {
+  const [showOriginal, setShowOriginal] = useState<number | null>(null);
+
   return (
     <div className="rounded-2xl bg-slate-950/80 p-5 space-y-3">
       <div className="flex items-center justify-between">
@@ -47,25 +96,71 @@ function MenuItemsEditor({ items, onUpdate, onDelete, onAdd }: MenuItemsEditorPr
         <button type="button" onClick={onAdd} className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-600">+ 추가</button>
       </div>
       <div className="space-y-3 max-h-80 overflow-y-auto">
-        {items.map((item, index) => (
-          <div key={index} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-            <div className="flex justify-between items-center mb-2">
-              <p className="text-xs text-slate-500">{index + 1}</p>
-              <button type="button" onClick={() => onDelete(index)} className="text-xs text-rose-400 hover:text-rose-300">삭제</button>
-            </div>
-            <input type="text" value={item.name} onChange={(e) => onUpdate(index, { name: e.target.value })} placeholder="메뉴명" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100 mb-2" />
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <p className="text-xs text-slate-500 mb-1">수량</p>
-                <input type="number" min={1} value={item.quantity} onChange={(e) => onUpdate(index, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+        {items.map((item, index) => {
+          const isAutoCorrected =
+            (item._correctionStatus === 'auto' || item._correctionStatus === 'exact') &&
+            item._originalName &&
+            item._originalName !== item.name;
+          const isSuggesting =
+            item._correctionStatus === 'suggest' &&
+            item._suggestionAccepted !== true &&
+            item._suggestionAccepted !== false;
+
+          return (
+            <div key={index} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-xs text-slate-500">{index + 1}</p>
+                <button type="button" onClick={() => onDelete(index)} className="text-xs text-rose-400 hover:text-rose-300">삭제</button>
               </div>
-              <div>
-                <p className="text-xs text-slate-500 mb-1">금액</p>
-                <input type="number" min={0} value={item.amount} onChange={(e) => onUpdate(index, { amount: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+              <input type="text" value={item.name} onChange={(e) => onUpdate(index, { name: e.target.value, _correctionStatus: 'none' })} placeholder="메뉴명" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100 mb-1.5" />
+              {isAutoCorrected && (
+                <div className="flex items-center gap-2 mb-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowOriginal(showOriginal === index ? null : index)}
+                    className="text-xs bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-full"
+                  >
+                    자동교정
+                  </button>
+                  {showOriginal === index && (
+                    <span className="text-xs text-slate-500">원본: {item._originalName}</span>
+                  )}
+                </div>
+              )}
+              {isSuggesting && (
+                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                  <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full">
+                    제안: {item._suggestedName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onUpdate(index, { name: item._suggestedName!, _originalName: item.name, _correctionStatus: 'auto', _suggestionAccepted: true })}
+                    className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full hover:bg-emerald-500/30"
+                  >
+                    ✓ 적용
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUpdate(index, { _correctionStatus: 'none', _suggestionAccepted: false })}
+                    className="text-xs bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full hover:bg-slate-600"
+                  >
+                    ✗ 무시
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">수량</p>
+                  <input type="number" min={1} value={item.quantity} onChange={(e) => onUpdate(index, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">금액</p>
+                  <input type="number" min={0} value={item.amount} onChange={(e) => onUpdate(index, { amount: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="rounded-xl bg-slate-900/80 p-3 border border-slate-800 flex justify-between items-center">
         <p className="text-xs text-slate-400">합계</p>
@@ -83,7 +178,7 @@ export default function SalesInputPage() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [menuFile, setMenuFile] = useState<File | null>(null);
   const [editableReceipt, setEditableReceipt] = useState<EditableReceipt | null>(null);
-  const [editableMenuItems, setEditableMenuItems] = useState<SalesMenuItem[]>([]);
+  const [editableMenuItems, setEditableMenuItems] = useState<SalesMenuItemWithMeta[]>([]);
   const [menuParsed, setMenuParsed] = useState(false);
   const [menuDate, setMenuDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [error, setError] = useState<string | null>(null);
@@ -204,7 +299,7 @@ export default function SalesInputPage() {
 
   // ── input ─────────────────────────────────────────────────────────────────────
 
-  function updateMenuItem(index: number, value: Partial<SalesMenuItem>) {
+  function updateMenuItem(index: number, value: Partial<SalesMenuItemWithMeta>) {
     setEditableMenuItems((cur) => { const a = [...cur]; a[index] = { ...a[index], ...value }; return a; });
   }
   function addMenuItem() { setEditableMenuItems((cur) => [...cur, { name: '', quantity: 1, amount: 0 }]); }
@@ -226,8 +321,9 @@ export default function SalesInputPage() {
       if (!res.ok) throw new Error(body.error || `서버 오류 (${res.status})`);
       if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
       const p = body.data as DailySales;
+      const rawDate = p.date ?? new Date().toISOString().split('T')[0];
       setEditableReceipt({
-        date: p.date ?? new Date().toISOString().split('T')[0],
+        date: fixYear(rawDate),
         totalRevenue: p.totalRevenue ?? 0, discount: p.discount ?? 0,
         serviceCharge: p.serviceCharge ?? 0,
         serviceAmount: p.serviceAmount ?? p.serviceCharge ?? 0,
@@ -257,11 +353,12 @@ export default function SalesInputPage() {
       try { body = JSON.parse(text); } catch { throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.'); }
       if (!res.ok) throw new Error(body.error || `서버 오류 (${res.status})`);
       if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
-      const items: SalesMenuItem[] = body.data.menuItems ?? [];
-      setEditableMenuItems(items);
+      const rawItems: SalesMenuItemWithMeta[] = body.data.menuItems ?? [];
+      const corrected = await applyCorrections(rawItems);
+      setEditableMenuItems(corrected);
       setMenuParsed(true);
       if (parseMode === 'menu_only') {
-        const menuSum = items.reduce((s, i) => s + i.amount, 0);
+        const menuSum = rawItems.reduce((s: number, i: SalesMenuItemWithMeta) => s + i.amount, 0);
         const tax = Math.round(menuSum * 0.091);
         setEditableReceipt({
           date: menuDate, totalRevenue: menuSum, discount: 0,
@@ -310,7 +407,7 @@ export default function SalesInputPage() {
     try {
       const res = await fetch('/api/sales/add-menu', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: editableReceipt.date, menuItems: editableMenuItems }),
+        body: JSON.stringify({ date: editableReceipt.date, menuItems: stripMeta(editableMenuItems) }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error || `서버 오류 (${res.status})`);
@@ -334,7 +431,7 @@ export default function SalesInputPage() {
       }
       const res = await fetch('/api/sales/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receipt: finalReceipt, menu: menuParsed ? { menuItems: editableMenuItems } : undefined }),
+        body: JSON.stringify({ receipt: finalReceipt, menu: menuParsed ? { menuItems: stripMeta(editableMenuItems) } : undefined }),
       });
       const text = await res.text();
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
