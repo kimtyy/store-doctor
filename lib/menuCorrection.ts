@@ -60,10 +60,13 @@ export function correctMenuName(
     }
   }
 
+  const normalizedOcrLen = normalizedOcr.length;
   let bestName = ocrName;
   let bestSim = 0;
   for (const m of masters) {
     for (const c of [m.menuName, ...m.aliases]) {
+      const nc = normalize(c);
+      if (Math.abs(nc.length - normalizedOcrLen) >= 2) continue;
       const sim = similarity(ocrName, c);
       if (sim > bestSim) {
         bestSim = sim;
@@ -72,10 +75,10 @@ export function correctMenuName(
     }
   }
 
-  if (bestSim >= 0.8) {
+  if (bestSim >= 0.95) {
     return { correctedName: bestName, status: 'auto', similarity: bestSim, originalName: ocrName };
   }
-  if (bestSim >= 0.6) {
+  if (bestSim >= 0.85) {
     return {
       correctedName: ocrName,
       suggestedName: bestName,
