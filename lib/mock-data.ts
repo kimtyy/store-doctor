@@ -25,6 +25,7 @@ export function generateMockDailySalesData(days: number = 120): DailySales[] {
     const cardAmount = netRevenue - cashAmount;
 
     result.push({
+      id: `mock-${dateStr}`,
       date: dateStr,
       totalRevenue: revenue,
       discount: 0,
