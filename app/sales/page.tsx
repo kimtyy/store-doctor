@@ -278,8 +278,8 @@ export default function SalesInputPage() {
   // ── menu items editor (reused in both modes) ──────────────────────────────────
   function MenuItemsEditor({ items, onUpdate, onDelete, onAdd }: {
     items: SalesMenuItem[];
-    onUpdate: (idx: number, patch: Partial<SalesMenuItem>) => void;
-    onDelete: (idx: number) => void;
+    onUpdate: (_idx: number, _patch: Partial<SalesMenuItem>) => void;
+    onDelete: (_idx: number) => void;
     onAdd: () => void;
   }) {
     return (
