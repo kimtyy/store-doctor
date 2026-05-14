@@ -95,7 +95,10 @@ export default function DashboardPage() {
     };
   }, [salesData, purchaseByDate]);
 
-  const recentDays = useMemo(() => salesData.slice(-7).reverse(), [salesData]);
+  const recentDays = useMemo(
+    () => [...salesData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 7),
+    [salesData]
+  );
 
   const monthSummary = useMemo(() => {
     const now = new Date();
