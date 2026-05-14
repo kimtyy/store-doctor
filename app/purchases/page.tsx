@@ -284,7 +284,11 @@ export default function PurchasesInputPage() {
     setEditableResult((current) => {
       if (!current) return current;
       const items = [...current.items];
-      items[index] = { ...items[index], ...value };
+      const updated = { ...items[index], ...value };
+      if (('unitPrice' in value || 'quantity' in value) && updated.unitPrice !== 0) {
+        updated.amount = updated.quantity * updated.unitPrice;
+      }
+      items[index] = updated;
       return { ...current, items };
     });
   }
@@ -766,7 +770,7 @@ export default function PurchasesInputPage() {
                             placeholder="품목명"
                             className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                           />
-                          <div className="grid gap-2" style={{ gridTemplateColumns: '3rem 1fr' }}>
+                          <div className="grid gap-2" style={{ gridTemplateColumns: '2rem 1.4fr 1.8fr' }}>
                             <div>
                               <p className="text-xs text-slate-500 mb-1">수량</p>
                               <input
@@ -775,6 +779,14 @@ export default function PurchasesInputPage() {
                                 value={item.quantity}
                                 onChange={(e) => updateEditableItem(index, { quantity: Number(e.target.value) })}
                                 onFocus={(e) => e.target.select()}
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">단가</p>
+                              <NumericTextInput
+                                value={item.unitPrice}
+                                onChange={(n) => updateEditableItem(index, { unitPrice: n })}
                                 className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                               />
                             </div>
