@@ -39,9 +39,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '항목명, 금액, 카테고리, 청구일이 필요합니다.' }, { status: 400 });
     }
 
+    const { costType } = body;
+
     const { data, error } = await supabase
       .from('fixed_costs')
-      .insert({ store_id: STORE_ID, name, amount, category, billing_day: billingDay, is_active: true })
+      .insert({ store_id: STORE_ID, name, amount, category, billing_day: billingDay, is_active: true, cost_type: costType ?? 'fixed_amount' })
       .select()
       .single();
 
@@ -61,13 +63,14 @@ export async function PATCH(request: Request) {
     const body = await request.json().catch(() => null);
     if (!body?.id) return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
 
-    const { id, name, amount, category, billingDay, isActive } = body;
+    const { id, name, amount, category, billingDay, isActive, costType } = body;
     const fields: Record<string, unknown> = {};
     if (name !== undefined) fields.name = name;
     if (amount !== undefined) fields.amount = amount;
     if (category !== undefined) fields.category = category;
     if (billingDay !== undefined) fields.billing_day = billingDay;
     if (isActive !== undefined) fields.is_active = isActive;
+    if (costType !== undefined) fields.cost_type = costType;
 
     const { error } = await supabase
       .from('fixed_costs')

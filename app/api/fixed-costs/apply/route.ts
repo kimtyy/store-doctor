@@ -60,7 +60,7 @@ export async function POST() {
       store_id: STORE_ID,
       date: firstOfMonth,
       vendor_name: fc.name,
-      total_amount: fc.amount,
+      total_amount: fc.cost_type === 'manual_input' ? 0 : fc.amount,
       category: fc.category,
       items: [],
       input_method: 'auto_fixed',
