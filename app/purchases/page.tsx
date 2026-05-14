@@ -1,10 +1,56 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purchase';
 import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
+
+function NumericTextInput({
+  value,
+  onChange,
+  className,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  className?: string;
+}) {
+  const [raw, setRaw] = useState(String(value));
+  const externalRef = useRef(value);
+
+  useEffect(() => {
+    if (externalRef.current !== value) {
+      externalRef.current = value;
+      setRaw(String(value));
+    }
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={raw}
+      className={className}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === '' || v === '-' || /^-?\d+$/.test(v)) {
+          setRaw(v);
+          const n = v === '' || v === '-' ? 0 : Number(v);
+          externalRef.current = n;
+          onChange(n);
+        }
+      }}
+      onFocus={(e) => e.target.select()}
+      onBlur={() => {
+        if (raw === '-' || raw === '') {
+          setRaw('0');
+          externalRef.current = 0;
+          onChange(0);
+        }
+      }}
+    />
+  );
+}
 
 const categoryOptions: PurchaseCategory[] = [
   'food_ingredients',
@@ -524,21 +570,17 @@ export default function PurchasesInputPage() {
                                   </div>
                                   <div>
                                     <p className="text-xs text-slate-500 mb-1">단가</p>
-                                    <input
-                                      type="number"
+                                    <NumericTextInput
                                       value={item.unitPrice}
-                                      onChange={(e) => updateDraftItem(record.id, idx, { unitPrice: Number(e.target.value) })}
-                                      onFocus={(e) => e.target.select()}
+                                      onChange={(n) => updateDraftItem(record.id, idx, { unitPrice: n })}
                                       className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                     />
                                   </div>
                                   <div>
                                     <p className="text-xs text-slate-500 mb-1">금액</p>
-                                    <input
-                                      type="number"
+                                    <NumericTextInput
                                       value={item.amount}
-                                      onChange={(e) => updateDraftItem(record.id, idx, { amount: Number(e.target.value) })}
-                                      onFocus={(e) => e.target.select()}
+                                      onChange={(n) => updateDraftItem(record.id, idx, { amount: n })}
                                       className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                     />
                                   </div>
@@ -699,11 +741,9 @@ export default function PurchasesInputPage() {
                             </div>
                             <div>
                               <p className="text-xs text-slate-500 mb-1">금액</p>
-                              <input
-                                type="number"
+                              <NumericTextInput
                                 value={item.amount}
-                                onChange={(e) => updateEditableItem(index, { amount: Number(e.target.value) })}
-                                onFocus={(e) => e.target.select()}
+                                onChange={(n) => updateEditableItem(index, { amount: n })}
                                 className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                               />
                             </div>
@@ -838,12 +878,9 @@ export default function PurchasesInputPage() {
                           placeholder="수량"
                           className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                         />
-                        <input
-                          type="number"
+                        <NumericTextInput
                           value={item.amount}
-                          onChange={(e) => updateManualItem(index, { amount: Number(e.target.value) })}
-                          onFocus={(e) => e.target.select()}
-                          placeholder="금액"
+                          onChange={(n) => updateManualItem(index, { amount: n })}
                           className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                         />
                       </div>
