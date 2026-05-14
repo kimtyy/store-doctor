@@ -151,16 +151,17 @@ function mockResponseByPrompt(prompt: string) {
 
 export function parseClaudeJson<T>(content: string): T {
   try {
-    const trimmed = content.trim();
-    const jsonStart = trimmed.indexOf('{');
-    const jsonEnd = trimmed.lastIndexOf('}');
+    // strip markdown code fences if present
+    const stripped = content.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+    const jsonStart = stripped.indexOf('{');
+    const jsonEnd = stripped.lastIndexOf('}');
 
     if (jsonStart >= 0 && jsonEnd >= jsonStart) {
-      return JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1));
+      return JSON.parse(stripped.slice(jsonStart, jsonEnd + 1));
     }
 
-    return JSON.parse(trimmed) as T;
-  } catch (error) {
+    return JSON.parse(stripped) as T;
+  } catch {
     throw new Error('Claude 응답을 JSON으로 파싱할 수 없습니다.');
   }
 }
