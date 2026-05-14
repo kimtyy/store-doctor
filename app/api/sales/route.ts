@@ -40,6 +40,84 @@ function mapRow(row: Record<string, unknown>) {
   };
 }
 
+export async function PATCH(request: Request) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return NextResponse.json({ error: 'Supabase 환경 변수가 설정되지 않았습니다.' }, { status: 500 });
+  }
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  try {
+    const body = await request.json().catch(() => null);
+    if (!body?.id) return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
+
+    const { id, receipt, menuItems } = body as {
+      id: string;
+      receipt: {
+        totalRevenue: number;
+        serviceAmount?: number;
+        netRevenue: number;
+        tax?: number;
+        cashAmount?: number;
+        cardAmount?: number;
+        guestCount?: number;
+        avgSpend?: number;
+      };
+      menuItems?: { name: string; quantity: number; amount: number; category?: string; menuId?: string }[];
+    };
+
+    if (!receipt) return NextResponse.json({ error: 'receipt 데이터가 필요합니다.' }, { status: 400 });
+
+    const serviceAmount = receipt.serviceAmount ?? 0;
+    const { error: updateError } = await supabase
+      .from('daily_sales')
+      .update({
+        total_revenue: receipt.totalRevenue,
+        service_charge: serviceAmount,
+        service_amount: serviceAmount,
+        actual_sales: receipt.totalRevenue - serviceAmount,
+        tax: receipt.tax ?? 0,
+        net_revenue: receipt.netRevenue,
+        cash_amount: receipt.cashAmount ?? 0,
+        card_amount: receipt.cardAmount ?? 0,
+        guest_count: receipt.guestCount ?? 0,
+        avg_spend: receipt.avgSpend ?? 0,
+      })
+      .eq('id', id)
+      .eq('store_id', STORE_ID);
+
+    if (updateError) throw new Error(updateError.message);
+
+    if (Array.isArray(menuItems)) {
+      const { error: deleteError } = await supabase
+        .from('sales_menu_items').delete().eq('daily_sale_id', id);
+      if (deleteError) throw new Error(deleteError.message);
+
+      if (menuItems.length > 0) {
+        const { error: insertError } = await supabase.from('sales_menu_items').insert(
+          menuItems.map((item) => ({
+            daily_sale_id: id,
+            name: item.name,
+            quantity: item.quantity,
+            amount: item.amount,
+            category: item.category ?? null,
+            menu_id: item.menuId ?? null,
+          }))
+        );
+        if (insertError) throw new Error(insertError.message);
+      }
+    }
+
+    return NextResponse.json({ success: true, message: '✅ 수정 저장 완료' });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
 export async function GET() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

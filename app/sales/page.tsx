@@ -304,14 +304,13 @@ export default function SalesInputPage() {
   }
 
   async function handleSaveMenuItems() {
-    if (!savedSalesId) { setError('먼저 정산서를 저장해주세요.'); return; }
+    if (!editableReceipt?.date) { setError('정산서 날짜가 없습니다.'); return; }
     if (editableMenuItems.length === 0) { setError('저장할 메뉴 항목이 없습니다.'); return; }
-    if (!editableReceipt) return;
     setError(null); setSavingMenuItems(true);
     try {
-      const res = await fetch('/api/sales', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: savedSalesId, receipt: editableReceipt, menuItems: editableMenuItems }),
+      const res = await fetch('/api/sales/add-menu', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: editableReceipt.date, menuItems: editableMenuItems }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error || `서버 오류 (${res.status})`);
