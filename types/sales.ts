@@ -9,7 +9,7 @@ export interface SalesMenuItem {
 }
 
 export interface DailySales {
-  id: string;
+  id?: string;
   storeId?: string;
   date: string;
   totalRevenue: number;

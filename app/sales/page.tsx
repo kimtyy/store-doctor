@@ -126,8 +126,9 @@ export default function SalesInputPage() {
   }, [tab, loadHistory]);
 
   function toggleExpand(record: DailySales) {
+    if (!record.id) return;
     if (expandedId === record.id) { setExpandedId(null); return; }
-    setExpandedId(record.id ?? null);
+    setExpandedId(record.id);
     if (!drafts[record.id]) {
       setDrafts((prev) => ({
         ...prev,
