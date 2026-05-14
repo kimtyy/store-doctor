@@ -34,8 +34,8 @@ const iClsDark = 'mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-
 
 interface MenuItemsEditorProps {
   items: SalesMenuItem[];
-  onUpdate: (idx: number, patch: Partial<SalesMenuItem>) => void;
-  onDelete: (idx: number) => void;
+  onUpdate: (index: number, patch: Partial<SalesMenuItem>) => void;
+  onDelete: (index: number) => void;
   onAdd: () => void;
 }
 
@@ -127,7 +127,7 @@ export default function SalesInputPage() {
 
   function toggleExpand(record: DailySales) {
     if (expandedId === record.id) { setExpandedId(null); return; }
-    setExpandedId(record.id);
+    setExpandedId(record.id ?? null);
     if (!drafts[record.id]) {
       setDrafts((prev) => ({
         ...prev,
