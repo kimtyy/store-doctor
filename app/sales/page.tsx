@@ -127,12 +127,13 @@ export default function SalesInputPage() {
 
   function toggleExpand(record: DailySales) {
     if (!record.id) return;
-    if (expandedId === record.id) { setExpandedId(null); return; }
-    setExpandedId(record.id);
-    if (!drafts[record.id]) {
+    const id = record.id;
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (!drafts[id]) {
       setDrafts((prev) => ({
         ...prev,
-        [record.id]: {
+        [id]: {
           totalRevenue: record.totalRevenue,
           serviceAmount: record.serviceAmount ?? 0,
           netRevenue: record.netRevenue,
