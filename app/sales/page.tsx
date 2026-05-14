@@ -32,6 +32,49 @@ interface HistoryDraft {
 const iCls = 'mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-sm text-slate-100';
 const iClsDark = 'mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-100';
 
+interface MenuItemsEditorProps {
+  items: SalesMenuItem[];
+  onUpdate: (idx: number, patch: Partial<SalesMenuItem>) => void;
+  onDelete: (idx: number) => void;
+  onAdd: () => void;
+}
+
+function MenuItemsEditor({ items, onUpdate, onDelete, onAdd }: MenuItemsEditorProps) {
+  return (
+    <div className="rounded-2xl bg-slate-950/80 p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">메뉴 ({items.length}개)</p>
+        <button type="button" onClick={onAdd} className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-600">+ 추가</button>
+      </div>
+      <div className="space-y-3 max-h-80 overflow-y-auto">
+        {items.map((item, index) => (
+          <div key={index} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+            <div className="flex justify-between items-center mb-2">
+              <p className="text-xs text-slate-500">{index + 1}</p>
+              <button type="button" onClick={() => onDelete(index)} className="text-xs text-rose-400 hover:text-rose-300">삭제</button>
+            </div>
+            <input type="text" value={item.name} onChange={(e) => onUpdate(index, { name: e.target.value })} placeholder="메뉴명" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100 mb-2" />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-xs text-slate-500 mb-1">수량</p>
+                <input type="number" min={1} value={item.quantity} onChange={(e) => onUpdate(index, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-1">금액</p>
+                <input type="number" min={0} value={item.amount} onChange={(e) => onUpdate(index, { amount: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl bg-slate-900/80 p-3 border border-slate-800 flex justify-between items-center">
+        <p className="text-xs text-slate-400">합계</p>
+        <p className="font-bold text-emerald-400">{items.reduce((s, i) => s + i.amount, 0).toLocaleString()}원</p>
+      </div>
+    </div>
+  );
+}
+
 export default function SalesInputPage() {
   const [tab, setTab] = useState<Tab>('input');
   const [parseMode, setParseMode] = useState<ParseMode>('full');
@@ -274,48 +317,6 @@ export default function SalesInputPage() {
   }
 
   const btnBase = 'flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition text-center cursor-pointer';
-
-  // ── menu items editor (reused in both modes) ──────────────────────────────────
-  function MenuItemsEditor({ items, onUpdate, onDelete, onAdd }: {
-    items: SalesMenuItem[];
-    onUpdate: (_idx: number, _patch: Partial<SalesMenuItem>) => void;
-    onDelete: (_idx: number) => void;
-    onAdd: () => void;
-  }) {
-    return (
-      <div className="rounded-2xl bg-slate-950/80 p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">메뉴 ({items.length}개)</p>
-          <button type="button" onClick={onAdd} className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-600">+ 추가</button>
-        </div>
-        <div className="space-y-3 max-h-80 overflow-y-auto">
-          {items.map((item, index) => (
-            <div key={index} className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-              <div className="flex justify-between items-center mb-2">
-                <p className="text-xs text-slate-500">{index + 1}</p>
-                <button type="button" onClick={() => onDelete(index)} className="text-xs text-rose-400 hover:text-rose-300">삭제</button>
-              </div>
-              <input type="text" value={item.name} onChange={(e) => onUpdate(index, { name: e.target.value })} placeholder="메뉴명" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100 mb-2" />
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">수량</p>
-                  <input type="number" min={1} value={item.quantity} onChange={(e) => onUpdate(index, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">금액</p>
-                  <input type="number" min={0} value={item.amount} onChange={(e) => onUpdate(index, { amount: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="rounded-xl bg-slate-900/80 p-3 border border-slate-800 flex justify-between items-center">
-          <p className="text-xs text-slate-400">합계</p>
-          <p className="font-bold text-emerald-400">{items.reduce((s, i) => s + i.amount, 0).toLocaleString()}원</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <>
