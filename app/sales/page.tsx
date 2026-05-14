@@ -65,6 +65,7 @@ async function applyCorrections(items: SalesMenuItemWithMeta[]): Promise<SalesMe
 }
 
 interface HistoryDraft {
+  date: string;
   totalRevenue: number;
   serviceAmount: number;
   netRevenue: number;
@@ -234,6 +235,7 @@ export default function SalesInputPage() {
       setDrafts((prev) => ({
         ...prev,
         [id]: {
+          date: record.date,
           totalRevenue: record.totalRevenue,
           serviceAmount: record.serviceAmount ?? 0,
           netRevenue: record.netRevenue,
@@ -689,6 +691,7 @@ export default function SalesInputPage() {
                         {isExpanded && draft && (
                           <div className="border-t border-slate-800 p-4 space-y-4">
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수정</p>
+                            <div><label className="text-xs text-slate-400">날짜</label><input type="date" value={draft.date} onChange={(e) => patchDraft(record.id!, { date: e.target.value })} className={iClsDark} /></div>
                             <div className="grid grid-cols-2 gap-3">
                               <div><label className="text-xs text-slate-400">총매출</label><input type="number" value={draft.totalRevenue} onChange={(e) => patchDraft(record.id!, { totalRevenue: Number(e.target.value) })} className={iClsDark} /></div>
                               <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={draft.serviceAmount} onChange={(e) => patchDraft(record.id!, { serviceAmount: Number(e.target.value) })} className={iClsDark} /></div>

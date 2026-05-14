@@ -1,11 +1,18 @@
 import { PurchaseRecord } from '../../types/purchase';
 import { parseClaudeJson } from '../claude';
 
+function fixYear(dateStr: string): string {
+  const currentYear = new Date().getFullYear().toString();
+  const m = dateStr.match(/^(\d{4})/);
+  if (m && m[1] !== currentYear) return dateStr.replace(/^\d{4}/, currentYear);
+  return dateStr;
+}
+
 export function parsePurchaseResponse(rawText: string): PurchaseRecord {
   const parsed = parseClaudeJson<Record<string, unknown>>(rawText);
 
   return {
-    date: String(parsed.date ?? ''),
+    date: fixYear(String(parsed.date ?? '')),
     vendorName: String(parsed.vendorName ?? ''),
     totalAmount: Number(parsed.totalAmount ?? 0),
     taxAmount: Number(parsed.taxAmount ?? 0),

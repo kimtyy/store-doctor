@@ -161,6 +161,7 @@ export default function PurchasesInputPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draftItems, setDraftItems] = useState<Record<string, PurchaseHistoryItem[]>>({});
+  const [draftDates, setDraftDates] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
 
   const fetchHistory = useCallback(async () => {
@@ -189,6 +190,7 @@ export default function PurchasesInputPage() {
       setExpandedId(record.id);
       if (!draftItems[record.id]) {
         setDraftItems((prev) => ({ ...prev, [record.id]: record.items.map((i) => ({ ...i })) }));
+        setDraftDates((prev) => ({ ...prev, [record.id]: record.date }));
       }
     }
   }
@@ -224,7 +226,7 @@ export default function PurchasesInputPage() {
       const res = await fetch('/api/purchases', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: record.id, items, totalAmount }),
+        body: JSON.stringify({ id: record.id, items, totalAmount, date: draftDates[record.id] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '저장 실패');
@@ -557,6 +559,15 @@ export default function PurchasesInputPage() {
                         {/* Expanded — item list */}
                         {isExpanded && (
                           <div className="border-t border-slate-800 px-4 pb-4 pt-3 space-y-3">
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">날짜</p>
+                              <input
+                                type="date"
+                                value={draftDates[record.id] ?? record.date}
+                                onChange={(e) => setDraftDates((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                              />
+                            </div>
                             {draft.length === 0 && (
                               <p className="text-xs text-slate-500 text-center py-2">품목이 없습니다.</p>
                             )}

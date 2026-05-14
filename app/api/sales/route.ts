@@ -57,6 +57,7 @@ export async function PATCH(request: Request) {
     const { id, receipt, menuItems } = body as {
       id: string;
       receipt: {
+        date?: string;
         totalRevenue: number;
         serviceAmount?: number;
         netRevenue: number;
@@ -72,20 +73,23 @@ export async function PATCH(request: Request) {
     if (!receipt) return NextResponse.json({ error: 'receipt 데이터가 필요합니다.' }, { status: 400 });
 
     const serviceAmount = receipt.serviceAmount ?? 0;
+    const updateFields: Record<string, unknown> = {
+      total_revenue: receipt.totalRevenue,
+      service_charge: serviceAmount,
+      service_amount: serviceAmount,
+      actual_sales: receipt.totalRevenue - serviceAmount,
+      tax: receipt.tax ?? 0,
+      net_revenue: receipt.netRevenue,
+      cash_amount: receipt.cashAmount ?? 0,
+      card_amount: receipt.cardAmount ?? 0,
+      guest_count: receipt.guestCount ?? 0,
+      avg_spend: receipt.avgSpend ?? 0,
+    };
+    if (receipt.date) updateFields.date = receipt.date;
+
     const { error: updateError } = await supabase
       .from('daily_sales')
-      .update({
-        total_revenue: receipt.totalRevenue,
-        service_charge: serviceAmount,
-        service_amount: serviceAmount,
-        actual_sales: receipt.totalRevenue - serviceAmount,
-        tax: receipt.tax ?? 0,
-        net_revenue: receipt.netRevenue,
-        cash_amount: receipt.cashAmount ?? 0,
-        card_amount: receipt.cardAmount ?? 0,
-        guest_count: receipt.guestCount ?? 0,
-        avg_spend: receipt.avgSpend ?? 0,
-      })
+      .update(updateFields)
       .eq('id', id)
       .eq('store_id', STORE_ID);
 

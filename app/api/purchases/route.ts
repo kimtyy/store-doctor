@@ -48,19 +48,23 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '요청 본문을 파싱할 수 없습니다.' }, { status: 400 });
     }
 
-    const { id, items, totalAmount } = body as {
+    const { id, items, totalAmount, date } = body as {
       id: string;
       items: { name: string; quantity: number; unitPrice: number; amount: number }[];
       totalAmount: number;
+      date?: string;
     };
 
     if (!id) {
       return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
     }
 
+    const updatePayload: Record<string, unknown> = { items: items ?? [], total_amount: totalAmount };
+    if (date) updatePayload.date = date;
+
     const { error } = await supabase
       .from('purchase_records')
-      .update({ items: items ?? [], total_amount: totalAmount })
+      .update(updatePayload)
       .eq('id', id)
       .eq('store_id', STORE_ID);
 
