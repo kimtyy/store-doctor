@@ -12,23 +12,37 @@ import type { DailySales } from '@/types/sales';
 
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<DailySales[]>([]);
+  const [purchaseByDate, setPurchaseByDate] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchSales() {
+    async function fetchAll() {
       try {
-        const res = await fetch('/api/sales');
-        const body = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(body?.error ?? `서버 오류 (${res.status})`);
-        setSalesData(body.data ?? []);
+        const [salesRes, purchaseRes] = await Promise.all([
+          fetch('/api/sales'),
+          fetch('/api/purchases'),
+        ]);
+        const salesBody = await salesRes.json().catch(() => null);
+        if (!salesRes.ok) throw new Error(salesBody?.error ?? `서버 오류 (${salesRes.status})`);
+        setSalesData(salesBody.data ?? []);
+
+        if (purchaseRes.ok) {
+          const purchaseBody = await purchaseRes.json().catch(() => null);
+          const records: { date: string; total_amount: number }[] = purchaseBody?.data ?? [];
+          const byDate: Record<string, number> = {};
+          for (const r of records) {
+            byDate[r.date] = (byDate[r.date] ?? 0) + (r.total_amount ?? 0);
+          }
+          setPurchaseByDate(byDate);
+        }
       } catch (err) {
         setFetchError(err instanceof Error ? err.message : '데이터를 불러오지 못했습니다.');
       } finally {
         setLoading(false);
       }
     }
-    fetchSales();
+    fetchAll();
   }, []);
 
   const chartData = useMemo((): MAChartDataPoint[] => {
@@ -54,11 +68,20 @@ export default function DashboardPage() {
     const revenues = salesData.map((d) => d.netRevenue);
     const ma5 = calculateMovingAverage(revenues, 5);
     const ma20 = calculateMovingAverage(revenues, 20);
-    const todayRevenue = revenues[revenues.length - 1];
-    const estimatedCost = todayRevenue * 0.4;
-    const todayProfit = todayRevenue - estimatedCost;
-    const costRatio = calculateCostRatio(todayRevenue, estimatedCost);
-    const costRatios = revenues.map((rev) => calculateCostRatio(rev, rev * 0.4));
+    const lastDay = salesData[salesData.length - 1];
+    const todayRevenue = lastDay.netRevenue;
+
+    const realCost = purchaseByDate[lastDay.date];
+    const hasRealCost = realCost !== undefined;
+    const todayCost = hasRealCost ? realCost : todayRevenue * 0.4;
+    const todayProfit = todayRevenue - todayCost;
+    const costRatio = calculateCostRatio(todayRevenue, todayCost);
+
+    // For cost ratio trend, use real purchase if available, else estimate
+    const costRatios = salesData.map((d) => {
+      const cost = purchaseByDate[d.date] ?? d.netRevenue * 0.4;
+      return calculateCostRatio(d.netRevenue, cost);
+    });
     const costRatioMA5 = calculateMovingAverage(costRatios, 5);
     const lastCostRatioMA5 = costRatioMA5.slice(-5);
     const diag = diagnoseDailySales(todayRevenue, ma5, ma20, costRatio, lastCostRatioMA5);
@@ -67,9 +90,10 @@ export default function DashboardPage() {
       todayProfit,
       costRatio,
       todayRevenue,
-      avgSpend: salesData[salesData.length - 1].avgSpend,
+      avgSpend: lastDay.avgSpend,
+      hasRealCost,
     };
-  }, [salesData]);
+  }, [salesData, purchaseByDate]);
 
   const recentDays = useMemo(() => salesData.slice(-7).reverse(), [salesData]);
 
@@ -115,12 +139,19 @@ export default function DashboardPage() {
           ) : (
             <>
               {diagnosis ? (
-                <DiagnosisCard
-                  diagnosis={diagnosis.diagnosis}
-                  todayProfit={diagnosis.todayProfit}
-                  costRatio={diagnosis.costRatio}
-                  avgSpend={diagnosis.avgSpend}
-                />
+                <div className="space-y-1">
+                  <DiagnosisCard
+                    diagnosis={diagnosis.diagnosis}
+                    todayProfit={diagnosis.todayProfit}
+                    costRatio={diagnosis.costRatio}
+                    avgSpend={diagnosis.avgSpend}
+                  />
+                  {!diagnosis.hasRealCost && (
+                    <p className="text-center text-xs text-slate-500">
+                      * 오늘 매입 내역이 없어 원가 40% 추정치를 사용합니다
+                    </p>
+                  )}
+                </div>
               ) : null}
 
               {chartData.length >= 2 ? (
@@ -140,7 +171,9 @@ export default function DashboardPage() {
                 <div className="mt-4 space-y-3">
                   {recentDays.map((day, idx) => {
                     const dayRevenue = day.netRevenue;
-                    const dayCost = dayRevenue * 0.4;
+                    const realDayCost = purchaseByDate[day.date];
+                    const hasReal = realDayCost !== undefined;
+                    const dayCost = hasReal ? realDayCost : dayRevenue * 0.4;
                     const dayProfit = dayRevenue - dayCost;
 
                     return (
@@ -155,6 +188,9 @@ export default function DashboardPage() {
                               })}
                             </p>
                             <p className="mt-1 text-sm text-slate-400">매출 {(dayRevenue / 10000).toFixed(0)}만원</p>
+                            {hasReal && (
+                              <p className="mt-0.5 text-xs text-slate-500">매입 {(dayCost / 10000).toFixed(1)}만원</p>
+                            )}
                             {(day.serviceAmount ?? 0) > 0 && (
                               <p className="mt-0.5 text-xs text-slate-600">서비스 {((day.serviceAmount ?? 0) / 10000).toFixed(1)}만원</p>
                             )}
@@ -163,7 +199,7 @@ export default function DashboardPage() {
                             <p className={`text-lg font-bold ${dayProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                               {dayProfit >= 0 ? '+' : ''}{(dayProfit / 10000).toFixed(1)}만원
                             </p>
-                            <p className="mt-1 text-xs text-slate-400">추정 수익</p>
+                            <p className="mt-1 text-xs text-slate-400">{hasReal ? '실제 수익' : '추정 수익'}</p>
                           </div>
                         </div>
                       </div>
