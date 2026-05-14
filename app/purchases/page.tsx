@@ -580,7 +580,7 @@ export default function PurchasesInputPage() {
                                   placeholder="품목명"
                                   className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                 />
-                                <div className="grid gap-2" style={{ gridTemplateColumns: '2rem 1.2fr 1.8fr' }}>
+                                <div className="grid gap-2" style={{ gridTemplateColumns: '2rem 1.4fr 1.8fr' }}>
                                   <div>
                                     <p className="text-xs text-slate-500 mb-1">수량</p>
                                     <input
