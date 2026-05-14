@@ -17,6 +17,11 @@ export default function DashboardPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
+    // 고정비 자동 삽입 (fire-and-forget, 오류 무시)
+    fetch('/api/fixed-costs/apply', { method: 'POST' }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     async function fetchAll() {
       try {
         const [salesRes, purchaseRes] = await Promise.all([
