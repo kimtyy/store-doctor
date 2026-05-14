@@ -41,11 +41,11 @@ function NumericTextInput({
   }
 
   return (
-    <div className="flex gap-1">
+    <div className="flex gap-0.5">
       <button
         type="button"
         onClick={toggleSign}
-        className={`shrink-0 rounded-lg px-2.5 text-sm font-bold border transition ${
+        className={`shrink-0 w-6 rounded text-xs font-bold border transition ${
           isNeg
             ? 'border-rose-500 text-rose-400 bg-rose-950/40'
             : 'border-slate-700 text-slate-500 bg-slate-950'
