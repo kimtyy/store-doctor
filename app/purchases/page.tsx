@@ -907,28 +907,26 @@ export default function PurchasesInputPage() {
                         placeholder="품목명"
                         className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                       />
-                      <div className="space-y-2">
-                        <div className="grid gap-2" style={{ gridTemplateColumns: '3rem 1fr' }}>
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">수량</p>
-                            <input
-                              type="number"
-                              min={1}
-                              value={item.quantity}
-                              onChange={(e) => updateManualItem(index, { quantity: Number(e.target.value) })}
-                              onFocus={(e) => e.target.select()}
-                              placeholder="수량"
-                              className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-                            />
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">단가</p>
-                            <NumericTextInput
-                              value={item.unitPrice}
-                              onChange={(n) => updateManualItem(index, { unitPrice: n })}
-                              className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-                            />
-                          </div>
+                      <div className="grid gap-2" style={{ gridTemplateColumns: '2rem 1.4fr 1.8fr' }}>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">수량</p>
+                          <input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) => updateManualItem(index, { quantity: Number(e.target.value) })}
+                            onFocus={(e) => e.target.select()}
+                            placeholder="수량"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">단가</p>
+                          <NumericTextInput
+                            value={item.unitPrice}
+                            onChange={(n) => updateManualItem(index, { unitPrice: n })}
+                            className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                          />
                         </div>
                         <div>
                           <p className="text-xs text-slate-500 mb-1">금액</p>
