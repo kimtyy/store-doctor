@@ -126,8 +126,8 @@ export default function SalesInputPage() {
   }, [tab, loadHistory]);
 
   function toggleExpand(record: DailySales) {
-    if (!record.id) return;
-    const id = record.id;
+    if (!record.id!) return;
+    const id = record.id!;
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
     if (!drafts[id]) {
@@ -503,11 +503,11 @@ export default function SalesInputPage() {
               ) : (
                 <div className="space-y-3">
                   {historyData.map((record) => {
-                    const isExpanded = expandedId === record.id;
-                    const draft = drafts[record.id];
+                    const isExpanded = expandedId === record.id!;
+                    const draft = drafts[record.id!];
                     const menuCount = record.menuItems?.length ?? 0;
                     return (
-                      <div key={record.id} className="rounded-2xl border border-slate-800 bg-slate-900/90">
+                      <div key={record.id!} className="rounded-2xl border border-slate-800 bg-slate-900/90">
                         <button className="w-full p-4 flex items-center justify-between text-left" onClick={() => toggleExpand(record)}>
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-100">
@@ -531,40 +531,40 @@ export default function SalesInputPage() {
                           <div className="border-t border-slate-800 p-4 space-y-4">
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수정</p>
                             <div className="grid grid-cols-2 gap-3">
-                              <div><label className="text-xs text-slate-400">총매출</label><input type="number" value={draft.totalRevenue} onChange={(e) => patchDraft(record.id, { totalRevenue: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={draft.serviceAmount} onChange={(e) => patchDraft(record.id, { serviceAmount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">순매출</label><input type="number" value={draft.netRevenue} onChange={(e) => patchDraft(record.id, { netRevenue: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={draft.tax} onChange={(e) => patchDraft(record.id, { tax: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">현금</label><input type="number" value={draft.cashAmount} onChange={(e) => patchDraft(record.id, { cashAmount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">카드</label><input type="number" value={draft.cardAmount} onChange={(e) => patchDraft(record.id, { cardAmount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={draft.guestCount} onChange={(e) => patchDraft(record.id, { guestCount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">객단가</label><input type="number" value={draft.avgSpend} onChange={(e) => patchDraft(record.id, { avgSpend: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">총매출</label><input type="number" value={draft.totalRevenue} onChange={(e) => patchDraft(record.id!, { totalRevenue: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={draft.serviceAmount} onChange={(e) => patchDraft(record.id!, { serviceAmount: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">순매출</label><input type="number" value={draft.netRevenue} onChange={(e) => patchDraft(record.id!, { netRevenue: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={draft.tax} onChange={(e) => patchDraft(record.id!, { tax: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">현금</label><input type="number" value={draft.cashAmount} onChange={(e) => patchDraft(record.id!, { cashAmount: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">카드</label><input type="number" value={draft.cardAmount} onChange={(e) => patchDraft(record.id!, { cardAmount: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={draft.guestCount} onChange={(e) => patchDraft(record.id!, { guestCount: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div><label className="text-xs text-slate-400">객단가</label><input type="number" value={draft.avgSpend} onChange={(e) => patchDraft(record.id!, { avgSpend: Number(e.target.value) })} className={iClsDark} /></div>
                             </div>
 
                             <div>
                               <div className="flex items-center justify-between mb-2">
                                 <p className="text-xs text-slate-400 font-semibold">메뉴 항목 ({draft.menuItems.length}개)</p>
-                                <button onClick={() => addDraftItem(record.id)} className="text-xs text-sky-400 hover:text-sky-300">+ 추가</button>
+                                <button onClick={() => addDraftItem(record.id!)} className="text-xs text-sky-400 hover:text-sky-300">+ 추가</button>
                               </div>
                               {draft.menuItems.length === 0 ? (
-                                <button onClick={() => addDraftItem(record.id)} className="w-full rounded-xl border border-dashed border-slate-700 py-3 text-xs text-slate-500 hover:text-sky-400 hover:border-sky-700">+ 메뉴 항목 추가</button>
+                                <button onClick={() => addDraftItem(record.id!)} className="w-full rounded-xl border border-dashed border-slate-700 py-3 text-xs text-slate-500 hover:text-sky-400 hover:border-sky-700">+ 메뉴 항목 추가</button>
                               ) : (
                                 <div className="space-y-2 max-h-64 overflow-y-auto">
                                   {draft.menuItems.map((item, idx) => (
                                     <div key={idx} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
                                       <div className="flex justify-between items-center mb-1.5">
                                         <span className="text-xs text-slate-500">{idx + 1}</span>
-                                        <button onClick={() => deleteDraftItem(record.id, idx)} className="text-xs text-rose-400 hover:text-rose-300">삭제</button>
+                                        <button onClick={() => deleteDraftItem(record.id!, idx)} className="text-xs text-rose-400 hover:text-rose-300">삭제</button>
                                       </div>
-                                      <input type="text" value={item.name} onChange={(e) => updateDraftItem(record.id, idx, { name: e.target.value })} placeholder="메뉴명" className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm text-slate-100 mb-2" />
+                                      <input type="text" value={item.name} onChange={(e) => updateDraftItem(record.id!, idx, { name: e.target.value })} placeholder="메뉴명" className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm text-slate-100 mb-2" />
                                       <div className="grid grid-cols-2 gap-2">
                                         <div>
                                           <p className="text-xs text-slate-500 mb-1">수량</p>
-                                          <input type="number" value={item.quantity} onChange={(e) => updateDraftItem(record.id, idx, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm text-slate-100" />
+                                          <input type="number" value={item.quantity} onChange={(e) => updateDraftItem(record.id!, idx, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm text-slate-100" />
                                         </div>
                                         <div>
                                           <p className="text-xs text-slate-500 mb-1">금액</p>
-                                          <input type="number" value={item.amount} onChange={(e) => updateDraftItem(record.id, idx, { amount: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm text-slate-100" />
+                                          <input type="number" value={item.amount} onChange={(e) => updateDraftItem(record.id!, idx, { amount: Number(e.target.value) })} className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm text-slate-100" />
                                         </div>
                                       </div>
                                     </div>
@@ -573,9 +573,9 @@ export default function SalesInputPage() {
                               )}
                             </div>
 
-                            <button onClick={() => saveHistoryDraft(record.id)} disabled={savingId === record.id}
+                            <button onClick={() => saveHistoryDraft(record.id!)} disabled={savingId === record.id!}
                               className="w-full rounded-2xl bg-sky-500 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:opacity-40 disabled:cursor-not-allowed">
-                              {savingId === record.id ? '저장 중...' : '저장하기'}
+                              {savingId === record.id! ? '저장 중...' : '저장하기'}
                             </button>
                           </div>
                         )}
