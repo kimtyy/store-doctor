@@ -889,9 +889,9 @@ export default function PurchasesInputPage() {
 
                 <div className="mt-3 space-y-3">
                   {manualRecord.items.map((item, index) => (
-                    <div key={index} className="rounded-2xl border border-slate-800 bg-slate-900 p-4 space-y-2">
-                      <div className="flex justify-between items-start">
-                        <p className="text-xs text-slate-400">품목 {index + 1}</p>
+                    <div key={index} className="rounded-xl border border-slate-800 bg-slate-900 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">품목 {index + 1}</span>
                         <button
                           type="button"
                           onClick={() => deleteManualItem(index)}
@@ -916,7 +916,6 @@ export default function PurchasesInputPage() {
                             value={item.quantity}
                             onChange={(e) => updateManualItem(index, { quantity: Number(e.target.value) })}
                             onFocus={(e) => e.target.select()}
-                            placeholder="수량"
                             className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                           />
                         </div>
@@ -925,7 +924,7 @@ export default function PurchasesInputPage() {
                           <NumericTextInput
                             value={item.unitPrice}
                             onChange={(n) => updateManualItem(index, { unitPrice: n })}
-                            className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                           />
                         </div>
                         <div>
@@ -933,7 +932,7 @@ export default function PurchasesInputPage() {
                           <NumericTextInput
                             value={item.amount}
                             onChange={(n) => updateManualItem(index, { amount: n })}
-                            className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                           />
                         </div>
                       </div>
