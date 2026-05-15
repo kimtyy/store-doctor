@@ -16,33 +16,70 @@ export async function PATCH(request: Request) {
   try {
     const supabase = makeClient();
     const body = await request.json().catch(() => null);
-    if (!body?.menuName || !body?.alias) {
-      return NextResponse.json({ error: 'menuName과 alias가 필요합니다.' }, { status: 400 });
+    if (!body?.menuName) {
+      return NextResponse.json({ error: 'menuName이 필요합니다.' }, { status: 400 });
     }
-    const { menuName, alias } = body as { menuName: string; alias: string };
 
-    const { data, error: fetchError } = await supabase
+    const { menuName, alias, category, newName } = body as {
+      menuName: string;
+      alias?: string;
+      category?: string;
+      newName?: string;
+    };
+
+    // Canonical name: if renaming, use newName; otherwise menuName
+    const canonicalName = (newName && newName.trim() && newName !== menuName) ? newName.trim() : menuName;
+    const isRename = canonicalName !== menuName;
+
+    const { data: existing, error: fetchError } = await supabase
       .from('menu_master')
-      .select('id, aliases')
-      .eq('menu_name', menuName)
+      .select('id, aliases, category')
+      .eq('menu_name', canonicalName)
       .eq('store_id', STORE_ID)
-      .single();
+      .maybeSingle();
 
-    if (fetchError || !data) {
-      return NextResponse.json({ success: true }); // menu not in master — skip silently
+    if (fetchError) throw new Error(fetchError.message);
+
+    if (existing) {
+      const updatePayload: Record<string, unknown> = {};
+      let updatedAliases: string[] = existing.aliases ?? [];
+
+      if (isRename && !updatedAliases.includes(menuName)) {
+        updatedAliases = [...updatedAliases, menuName];
+      }
+      if (alias && !updatedAliases.includes(alias)) {
+        updatedAliases = [...updatedAliases, alias];
+      }
+      updatePayload.aliases = updatedAliases;
+
+      if (category !== undefined) {
+        updatePayload.category = category || null;
+      }
+
+      const { error: updateError } = await supabase
+        .from('menu_master')
+        .update(updatePayload)
+        .eq('id', existing.id);
+
+      if (updateError) throw new Error(updateError.message);
+    } else {
+      // Entry doesn't exist — create it
+      const aliases: string[] = [];
+      if (isRename) aliases.push(menuName);
+      if (alias && !aliases.includes(alias)) aliases.push(alias);
+
+      const { error: insertError } = await supabase
+        .from('menu_master')
+        .insert({
+          store_id: STORE_ID,
+          menu_name: canonicalName,
+          aliases,
+          category: category || null,
+        });
+
+      if (insertError) throw new Error(insertError.message);
     }
 
-    const current: string[] = data.aliases ?? [];
-    if (current.includes(alias)) {
-      return NextResponse.json({ success: true });
-    }
-
-    const { error: updateError } = await supabase
-      .from('menu_master')
-      .update({ aliases: [...current, alias] })
-      .eq('id', data.id);
-
-    if (updateError) throw new Error(updateError.message);
     return NextResponse.json({ success: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : '오류가 발생했습니다.';
@@ -55,7 +92,7 @@ export async function GET() {
     const supabase = makeClient();
     const { data, error } = await supabase
       .from('menu_master')
-      .select('menu_name, aliases')
+      .select('menu_name, aliases, category')
       .eq('store_id', STORE_ID);
     if (error) throw new Error(error.message);
     return NextResponse.json({ data: data ?? [] });

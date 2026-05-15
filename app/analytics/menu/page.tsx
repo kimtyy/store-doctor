@@ -146,7 +146,7 @@ export default function AnalyticsPage() {
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
   // category edit popup state
-  const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null } | null>(null);
+  const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null; editedName: string } | null>(null);
   const [updatingCategory, setUpdatingCategory] = useState(false);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
@@ -188,18 +188,29 @@ export default function AnalyticsPage() {
   async function handleCategorySelect(category: MenuCategory | null) {
     if (!editingMenu || updatingCategory) return;
     setUpdatingCategory(true);
+    const trimmed = editingMenu.editedName.trim();
+    const isRename = trimmed !== '' && trimmed !== editingMenu.name;
+    const canonicalName = isRename ? trimmed : editingMenu.name;
     try {
-      // Update sales_menu_items (existing records) + menu_master (future OCR saves) in parallel
       const [salesRes] = await Promise.all([
         fetch('/api/analytics/menu', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ menuName: editingMenu.name, category: category ?? '' }),
+          body: JSON.stringify({
+            menuName: editingMenu.name,
+            category: category ?? '',
+            ...(isRename ? { newName: canonicalName } : {}),
+          }),
         }),
+        // Update/create menu_master entry with category (and alias if renamed)
         fetch('/api/menu-master', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ menuName: editingMenu.name, category: category ?? '' }),
+          body: JSON.stringify({
+            menuName: canonicalName,
+            category: category ?? '',
+            ...(isRename ? { alias: editingMenu.name } : {}),
+          }),
         }),
       ]);
       const json = await salesRes.json();
@@ -307,7 +318,7 @@ export default function AnalyticsPage() {
                       {topByAmount.map((item, i) => (
                         <button
                           key={item.name}
-                          onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                          onClick={() => setEditingMenu({ name: item.name, current: item.category, editedName: item.name })}
                           className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
                         >
                           <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
@@ -339,7 +350,7 @@ export default function AnalyticsPage() {
                       {topByQuantity.map((item, i) => (
                         <button
                           key={item.name}
-                          onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                          onClick={() => setEditingMenu({ name: item.name, current: item.category, editedName: item.name })}
                           className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
                         >
                           <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
@@ -635,7 +646,7 @@ export default function AnalyticsPage() {
               {drillMenus.map((item: MenuStat) => (
                 <button
                   key={item.name}
-                  onClick={() => setEditingMenu({ name: item.name, current: item.category })}
+                  onClick={() => setEditingMenu({ name: item.name, current: item.category, editedName: item.name })}
                   className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
                 >
                   <span className="text-sm text-slate-200 truncate flex-1 mr-3">{item.name}</span>
@@ -658,8 +669,28 @@ export default function AnalyticsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4">
-              <p className="text-xs text-slate-500 mb-1">카테고리 지정</p>
-              <p className="text-base font-semibold text-slate-100 truncate">{editingMenu.name}</p>
+              <p className="text-xs text-slate-500 mb-1">메뉴명 수정 (선택)</p>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={editingMenu.editedName}
+                  onChange={(e) => setEditingMenu((prev) => prev ? { ...prev, editedName: e.target.value } : prev)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                  placeholder="메뉴명"
+                />
+                {editingMenu.editedName.trim() !== editingMenu.name && editingMenu.editedName.trim() !== '' && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-sky-400 pointer-events-none">변경됨</span>
+                )}
+              </div>
+              {editingMenu.editedName.trim() !== editingMenu.name && editingMenu.editedName.trim() !== '' && (
+                <p className="mt-1 text-xs text-slate-500">
+                  원본: <span className="text-amber-400">{editingMenu.name}</span>
+                  {' → '}
+                  <span className="text-emerald-400">{editingMenu.editedName.trim()}</span>
+                  <span className="ml-1 text-slate-600">· 원본이 자동으로 별명에 추가됩니다</span>
+                </p>
+              )}
+              <p className="mt-2 text-xs text-slate-500">카테고리</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-4">

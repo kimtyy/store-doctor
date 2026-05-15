@@ -104,7 +104,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const { menuName, category } = await request.json();
+    const { menuName, category, newName } = await request.json();
     if (!menuName || category === undefined) {
       return NextResponse.json({ error: 'menuName과 category가 필요합니다.' }, { status: 400 });
     }
@@ -124,9 +124,14 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: true, updated: 0 });
     }
 
+    const updateFields: Record<string, unknown> = { category: category || null };
+    if (newName && newName.trim() && newName !== menuName) {
+      updateFields.name = newName.trim();
+    }
+
     const { error: updateError } = await supabase
       .from('sales_menu_items')
-      .update({ category: category || null })
+      .update(updateFields)
       .eq('name', menuName)
       .in('daily_sale_id', salesIds);
 

@@ -42,22 +42,27 @@ async function applyCorrections(items: SalesMenuItemWithMeta[]): Promise<SalesMe
     if (!res.ok) return items;
     const body = await res.json();
     const masters: MenuMasterEntry[] = (body.data ?? []).map(
-      (r: { menu_name: string; aliases: string[] | null }) => ({
+      (r: { menu_name: string; aliases: string[] | null; category: string | null }) => ({
         menuName: r.menu_name,
         aliases: r.aliases ?? [],
+        category: r.category,
       })
     );
     if (masters.length === 0) return items;
     return items.map((item) => {
       const result = correctMenuName(item.name, masters);
       if (result.status === 'none') return item;
-      return {
-        ...item,
+      const patch: Partial<SalesMenuItemWithMeta> = {
         name: result.correctedName,
         _originalName: result.originalName,
         _correctionStatus: result.status,
         _suggestedName: result.suggestedName,
       };
+      // Apply category from master for confirmed corrections
+      if ((result.status === 'exact' || result.status === 'auto') && result.category) {
+        patch.category = result.category;
+      }
+      return { ...item, ...patch };
     });
   } catch {
     return items;

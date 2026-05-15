@@ -1,6 +1,7 @@
 export interface MenuMasterEntry {
   menuName: string;
   aliases: string[];
+  category?: string | null;
 }
 
 export type CorrectionStatus = 'exact' | 'auto' | 'suggest' | 'none';
@@ -11,6 +12,7 @@ export interface CorrectionResult {
   status: CorrectionStatus;
   similarity: number;
   originalName: string;
+  category?: string | null;
 }
 
 function levenshtein(a: string, b: string): number {
@@ -51,11 +53,11 @@ export function correctMenuName(
 
   for (const m of masters) {
     if (normalize(m.menuName) === normalizedOcr) {
-      return { correctedName: m.menuName, status: 'exact', similarity: 1, originalName: ocrName };
+      return { correctedName: m.menuName, status: 'exact', similarity: 1, originalName: ocrName, category: m.category };
     }
     for (const alias of m.aliases) {
       if (normalize(alias) === normalizedOcr) {
-        return { correctedName: m.menuName, status: 'exact', similarity: 1, originalName: ocrName };
+        return { correctedName: m.menuName, status: 'exact', similarity: 1, originalName: ocrName, category: m.category };
       }
     }
   }
@@ -63,6 +65,7 @@ export function correctMenuName(
   const normalizedOcrLen = normalizedOcr.length;
   let bestName = ocrName;
   let bestSim = 0;
+  let bestCategory: string | null | undefined = undefined;
   for (const m of masters) {
     for (const c of [m.menuName, ...m.aliases]) {
       const nc = normalize(c);
@@ -71,12 +74,13 @@ export function correctMenuName(
       if (sim > bestSim) {
         bestSim = sim;
         bestName = m.menuName;
+        bestCategory = m.category;
       }
     }
   }
 
   if (bestSim >= 0.80) {
-    return { correctedName: bestName, status: 'auto', similarity: bestSim, originalName: ocrName };
+    return { correctedName: bestName, status: 'auto', similarity: bestSim, originalName: ocrName, category: bestCategory };
   }
   if (bestSim >= 0.60) {
     return {
