@@ -49,12 +49,15 @@ interface TabConfig {
   isCostRatio: boolean;
 }
 
+// HTS 공통 이평선 색상: 5일(흰색) / 20일(노랑) / 60일(주황) / 120일(빨강)
+const LINE_COLORS: [string, string, string, string] = ['#e2e8f0', '#facc15', '#f97316', '#ef4444'];
+
 const TABS: TabConfig[] = [
   {
     key: 'revenue',
     label: '매출',
     keys: ['revenueMa5', 'revenueMa20', 'revenueMa60', 'revenueMa120'],
-    colors: ['#7dd3fc', '#38bdf8', '#0ea5e9', '#0284c7'],
+    colors: LINE_COLORS,
     activeClass: 'bg-sky-600 text-white',
     isCostRatio: false,
   },
@@ -62,7 +65,7 @@ const TABS: TabConfig[] = [
     key: 'cost',
     label: '매입',
     keys: ['costMa5', 'costMa20', 'costMa60', 'costMa120'],
-    colors: ['#fcd34d', '#fbbf24', '#f59e0b', '#d97706'],
+    colors: LINE_COLORS,
     activeClass: 'bg-amber-600 text-white',
     isCostRatio: false,
   },
@@ -70,7 +73,7 @@ const TABS: TabConfig[] = [
     key: 'profit',
     label: '순이익',
     keys: ['profitMa5', 'profitMa20', 'profitMa60', 'profitMa120'],
-    colors: ['#6ee7b7', '#34d399', '#10b981', '#059669'],
+    colors: LINE_COLORS,
     activeClass: 'bg-emerald-600 text-white',
     isCostRatio: false,
   },
@@ -78,7 +81,7 @@ const TABS: TabConfig[] = [
     key: 'costRatio',
     label: '원가율',
     keys: ['costRatioMa5', 'costRatioMa20', 'costRatioMa60', 'costRatioMa120'],
-    colors: ['#fca5a5', '#f87171', '#ef4444', '#dc2626'],
+    colors: LINE_COLORS,
     activeClass: 'bg-rose-600 text-white',
     isCostRatio: true,
   },
