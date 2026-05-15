@@ -25,11 +25,17 @@ export async function GET(request: Request) {
   });
 
   const { searchParams } = new URL(request.url);
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
   const period = searchParams.get('period') ?? '30';
 
   try {
     let fromStr: string | null = null;
-    if (period !== 'all') {
+    let toStr: string | null = null;
+    if (fromParam && toParam) {
+      fromStr = fromParam;
+      toStr = toParam;
+    } else if (period !== 'all') {
       const days = parseInt(period, 10);
       const from = new Date();
       from.setDate(from.getDate() - days);
@@ -41,12 +47,14 @@ export async function GET(request: Request) {
       .select('date, total_amount, category, vendor_name, items')
       .eq('store_id', STORE_ID);
     if (fromStr) purchaseQuery = purchaseQuery.gte('date', fromStr);
+    if (toStr) purchaseQuery = purchaseQuery.lte('date', toStr);
 
     let salesQuery = supabase
       .from('daily_sales')
       .select('date, total_revenue')
       .eq('store_id', STORE_ID);
     if (fromStr) salesQuery = salesQuery.gte('date', fromStr);
+    if (toStr) salesQuery = salesQuery.lte('date', toStr);
 
     const [{ data: purchaseData, error: purchaseError }, { data: salesData, error: salesError }] =
       await Promise.all([purchaseQuery, salesQuery]);

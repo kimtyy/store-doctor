@@ -32,6 +32,8 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
   const period = searchParams.get('period') ?? '30';
 
   try {
@@ -40,7 +42,9 @@ export async function GET(request: Request) {
       .select('id, date, sales_menu_items(name, quantity, amount, category)')
       .eq('store_id', STORE_ID);
 
-    if (period !== 'all') {
+    if (fromParam && toParam) {
+      query = query.gte('date', fromParam).lte('date', toParam);
+    } else if (period !== 'all') {
       const days = parseInt(period, 10);
       const from = new Date();
       from.setDate(from.getDate() - days);

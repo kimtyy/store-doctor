@@ -47,14 +47,20 @@ interface PurchaseAnalyticsData {
   vendorRankings: VendorRankingStat[];
 }
 
+interface MonthSelection {
+  year: number;
+  month: number;
+}
+
 // ── constants ────────────────────────────────────────────────────────────────
 
-type Period = '7' | '30' | 'all';
+type Period = '7' | '30' | 'monthly' | 'all';
 type Section = 'menu' | 'purchase';
 
 const PERIOD_LABELS: Record<Period, string> = {
   '7': '최근 7일',
   '30': '최근 30일',
+  monthly: '월별',
   all: '전체',
 };
 
@@ -117,6 +123,24 @@ function formatAmount(n: number) {
   return n.toLocaleString();
 }
 
+function shiftMonth(m: MonthSelection, delta: number): MonthSelection {
+  const d = new Date(m.year, m.month - 1 + delta, 1);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
+function buildApiQuery(p: Period, month: MonthSelection): string {
+  if (p === 'monthly') {
+    const { year, month: m } = month;
+    const from = `${year}-${String(m).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, m, 0).getDate();
+    const to = `${year}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    return `from=${from}&to=${to}`;
+  }
+  return `period=${p}`;
+}
+
+function monthKey(m: MonthSelection) { return `${m.year}-${m.month}`; }
+
 function CategoryBadge({ category }: { category: string | null }) {
   const label = category ?? '미지정';
   return (
@@ -126,35 +150,52 @@ function CategoryBadge({ category }: { category: string | null }) {
   );
 }
 
-const PERIODS: Period[] = ['7', '30', 'all'];
+function MoMBadge({ current, prev, invertColor = false }: { current: number; prev: number; invertColor?: boolean }) {
+  if (prev === 0) return null;
+  const pct = ((current - prev) / Math.abs(prev)) * 100;
+  const isUp = pct > 0;
+  const isGood = invertColor ? !isUp : isUp;
+  return (
+    <p className={`text-xs mt-0.5 font-medium ${isGood ? 'text-emerald-400' : 'text-rose-400'}`}>
+      {isUp ? '+' : ''}{pct.toFixed(1)}% {isUp ? '↑' : '↓'}
+    </p>
+  );
+}
+
+const PERIODS: Period[] = ['7', '30', 'monthly', 'all'];
 
 // ── main component ───────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
   const [section, setSection] = useState<Section>('menu');
+  const [period, setPeriod] = useState<Period>('30');
+  const [selectedMonth, setSelectedMonth] = useState<MonthSelection>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  });
+  const [availableMonths, setAvailableMonths] = useState<MonthSelection[]>([]);
 
   // menu analytics state
-  const [menuPeriod, setMenuPeriod] = useState<Period>('30');
   const [menuData, setMenuData] = useState<MenuAnalyticsData | null>(null);
   const [menuLoading, setMenuLoading] = useState(true);
   const [menuError, setMenuError] = useState<string | null>(null);
 
   // purchase analytics state
-  const [purchasePeriod, setPurchasePeriod] = useState<Period>('30');
   const [purchaseData, setPurchaseData] = useState<PurchaseAnalyticsData | null>(null);
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [prevPurchaseData, setPrevPurchaseData] = useState<PurchaseAnalyticsData | null>(null);
 
   // category edit popup state
   const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null; editedName: string } | null>(null);
   const [updatingCategory, setUpdatingCategory] = useState(false);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
-  const fetchMenuData = useCallback(async (p: Period) => {
+  const fetchMenuData = useCallback(async (p: Period, month: MonthSelection) => {
     setMenuLoading(true);
     setMenuError(null);
     try {
-      const res = await fetch(`/api/analytics/menu?period=${p}`);
+      const res = await fetch(`/api/analytics/menu?${buildApiQuery(p, month)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
       setMenuData(json);
@@ -165,11 +206,11 @@ export default function AnalyticsPage() {
     }
   }, []);
 
-  const fetchPurchaseData = useCallback(async (p: Period) => {
+  const fetchPurchaseData = useCallback(async (p: Period, month: MonthSelection) => {
     setPurchaseLoading(true);
     setPurchaseError(null);
     try {
-      const res = await fetch(`/api/analytics/purchases?period=${p}`);
+      const res = await fetch(`/api/analytics/purchases?${buildApiQuery(p, month)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
       setPurchaseData(json);
@@ -180,10 +221,46 @@ export default function AnalyticsPage() {
     }
   }, []);
 
-  useEffect(() => { fetchMenuData(menuPeriod); }, [menuPeriod, fetchMenuData]);
+  useEffect(() => { fetchMenuData(period, selectedMonth); }, [period, selectedMonth, fetchMenuData]);
+
   useEffect(() => {
-    if (section === 'purchase') fetchPurchaseData(purchasePeriod);
-  }, [section, purchasePeriod, fetchPurchaseData]);
+    if (section === 'purchase' || period === 'monthly') {
+      fetchPurchaseData(period, selectedMonth);
+    }
+  }, [section, period, selectedMonth, fetchPurchaseData]);
+
+  // Fetch available months + previous month data when in monthly mode
+  useEffect(() => {
+    if (period !== 'monthly') {
+      setAvailableMonths([]);
+      setPrevPurchaseData(null);
+      return;
+    }
+    fetch('/api/analytics/months')
+      .then(r => r.json())
+      .then(data => {
+        const months: MonthSelection[] = data.months ?? [];
+        setAvailableMonths(months);
+        // Auto-navigate to latest available month if current month has no data
+        if (months.length > 0) {
+          const isCurrentAvailable = months.some(
+            m => m.year === selectedMonth.year && m.month === selectedMonth.month
+          );
+          if (!isCurrentAvailable) {
+            setSelectedMonth(months[months.length - 1]);
+          }
+        }
+      })
+      .catch(() => {});
+
+    const prev = shiftMonth(selectedMonth, -1);
+    const prevQ = buildApiQuery('monthly', prev);
+    fetch(`/api/analytics/purchases?${prevQ}`)
+      .then(r => r.json())
+      .then(data => setPrevPurchaseData(data))
+      .catch(() => setPrevPurchaseData(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, selectedMonth]);
 
   async function handleCategorySelect(category: MenuCategory | null) {
     if (!editingMenu || updatingCategory) return;
@@ -202,7 +279,6 @@ export default function AnalyticsPage() {
             ...(isRename ? { newName: canonicalName } : {}),
           }),
         }),
-        // Update/create menu_master entry with category (and alias if renamed)
         fetch('/api/menu-master', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -216,13 +292,25 @@ export default function AnalyticsPage() {
       const json = await salesRes.json();
       if (!salesRes.ok) throw new Error(json.error ?? '업데이트 실패');
       setEditingMenu(null);
-      await fetchMenuData(menuPeriod);
+      await fetchMenuData(period, selectedMonth);
     } catch (e) {
       alert(e instanceof Error ? e.message : '오류가 발생했습니다.');
     } finally {
       setUpdatingCategory(false);
     }
   }
+
+  const canGoPrev = useMemo(() => {
+    if (availableMonths.length === 0) return false;
+    const prev = shiftMonth(selectedMonth, -1);
+    return availableMonths.some(m => monthKey(m) === monthKey(prev));
+  }, [availableMonths, selectedMonth]);
+
+  const canGoNext = useMemo(() => {
+    if (availableMonths.length === 0) return false;
+    const next = shiftMonth(selectedMonth, 1);
+    return availableMonths.some(m => monthKey(m) === monthKey(next));
+  }, [availableMonths, selectedMonth]);
 
   // menu chart data
   const topByAmount = menuData?.byAmount.slice(0, 10) ?? [];
@@ -236,7 +324,6 @@ export default function AnalyticsPage() {
     color: MENU_CAT_COLORS[s.category] ?? '#94a3b8',
   }));
 
-  // purchase chart data
   const purchasePieData = (purchaseData?.categoryStats ?? []).map((s) => ({
     name: PURCHASE_CAT_LABELS[s.category] ?? s.category,
     value: s.totalAmount,
@@ -265,7 +352,7 @@ export default function AnalyticsPage() {
         <h1 className="text-xl font-bold text-slate-100 mb-5">분석</h1>
 
         {/* Section tabs */}
-        <div className="flex gap-1 rounded-2xl bg-slate-900/80 p-1.5 mb-6">
+        <div className="flex gap-1 rounded-2xl bg-slate-900/80 p-1.5 mb-4">
           <button
             onClick={() => setSection('menu')}
             className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition ${
@@ -284,18 +371,107 @@ export default function AnalyticsPage() {
           </button>
         </div>
 
+        {/* Period tabs */}
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {PERIODS.map((tab) => (
+            <button key={tab} onClick={() => setPeriod(tab)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition ${period === tab ? 'bg-sky-500 text-slate-950' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+              {PERIOD_LABELS[tab]}
+            </button>
+          ))}
+        </div>
+
+        {/* Month navigator */}
+        {period === 'monthly' && (
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <button
+              onClick={() => setSelectedMonth(shiftMonth(selectedMonth, -1))}
+              disabled={!canGoPrev}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 transition text-base"
+            >
+              ←
+            </button>
+            <span className="text-sm font-semibold text-slate-200 min-w-[110px] text-center">
+              {selectedMonth.year}년 {selectedMonth.month}월
+            </span>
+            <button
+              onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
+              disabled={!canGoNext}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 transition text-base"
+            >
+              →
+            </button>
+          </div>
+        )}
+
+        {/* Monthly summary card */}
+        {period === 'monthly' && (
+          purchaseData ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 mb-6">
+              <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                {selectedMonth.year}년 {selectedMonth.month}월 손익 요약
+              </h2>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">총매출</p>
+                  <p className="text-base font-bold text-slate-100">{formatAmount(purchaseData.totalRevenue)}원</p>
+                  {prevPurchaseData && (
+                    <MoMBadge current={purchaseData.totalRevenue} prev={prevPurchaseData.totalRevenue} />
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">총매입</p>
+                  <p className="text-base font-bold text-rose-400">{formatAmount(purchaseData.totalPurchase)}원</p>
+                  {prevPurchaseData && (
+                    <MoMBadge current={purchaseData.totalPurchase} prev={prevPurchaseData.totalPurchase} invertColor />
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">순이익</p>
+                  {(() => {
+                    const profit = purchaseData.totalRevenue - purchaseData.totalPurchase;
+                    const prevProfit = prevPurchaseData
+                      ? prevPurchaseData.totalRevenue - prevPurchaseData.totalPurchase
+                      : null;
+                    return (
+                      <>
+                        <p className={`text-base font-bold ${profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {profit >= 0 ? '+' : ''}{formatAmount(Math.abs(profit))}원
+                        </p>
+                        {prevProfit !== null && prevProfit !== 0 && (
+                          <MoMBadge current={profit} prev={prevProfit} />
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+              {purchaseData.totalRevenue > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                    <span>원가율</span>
+                    <span className={costRatioColor}>{costRatio.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${costRatio > 70 ? 'bg-rose-500' : costRatio >= 55 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                      style={{ width: `${Math.min(costRatio, 100).toFixed(1)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : purchaseLoading ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 mb-6">
+              <div className="text-center text-sm text-slate-500 animate-pulse py-2">손익 요약 불러오는 중...</div>
+            </div>
+          ) : null
+        )}
+
         {/* ── MENU ANALYTICS ─────────────────────────────────────────────── */}
         {section === 'menu' && (
           <>
             <p className="text-xs text-slate-500 mb-4">메뉴를 탭하면 카테고리를 지정할 수 있습니다.</p>
-            <div className="flex gap-2 mb-6">
-              {PERIODS.map((tab) => (
-                <button key={tab} onClick={() => setMenuPeriod(tab)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${menuPeriod === tab ? 'bg-sky-500 text-slate-950' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
-                  {PERIOD_LABELS[tab]}
-                </button>
-              ))}
-            </div>
 
             {menuLoading && (
               <div className="flex items-center justify-center py-20">
@@ -425,15 +601,6 @@ export default function AnalyticsPage() {
         {/* ── PURCHASE ANALYTICS ─────────────────────────────────────────── */}
         {section === 'purchase' && (
           <>
-            <div className="flex gap-2 mb-6">
-              {PERIODS.map((tab) => (
-                <button key={tab} onClick={() => setPurchasePeriod(tab)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${purchasePeriod === tab ? 'bg-sky-500 text-slate-950' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
-                  {PERIOD_LABELS[tab]}
-                </button>
-              ))}
-            </div>
-
             {purchaseLoading && (
               <div className="flex items-center justify-center py-20">
                 <div className="text-slate-400 text-sm animate-pulse">불러오는 중...</div>
@@ -445,30 +612,30 @@ export default function AnalyticsPage() {
 
             {!purchaseLoading && !purchaseError && purchaseData && (
               <>
-                {/* Summary cards */}
-                <section className="mb-6">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                      <p className="text-xs text-slate-500 mb-1">기간 총 매입</p>
-                      <p className="text-lg font-bold text-rose-400">
-                        {formatAmount(purchaseData.totalPurchase)}원
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                      <p className="text-xs text-slate-500 mb-1">매출 대비 원가율</p>
-                      <p className={`text-lg font-bold ${costRatioColor}`}>
-                        {purchaseData.totalRevenue > 0
-                          ? `${costRatio.toFixed(1)}%`
-                          : '—'}
-                      </p>
-                      {purchaseData.totalRevenue > 0 && (
-                        <p className="text-xs text-slate-600 mt-0.5">
-                          매출 {formatAmount(purchaseData.totalRevenue)}원
+                {/* Summary cards — only in non-monthly mode (monthly has global summary card above) */}
+                {period !== 'monthly' && (
+                  <section className="mb-6">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <p className="text-xs text-slate-500 mb-1">기간 총 매입</p>
+                        <p className="text-lg font-bold text-rose-400">
+                          {formatAmount(purchaseData.totalPurchase)}원
                         </p>
-                      )}
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <p className="text-xs text-slate-500 mb-1">매출 대비 원가율</p>
+                        <p className={`text-lg font-bold ${costRatioColor}`}>
+                          {purchaseData.totalRevenue > 0 ? `${costRatio.toFixed(1)}%` : '—'}
+                        </p>
+                        {purchaseData.totalRevenue > 0 && (
+                          <p className="text-xs text-slate-600 mt-0.5">
+                            매출 {formatAmount(purchaseData.totalRevenue)}원
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </section>
+                  </section>
+                )}
 
                 {/* Category pie */}
                 <section className="mb-8">
