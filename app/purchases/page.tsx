@@ -162,6 +162,7 @@ export default function PurchasesInputPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draftItems, setDraftItems] = useState<Record<string, PurchaseHistoryItem[]>>({});
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
+  const [draftVendorNames, setDraftVendorNames] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
 
   const fetchHistory = useCallback(async () => {
@@ -191,6 +192,7 @@ export default function PurchasesInputPage() {
       if (!draftItems[record.id]) {
         setDraftItems((prev) => ({ ...prev, [record.id]: record.items.map((i) => ({ ...i })) }));
         setDraftDates((prev) => ({ ...prev, [record.id]: record.date }));
+        setDraftVendorNames((prev) => ({ ...prev, [record.id]: record.vendor_name }));
       }
     }
   }
@@ -220,20 +222,31 @@ export default function PurchasesInputPage() {
   async function saveDraftItems(record: PurchaseHistoryRecord) {
     const items = draftItems[record.id] ?? record.items;
     const totalAmount = items.reduce((s, i) => s + i.amount, 0) || record.total_amount;
+    const vendorName = draftVendorNames[record.id] ?? record.vendor_name;
     setSavingId(record.id);
     setError(null);
     try {
       const res = await fetch('/api/purchases', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: record.id, items, totalAmount, date: draftDates[record.id] }),
+        body: JSON.stringify({
+          id: record.id,
+          items,
+          totalAmount,
+          date: draftDates[record.id],
+          vendorName,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '저장 실패');
       setHistoryList((prev) =>
-        prev.map((r) => (r.id === record.id ? { ...r, items, total_amount: totalAmount } : r))
+        prev.map((r) =>
+          r.id === record.id
+            ? { ...r, items, total_amount: totalAmount, vendor_name: vendorName }
+            : r
+        )
       );
-      setSaveSuccess('✅ 품목 수정 완료!');
+      setSaveSuccess('✅ 수정 완료!');
       setTimeout(() => setSaveSuccess(null), 3000);
     } catch (e) {
       setError(e instanceof Error ? e.message : '오류가 발생했습니다.');
@@ -567,14 +580,26 @@ export default function PurchasesInputPage() {
                         {/* Expanded — item list */}
                         {isExpanded && (
                           <div className="border-t border-slate-800 px-4 pb-4 pt-3 space-y-3">
-                            <div>
-                              <p className="text-xs text-slate-500 mb-1">날짜</p>
-                              <input
-                                type="date"
-                                value={draftDates[record.id] ?? record.date}
-                                onChange={(e) => setDraftDates((prev) => ({ ...prev, [record.id]: e.target.value }))}
-                                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-                              />
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <p className="text-xs text-slate-500 mb-1">상호명</p>
+                                <input
+                                  type="text"
+                                  value={draftVendorNames[record.id] ?? record.vendor_name}
+                                  onChange={(e) => setDraftVendorNames((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                                  placeholder="상호명"
+                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                />
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-500 mb-1">날짜</p>
+                                <input
+                                  type="date"
+                                  value={draftDates[record.id] ?? record.date}
+                                  onChange={(e) => setDraftDates((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                />
+                              </div>
                             </div>
                             {draft.length === 0 && (
                               <p className="text-xs text-slate-500 text-center py-2">품목이 없습니다.</p>

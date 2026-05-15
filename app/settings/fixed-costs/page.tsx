@@ -111,20 +111,15 @@ function FormFields({
       <div className="grid grid-cols-2 gap-3">
         {/* 금액 */}
         <div>
-          <label className="text-xs text-slate-400">
-            금액 (원){form.costType === 'manual_input' && <span className="ml-1 text-amber-400">매월 직접 입력</span>}
-          </label>
+          <label className="text-xs text-slate-400">금액 (원)</label>
           <input
             type="number"
             min={0}
-            value={form.costType === 'manual_input' ? '' : form.amount}
+            value={form.amount}
             onChange={(e) => onChange({ ...form, amount: e.target.value })}
             onFocus={scrollOnFocus}
-            disabled={form.costType === 'manual_input'}
-            placeholder={form.costType === 'manual_input' ? '—' : '0'}
-            className={`mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-100 ${
-              form.costType === 'manual_input' ? 'opacity-40 cursor-not-allowed' : ''
-            }`}
+            placeholder="0"
+            className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-2.5 text-sm text-slate-100"
           />
         </div>
 
@@ -216,7 +211,7 @@ export default function FixedCostsPage() {
 
   async function handleAdd() {
     if (!addForm.name) { setError('항목명을 입력하세요.'); return; }
-    if (addForm.costType === 'fixed_amount' && !addForm.amount) { setError('금액을 입력하세요.'); return; }
+    if (addForm.costType === 'fixed_amount' && !addForm.amount) { setError('금액고정 타입은 금액을 입력하세요.'); return; }
     setSaving(true);
     setError(null);
     try {
@@ -225,7 +220,7 @@ export default function FixedCostsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: addForm.name,
-          amount: addForm.costType === 'manual_input' ? 0 : Number(addForm.amount),
+          amount: Number(addForm.amount) || 0,
           category: addForm.category,
           billingDay: Number(addForm.billingDay),
           costType: addForm.costType,
@@ -267,7 +262,7 @@ export default function FixedCostsPage() {
         body: JSON.stringify({
           id: editId,
           name: editForm.name,
-          amount: editForm.costType === 'manual_input' ? 0 : Number(editForm.amount),
+          amount: Number(editForm.amount) || 0,
           category: editForm.category,
           billingDay: Number(editForm.billingDay),
           costType: editForm.costType,
@@ -439,7 +434,7 @@ export default function FixedCostsPage() {
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">
                         {categoryLabel(fc.category)} · 매월 {fc.billing_day}일
-                        {fc.cost_type !== 'manual_input' && ` · ${fc.amount.toLocaleString()}원`}
+                        {fc.amount > 0 && ` · ${fc.amount.toLocaleString()}원`}
                       </div>
                     </div>
 
@@ -494,7 +489,7 @@ export default function FixedCostsPage() {
           <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-500 space-y-1">
             <p>• 활성화된 고정비는 매월 1일 자동으로 매입 내역에 추가됩니다.</p>
             <p>• <span className="text-sky-400">금액고정</span>: 설정 금액 그대로 삽입 (임대료·보험료 등)</p>
-            <p>• <span className="text-amber-400">매월입력</span>: 항목만 생성, 금액 0원 → 매입 탭에서 직접 수정 (전기·가스 등)</p>
+            <p>• <span className="text-amber-400">매월입력</span>: 매월 자동 항목 생성, 금액은 매입 탭에서 직접 수정 (전기·가스 등). 기본값 설정 가능.</p>
             <p>• 이미 추가된 달은 중복 삽입되지 않습니다.</p>
           </div>
 
