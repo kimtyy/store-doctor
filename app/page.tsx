@@ -79,6 +79,15 @@ export default function DashboardPage() {
     const profitMa20 = calcNullableMA(profitValues, 20);
     const profitMa60 = calcNullableMA(profitValues, 60);
 
+    // 원가율 이평선 (매입이 있는 날만 실제값 사용)
+    const crValues = salesData.map((d) => {
+      const cost = purchaseByDate[d.date];
+      return cost !== undefined && d.netRevenue > 0 ? (cost / d.netRevenue) * 100 : null;
+    });
+    const crMa5 = calcNullableMA(crValues, 5);
+    const crMa20 = calcNullableMA(crValues, 20);
+    const crMa60 = calcNullableMA(crValues, 60);
+
     return salesData.map((d, i) => ({
       date: d.date.slice(-5),
       revenueMa5: revMa5[i],
@@ -90,6 +99,9 @@ export default function DashboardPage() {
       profitMa5: profitMa5[i],
       profitMa20: profitMa20[i],
       profitMa60: profitMa60[i],
+      costRatioMa5: crMa5[i],
+      costRatioMa20: crMa20[i],
+      costRatioMa60: crMa60[i],
     }));
   }, [salesData, purchaseByDate]);
 
@@ -113,18 +125,23 @@ export default function DashboardPage() {
     const todayProfit = todayRevenue - todayCost;
     const costRatio = calculateCostRatio(todayRevenue, todayCost);
 
-    // For cost ratio trend, use real purchase if available, else estimate
-    const costRatios = salesData.map((d) => {
-      const cost = purchaseByDate[d.date] ?? d.netRevenue * 0.4;
-      return calculateCostRatio(d.netRevenue, cost);
+    // 원가율 이평선 (실제 매입 데이터가 있는 날만)
+    const crValues = salesData.map((d) => {
+      const cost = purchaseByDate[d.date];
+      return cost !== undefined && d.netRevenue > 0 ? (cost / d.netRevenue) * 100 : null;
     });
-    const costRatioMA5 = calculateMovingAverage(costRatios, 5);
-    const lastCostRatioMA5 = costRatioMA5.slice(-5);
-    const diag = diagnoseDailySales(todayRevenue, ma5, ma20, costRatio, lastCostRatioMA5);
+    const costRatioMA5Series = calcNullableMA(crValues, 5);
+    const costRatioMA20Series = calcNullableMA(crValues, 20);
+    const latestCostRatioMA5 = costRatioMA5Series.length > 0
+      ? costRatioMA5Series[costRatioMA5Series.length - 1]
+      : null;
+
+    const diag = diagnoseDailySales(todayRevenue, ma5, ma20, costRatioMA5Series, costRatioMA20Series);
     return {
       diagnosis: diag,
       todayProfit,
       costRatio,
+      costRatioMA5: latestCostRatioMA5,
       todayRevenue,
       avgSpend: lastDay.avgSpend,
       hasRealCost,
@@ -210,6 +227,7 @@ export default function DashboardPage() {
                     diagnosis={diagnosis.diagnosis}
                     todayProfit={diagnosis.todayProfit}
                     costRatio={diagnosis.costRatio}
+                    costRatioMA5={diagnosis.costRatioMA5}
                     avgSpend={diagnosis.avgSpend}
                   />
                   {!diagnosis.hasRealCost && (
