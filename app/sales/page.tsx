@@ -301,6 +301,25 @@ export default function SalesInputPage() {
 
   // ── input ─────────────────────────────────────────────────────────────────────
 
+  async function saveCorrectionsAsAliases(items: SalesMenuItemWithMeta[]) {
+    const pairs = items.filter(
+      (item) =>
+        (item._correctionStatus === 'auto' || item._correctionStatus === 'exact') &&
+        item._originalName &&
+        item._originalName !== item.name
+    );
+    if (pairs.length === 0) return;
+    await Promise.allSettled(
+      pairs.map((item) =>
+        fetch('/api/menu-master', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ menuName: item.name, alias: item._originalName }),
+        })
+      )
+    );
+  }
+
   function updateMenuItem(index: number, value: Partial<SalesMenuItemWithMeta>) {
     setEditableMenuItems((cur) => { const a = [...cur]; a[index] = { ...a[index], ...value }; return a; });
   }
@@ -413,6 +432,7 @@ export default function SalesInputPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error || `서버 오류 (${res.status})`);
+      await saveCorrectionsAsAliases(editableMenuItems);
       setMenuSaved(true);
       setSaveSuccess('✅ 오늘 입력 완료!');
     } catch (err) { setError(err instanceof Error ? err.message : '저장 실패'); }
@@ -441,6 +461,7 @@ export default function SalesInputPage() {
       try { body = JSON.parse(text); } catch { throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.'); }
       if (!res.ok) throw new Error(body.error || body.details || `서버 오류 (${res.status})`);
       if (body.success) {
+        await saveCorrectionsAsAliases(editableMenuItems);
         setSaveSuccess(successMessage ?? body.message ?? '✅ 저장 완료!');
         resetInput();
       } else throw new Error('저장 결과를 확인할 수 없습니다.');
@@ -537,7 +558,7 @@ export default function SalesInputPage() {
                                 {receiptSaved ? '저장된 정산서' : '정산서 결과 — 수정 가능'}
                               </p>
                               <div className="grid grid-cols-2 gap-3">
-                                <div><label className="text-xs text-slate-400">날짜</label><input type="date" value={editableReceipt.date} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, date: e.target.value } : c)} className={iCls} /></div>
+                                <div className="col-span-2"><label className="text-xs text-slate-400">날짜</label><input type="date" value={editableReceipt.date} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, date: e.target.value } : c)} className={iCls} /></div>
                                 <div><label className="text-xs text-slate-400">총매출</label><input type="number" value={editableReceipt.totalRevenue} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, totalRevenue: Number(e.target.value) } : c)} className={iCls} /></div>
                                 <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={editableReceipt.serviceAmount ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, serviceAmount: Number(e.target.value) } : c)} className={iCls} /></div>
                                 <div><label className="text-xs text-slate-400">순매출</label><input type="number" value={editableReceipt.netRevenue} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, netRevenue: Number(e.target.value) } : c)} className={iCls} /></div>

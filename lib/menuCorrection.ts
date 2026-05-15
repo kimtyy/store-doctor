@@ -75,10 +75,10 @@ export function correctMenuName(
     }
   }
 
-  if (bestSim >= 0.95) {
+  if (bestSim >= 0.80) {
     return { correctedName: bestName, status: 'auto', similarity: bestSim, originalName: ocrName };
   }
-  if (bestSim >= 0.85) {
+  if (bestSim >= 0.60) {
     return {
       correctedName: ocrName,
       suggestedName: bestName,
