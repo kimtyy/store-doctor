@@ -35,8 +35,8 @@ export default function DashboardPage() {
     async function fetchAll() {
       try {
         const [salesRes, purchaseRes] = await Promise.all([
-          fetch('/api/sales?days=120'),
-          fetch('/api/purchases?days=120'),
+          fetch('/api/sales?days=240'),
+          fetch('/api/purchases?days=240'),
         ]);
         const salesBody = await salesRes.json().catch(() => null);
         if (!salesRes.ok) throw new Error(salesBody?.error ?? `서버 오류 (${salesRes.status})`);
@@ -72,12 +72,15 @@ export default function DashboardPage() {
     const revMa5 = calculateMovingAverage(revenues, 5);
     const revMa20 = calculateMovingAverage(revenues, 20);
     const revMa60 = calculateMovingAverage(revenues, 60);
+    const revMa120 = calculateMovingAverage(revenues, 120);
     const costMa5 = calcNullableMA(costValues, 5);
     const costMa20 = calcNullableMA(costValues, 20);
     const costMa60 = calcNullableMA(costValues, 60);
+    const costMa120 = calcNullableMA(costValues, 120);
     const profitMa5 = calcNullableMA(profitValues, 5);
     const profitMa20 = calcNullableMA(profitValues, 20);
     const profitMa60 = calcNullableMA(profitValues, 60);
+    const profitMa120 = calcNullableMA(profitValues, 120);
 
     // 원가율 이평선 (매입이 있는 날만 실제값 사용)
     const crValues = salesData.map((d) => {
@@ -87,21 +90,26 @@ export default function DashboardPage() {
     const crMa5 = calcNullableMA(crValues, 5);
     const crMa20 = calcNullableMA(crValues, 20);
     const crMa60 = calcNullableMA(crValues, 60);
+    const crMa120 = calcNullableMA(crValues, 120);
 
     return salesData.map((d, i) => ({
       date: d.date.slice(-5),
       revenueMa5: revMa5[i],
       revenueMa20: revMa20[i],
       revenueMa60: revMa60[i],
+      revenueMa120: revMa120[i],
       costMa5: costMa5[i],
       costMa20: costMa20[i],
       costMa60: costMa60[i],
+      costMa120: costMa120[i],
       profitMa5: profitMa5[i],
       profitMa20: profitMa20[i],
       profitMa60: profitMa60[i],
+      profitMa120: profitMa120[i],
       costRatioMa5: crMa5[i],
       costRatioMa20: crMa20[i],
       costRatioMa60: crMa60[i],
+      costRatioMa120: crMa120[i],
     }));
   }, [salesData, purchaseByDate]);
 
@@ -109,6 +117,7 @@ export default function DashboardPage() {
     ma5: salesData.length >= 5,
     ma20: salesData.length >= 20,
     ma60: salesData.length >= 60,
+    ma120: salesData.length >= 120,
   }), [salesData]);
 
   const diagnosis = useMemo(() => {
