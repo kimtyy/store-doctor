@@ -200,8 +200,7 @@ export default function MAChart({ data, availability }: MAChartProps) {
               dataKey={cfg.keys[0]}
               stroke={cfg.colors[0]}
               strokeWidth={2.5}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              dot={renderCrossDot as any}
+              dot={renderCrossDot as unknown as boolean}
               activeDot={{ r: 4 }}
               name={MA_LABELS[0]}
               isAnimationActive={false}
