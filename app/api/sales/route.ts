@@ -122,7 +122,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -138,11 +138,22 @@ export async function GET() {
   });
 
   try {
-    const { data, error } = await supabase
+    const { searchParams } = new URL(request.url);
+    const days = parseInt(searchParams.get('days') ?? '0', 10);
+
+    let query = supabase
       .from('daily_sales')
       .select('*, sales_menu_items(*)')
       .eq('store_id', STORE_ID)
       .order('date', { ascending: true });
+
+    if (days > 0) {
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      query = query.gte('date', since.toISOString().split('T')[0]);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

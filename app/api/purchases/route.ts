@@ -12,18 +12,29 @@ function makeClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = makeClient();
   if (!supabase) {
     return NextResponse.json({ error: 'Supabase 환경 변수가 설정되지 않았습니다.' }, { status: 500 });
   }
 
   try {
-    const { data, error } = await supabase
+    const { searchParams } = new URL(request.url);
+    const days = parseInt(searchParams.get('days') ?? '0', 10);
+
+    let query = supabase
       .from('purchase_records')
       .select('id, date, vendor_name, total_amount, category, note, items')
       .eq('store_id', STORE_ID)
       .order('date', { ascending: false });
+
+    if (days > 0) {
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      query = query.gte('date', since.toISOString().split('T')[0]);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

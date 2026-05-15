@@ -7,8 +7,18 @@ import { diagnoseDailySales } from '@/lib/analytics/diagnosis';
 import DiagnosisCard from '@/components/diagnosis/DiagnosisCard';
 import MAChart from '@/components/charts/MAChart';
 import BottomTabNav from '@/components/BottomTabNav';
-import type { MAChartDataPoint } from '@/components/charts/MAChart';
+import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
+
+function calcNullableMA(values: (number | null)[], period: number): (number | null)[] {
+  return values.map((_, i) => {
+    if (i < period - 1) return null;
+    const window = values.slice(i - period + 1, i + 1);
+    const nonNull = window.filter((v): v is number => v !== null);
+    if (nonNull.length < Math.ceil(period / 2)) return null;
+    return nonNull.reduce((a, b) => a + b, 0) / nonNull.length;
+  });
+}
 
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<DailySales[]>([]);
@@ -25,8 +35,8 @@ export default function DashboardPage() {
     async function fetchAll() {
       try {
         const [salesRes, purchaseRes] = await Promise.all([
-          fetch('/api/sales'),
-          fetch('/api/purchases'),
+          fetch('/api/sales?days=120'),
+          fetch('/api/purchases?days=120'),
         ]);
         const salesBody = await salesRes.json().catch(() => null);
         if (!salesRes.ok) throw new Error(salesBody?.error ?? `서버 오류 (${salesRes.status})`);
@@ -53,20 +63,41 @@ export default function DashboardPage() {
   const chartData = useMemo((): MAChartDataPoint[] => {
     if (salesData.length === 0) return [];
     const revenues = salesData.map((d) => d.netRevenue);
-    const ma5 = calculateMovingAverage(revenues, 5);
-    const ma20 = calculateMovingAverage(revenues, 20);
-    const ma60 = calculateMovingAverage(revenues, 60);
-    const ma120 = calculateMovingAverage(revenues, 120);
+    const costValues = salesData.map((d) => purchaseByDate[d.date] ?? null);
+    const profitValues = salesData.map((d, i) => {
+      const cost = costValues[i];
+      return cost !== null ? d.netRevenue - cost : null;
+    });
 
-    return salesData.map((data, index) => ({
-      date: data.date.slice(-5),
-      revenue: data.netRevenue,
-      ma5: ma5[index],
-      ma20: ma20[index],
-      ma60: ma60[index],
-      ma120: ma120[index],
+    const revMa5 = calculateMovingAverage(revenues, 5);
+    const revMa20 = calculateMovingAverage(revenues, 20);
+    const revMa60 = calculateMovingAverage(revenues, 60);
+    const costMa5 = calcNullableMA(costValues, 5);
+    const costMa20 = calcNullableMA(costValues, 20);
+    const costMa60 = calcNullableMA(costValues, 60);
+    const profitMa5 = calcNullableMA(profitValues, 5);
+    const profitMa20 = calcNullableMA(profitValues, 20);
+    const profitMa60 = calcNullableMA(profitValues, 60);
+
+    return salesData.map((d, i) => ({
+      date: d.date.slice(-5),
+      revenueMa5: revMa5[i],
+      revenueMa20: revMa20[i],
+      revenueMa60: revMa60[i],
+      costMa5: costMa5[i],
+      costMa20: costMa20[i],
+      costMa60: costMa60[i],
+      profitMa5: profitMa5[i],
+      profitMa20: profitMa20[i],
+      profitMa60: profitMa60[i],
     }));
-  }, [salesData]);
+  }, [salesData, purchaseByDate]);
+
+  const dataAvailability = useMemo((): DataAvailability => ({
+    ma5: salesData.length >= 5,
+    ma20: salesData.length >= 20,
+    ma60: salesData.length >= 60,
+  }), [salesData]);
 
   const diagnosis = useMemo(() => {
     if (salesData.length === 0) return null;
@@ -225,12 +256,9 @@ export default function DashboardPage() {
 
               {chartData.length >= 2 ? (
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
-                  <h3 className="text-lg font-semibold text-slate-100">매출 추이</h3>
-                  <p className="mt-1 text-xs text-slate-400">좌우로 스크롤하여 전체 추이를 확인하세요</p>
-                  <div className="mt-6 -mx-5 overflow-x-auto">
-                    <div className="min-w-max px-5" style={{ width: 'calc(100vw - 32px)' }}>
-                      <MAChart data={chartData.slice(-60)} />
-                    </div>
+                  <h3 className="text-lg font-semibold text-slate-100">이동평균선</h3>
+                  <div className="mt-4">
+                    <MAChart data={chartData} availability={dataAvailability} />
                   </div>
                 </div>
               ) : null}
