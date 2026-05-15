@@ -68,8 +68,9 @@ export default function MenuMasterPage() {
       const res = await fetch('/api/menu-master');
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? '불러오기 실패');
-      setRows((body.master as MasterRow[]).map(rowFromMaster));
-      setUnmapped(body.unmapped as UnmappedRow[]);
+      const masterArr: MasterRow[] = body.data ?? body.master ?? [];
+      setRows(masterArr.map(rowFromMaster));
+      setUnmapped(body.unmapped ?? []);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '불러오기 실패' });
     } finally {

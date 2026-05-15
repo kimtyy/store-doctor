@@ -92,7 +92,7 @@ export async function GET() {
     const supabase = makeClient();
     const { data, error } = await supabase
       .from('menu_master')
-      .select('menu_name, aliases, category')
+      .select('id, menu_name, aliases, category')
       .eq('store_id', STORE_ID);
     if (error) throw new Error(error.message);
     return NextResponse.json({ data: data ?? [] });
