@@ -8,7 +8,23 @@ export default function SettingsPage() {
   const [deletingDay, setDeletingDay] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [normalizing, setNormalizing] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  async function handleNormalize() {
+    setNormalizing(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/normalize', { method: 'POST' });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? `서버 오류 (${res.status})`);
+      setMessage({ type: 'success', text: body.message ?? '정규화 완료' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '정규화 실패' });
+    } finally {
+      setNormalizing(false);
+    }
+  }
 
   async function handleDeleteDay() {
     if (!deleteDate) return;
@@ -97,6 +113,36 @@ export default function SettingsPage() {
               <span className="text-slate-500 text-lg">→</span>
             </div>
           </a>
+
+          {/* 매입처 관리 */}
+          <a
+            href="/settings/vendors"
+            className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">매입처 관리</h2>
+                <p className="mt-1 text-xs text-slate-400">매입처 정식명 및 OCR 오인식 별칭 등록</p>
+              </div>
+              <span className="text-slate-500 text-lg">→</span>
+            </div>
+          </a>
+
+          {/* 데이터 정규화 */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">데이터 정규화</h2>
+              <p className="mt-1 text-xs text-slate-400">메뉴명·매입처명의 불필요한 공백을 제거하고 중복을 병합합니다.</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleNormalize}
+              disabled={normalizing}
+              className="w-full rounded-2xl bg-sky-700 px-6 py-4 text-base font-semibold text-white transition hover:bg-sky-600 disabled:opacity-40"
+            >
+              {normalizing ? '정규화 중...' : '지금 실행'}
+            </button>
+          </div>
 
           {/* 특정 날짜 삭제 */}
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">

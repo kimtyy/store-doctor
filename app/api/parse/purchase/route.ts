@@ -1,6 +1,68 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { callClaudeVision } from '../../../../lib/claude';
 import { parsePurchaseResponse } from '../../../../lib/parsers/purchase';
+
+const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
+function makeSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+// Simple Levenshtein distance
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+// Returns canonical vendor name if OCR name matches an alias or canonical (exact or near)
+function correctVendorName(
+  ocrName: string,
+  master: { vendor_name: string; aliases: string[] }[]
+): string {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, '');
+  const target = norm(ocrName);
+  if (!target) return ocrName;
+
+  // 1. Exact match against canonical names and aliases
+  for (const entry of master) {
+    if (norm(entry.vendor_name) === target) return entry.vendor_name;
+    for (const alias of entry.aliases ?? []) {
+      if (norm(alias) === target) return entry.vendor_name;
+    }
+  }
+
+  // 2. Levenshtein fuzzy match (threshold: ≤ 2 edits for short strings, ≤ 3 for longer)
+  const threshold = ocrName.length <= 6 ? 2 : 3;
+  let bestDist = threshold + 1;
+  let bestCanonical = ocrName;
+
+  for (const entry of master) {
+    const candidates = [entry.vendor_name, ...(entry.aliases ?? [])];
+    for (const candidate of candidates) {
+      const dist = levenshtein(target, norm(candidate));
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestCanonical = entry.vendor_name;
+      }
+    }
+  }
+
+  return bestCanonical;
+}
 
 export async function POST(request: Request) {
   try {
@@ -40,6 +102,19 @@ export async function POST(request: Request) {
 
     const raw = await callClaudeVision(prompt, images ?? (imageUrl ? [imageUrl] : undefined));
     const parsed = parsePurchaseResponse(raw);
+
+    // Apply vendor name correction from vendor_master
+    const supabase = makeSupabase();
+    if (supabase && parsed.vendorName) {
+      const { data: masterData } = await supabase
+        .from('vendor_master')
+        .select('vendor_name, aliases')
+        .eq('store_id', STORE_ID);
+
+      if (masterData && masterData.length > 0) {
+        parsed.vendorName = correctVendorName(parsed.vendorName, masterData);
+      }
+    }
 
     return NextResponse.json({ data: parsed });
   } catch (error) {
