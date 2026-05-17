@@ -103,8 +103,7 @@ export async function GET(request: Request) {
         count: itemCountMap[name] ?? 1,
         avgAmount: Math.round(totalAmount / (itemCountMap[name] ?? 1)),
       }))
-      .sort((a, b) => b.totalAmount - a.totalAmount)
-      .slice(0, 10);
+      .sort((a, b) => b.totalAmount - a.totalAmount);
 
     const itemsByCount = Object.entries(itemCountMap)
       .map(([name, count]) => ({
@@ -113,8 +112,7 @@ export async function GET(request: Request) {
         totalAmount: itemAmountMap[name] ?? 0,
         avgAmount: Math.round((itemTotalAmountForAvg[name] ?? 0) / count),
       }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+      .sort((a, b) => b.count - a.count);
 
     // ── Vendor rankings ────────────────────────────────────────────────────────
     const vendorAmountMap: Record<string, number> = {};
@@ -132,8 +130,7 @@ export async function GET(request: Request) {
         totalAmount,
         count: vendorCountMap[name] ?? 1,
       }))
-      .sort((a, b) => b.totalAmount - a.totalAmount)
-      .slice(0, 10);
+      .sort((a, b) => b.totalAmount - a.totalAmount);
 
     return NextResponse.json({
       totalPurchase,

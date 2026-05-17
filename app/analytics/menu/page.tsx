@@ -163,6 +163,19 @@ function MoMBadge({ current, prev, invertColor = false }: { current: number; pre
 }
 
 const PERIODS: Period[] = ['7', '30', 'monthly', 'all'];
+const TOP_N = 10;
+
+function ShowMoreButton({ expanded, total, onToggle }: { expanded: boolean; total: number; onToggle: () => void }) {
+  if (total <= TOP_N) return null;
+  return (
+    <button
+      onClick={onToggle}
+      className="mt-3 w-full py-2 rounded-xl text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-800 active:bg-slate-800 transition"
+    >
+      {expanded ? '접기 ▲' : `더보기 (${total - TOP_N}개 더) ▼`}
+    </button>
+  );
+}
 
 // ── main component ───────────────────────────────────────────────────────────
 
@@ -185,6 +198,13 @@ export default function AnalyticsPage() {
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [prevPurchaseData, setPrevPurchaseData] = useState<PurchaseAnalyticsData | null>(null);
+
+  // expand states for "더보기"
+  const [menuAmountExpanded, setMenuAmountExpanded] = useState(false);
+  const [menuQuantityExpanded, setMenuQuantityExpanded] = useState(false);
+  const [purchaseItemsAmtExpanded, setPurchaseItemsAmtExpanded] = useState(false);
+  const [purchaseItemsCntExpanded, setPurchaseItemsCntExpanded] = useState(false);
+  const [purchaseVendorExpanded, setPurchaseVendorExpanded] = useState(false);
 
   // category edit popup state
   const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null; editedName: string } | null>(null);
@@ -220,6 +240,14 @@ export default function AnalyticsPage() {
       setPurchaseLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    setMenuAmountExpanded(false);
+    setMenuQuantityExpanded(false);
+    setPurchaseItemsAmtExpanded(false);
+    setPurchaseItemsCntExpanded(false);
+    setPurchaseVendorExpanded(false);
+  }, [period, selectedMonth, section]);
 
   useEffect(() => { fetchMenuData(period, selectedMonth); }, [period, selectedMonth, fetchMenuData]);
 
@@ -313,10 +341,12 @@ export default function AnalyticsPage() {
   }, [availableMonths, selectedMonth]);
 
   // menu chart data
-  const topByAmount = menuData?.byAmount.slice(0, 10) ?? [];
-  const topByQuantity = menuData?.byQuantity.slice(0, 10) ?? [];
-  const maxAmount = topByAmount[0]?.totalAmount ?? 1;
-  const maxQuantity = topByQuantity[0]?.totalQuantity ?? 1;
+  const allByAmount = menuData?.byAmount ?? [];
+  const allByQuantity = menuData?.byQuantity ?? [];
+  const topByAmount = menuAmountExpanded ? allByAmount : allByAmount.slice(0, TOP_N);
+  const topByQuantity = menuQuantityExpanded ? allByQuantity : allByQuantity.slice(0, TOP_N);
+  const maxAmount = allByAmount[0]?.totalAmount ?? 1;
+  const maxQuantity = allByQuantity[0]?.totalQuantity ?? 1;
 
   const menuPieData = (menuData?.categoryStats ?? []).map((s) => ({
     name: s.category,
@@ -487,64 +517,78 @@ export default function AnalyticsPage() {
                 {/* Sales ranking */}
                 <section className="mb-8">
                   <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">매출 랭킹</h2>
-                  {topByAmount.length === 0 ? (
+                  {allByAmount.length === 0 ? (
                     <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {topByAmount.map((item, i) => (
-                        <button
-                          key={item.name}
-                          onClick={() => setEditingMenu({ name: item.name, current: item.category, editedName: item.name })}
-                          className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
-                        >
-                          <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                              <CategoryBadge category={item.category} />
-                              <span className="text-sm font-medium text-sky-400 ml-auto shrink-0">
-                                {item.totalAmount.toLocaleString()}원
-                              </span>
+                    <>
+                      <div className="space-y-2">
+                        {topByAmount.map((item, i) => (
+                          <button
+                            key={item.name}
+                            onClick={() => setEditingMenu({ name: item.name, current: item.category, editedName: item.name })}
+                            className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                          >
+                            <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm text-slate-200 truncate">{item.name}</span>
+                                <CategoryBadge category={item.category} />
+                                <span className="text-sm font-medium text-sky-400 ml-auto shrink-0">
+                                  {item.totalAmount.toLocaleString()}원
+                                </span>
+                              </div>
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-sky-500 rounded-full" style={{ width: `${(item.totalAmount / maxAmount) * 100}%` }} />
+                              </div>
                             </div>
-                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div className="h-full bg-sky-500 rounded-full" style={{ width: `${(item.totalAmount / maxAmount) * 100}%` }} />
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                          </button>
+                        ))}
+                      </div>
+                      <ShowMoreButton
+                        expanded={menuAmountExpanded}
+                        total={allByAmount.length}
+                        onToggle={() => setMenuAmountExpanded((v) => !v)}
+                      />
+                    </>
                   )}
                 </section>
 
                 {/* Quantity ranking */}
                 <section className="mb-8">
                   <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">판매 수량 랭킹</h2>
-                  {topByQuantity.length === 0 ? (
+                  {allByQuantity.length === 0 ? (
                     <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {topByQuantity.map((item, i) => (
-                        <button
-                          key={item.name}
-                          onClick={() => setEditingMenu({ name: item.name, current: item.category, editedName: item.name })}
-                          className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
-                        >
-                          <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                              <CategoryBadge category={item.category} />
-                              <span className="text-sm font-medium text-emerald-400 ml-auto shrink-0">
-                                {item.totalQuantity}개
-                              </span>
+                    <>
+                      <div className="space-y-2">
+                        {topByQuantity.map((item, i) => (
+                          <button
+                            key={item.name}
+                            onClick={() => setEditingMenu({ name: item.name, current: item.category, editedName: item.name })}
+                            className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                          >
+                            <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm text-slate-200 truncate">{item.name}</span>
+                                <CategoryBadge category={item.category} />
+                                <span className="text-sm font-medium text-emerald-400 ml-auto shrink-0">
+                                  {item.totalQuantity}개
+                                </span>
+                              </div>
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(item.totalQuantity / maxQuantity) * 100}%` }} />
+                              </div>
                             </div>
-                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(item.totalQuantity / maxQuantity) * 100}%` }} />
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                          </button>
+                        ))}
+                      </div>
+                      <ShowMoreButton
+                        expanded={menuQuantityExpanded}
+                        total={allByQuantity.length}
+                        onToggle={() => setMenuQuantityExpanded((v) => !v)}
+                      />
+                    </>
                   )}
                 </section>
 
@@ -689,97 +733,127 @@ export default function AnalyticsPage() {
 
                 {/* Item amount ranking */}
                 <section className="mb-8">
-                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">품목 금액 TOP 10</h2>
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">품목 금액 랭킹</h2>
                   {purchaseData.itemsByAmount.length === 0 ? (
                     <p className="text-slate-500 text-sm">품목 데이터가 없습니다.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {purchaseData.itemsByAmount.map((item, i) => {
-                        const maxAmt = purchaseData.itemsByAmount[0].totalAmount;
-                        return (
-                          <div key={item.name} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-                            <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                                <span className="text-xs text-slate-500 shrink-0">{item.count}회</span>
-                                <span className="text-sm font-medium text-rose-400 ml-auto shrink-0">
-                                  {formatAmount(item.totalAmount)}원
-                                </span>
-                              </div>
-                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-rose-500 rounded-full" style={{ width: `${(item.totalAmount / maxAmt) * 100}%` }} />
+                  ) : (() => {
+                    const list = purchaseItemsAmtExpanded
+                      ? purchaseData.itemsByAmount
+                      : purchaseData.itemsByAmount.slice(0, TOP_N);
+                    const maxAmt = purchaseData.itemsByAmount[0].totalAmount;
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {list.map((item, i) => (
+                            <div key={item.name} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+                              <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm text-slate-200 truncate">{item.name}</span>
+                                  <span className="text-xs text-slate-500 shrink-0">{item.count}회</span>
+                                  <span className="text-sm font-medium text-rose-400 ml-auto shrink-0">
+                                    {formatAmount(item.totalAmount)}원
+                                  </span>
+                                </div>
+                                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-full bg-rose-500 rounded-full" style={{ width: `${(item.totalAmount / maxAmt) * 100}%` }} />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          ))}
+                        </div>
+                        <ShowMoreButton
+                          expanded={purchaseItemsAmtExpanded}
+                          total={purchaseData.itemsByAmount.length}
+                          onToggle={() => setPurchaseItemsAmtExpanded((v) => !v)}
+                        />
+                      </>
+                    );
+                  })()}
                 </section>
 
                 {/* Item count ranking */}
                 <section className="mb-8">
-                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">품목 구매 횟수 TOP 10</h2>
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">품목 구매 횟수 랭킹</h2>
                   {purchaseData.itemsByCount.length === 0 ? (
                     <p className="text-slate-500 text-sm">품목 데이터가 없습니다.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {purchaseData.itemsByCount.map((item, i) => {
-                        const maxCnt = purchaseData.itemsByCount[0].count;
-                        return (
-                          <div key={item.name} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-                            <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm text-slate-200 truncate">{item.name}</span>
-                                <span className="text-xs text-slate-500 shrink-0">
-                                  평균 {formatAmount(item.avgAmount)}원
-                                </span>
-                                <span className="text-sm font-medium text-amber-400 ml-auto shrink-0">
-                                  {item.count}회
-                                </span>
-                              </div>
-                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${(item.count / maxCnt) * 100}%` }} />
+                  ) : (() => {
+                    const list = purchaseItemsCntExpanded
+                      ? purchaseData.itemsByCount
+                      : purchaseData.itemsByCount.slice(0, TOP_N);
+                    const maxCnt = purchaseData.itemsByCount[0].count;
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {list.map((item, i) => (
+                            <div key={item.name} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+                              <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm text-slate-200 truncate">{item.name}</span>
+                                  <span className="text-xs text-slate-500 shrink-0">
+                                    평균 {formatAmount(item.avgAmount)}원
+                                  </span>
+                                  <span className="text-sm font-medium text-amber-400 ml-auto shrink-0">
+                                    {item.count}회
+                                  </span>
+                                </div>
+                                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-full bg-amber-500 rounded-full" style={{ width: `${(item.count / maxCnt) * 100}%` }} />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          ))}
+                        </div>
+                        <ShowMoreButton
+                          expanded={purchaseItemsCntExpanded}
+                          total={purchaseData.itemsByCount.length}
+                          onToggle={() => setPurchaseItemsCntExpanded((v) => !v)}
+                        />
+                      </>
+                    );
+                  })()}
                 </section>
 
                 {/* Vendor ranking */}
                 <section className="mb-8">
-                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">매입처 TOP 10</h2>
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">매입처 랭킹</h2>
                   {purchaseData.vendorRankings.length === 0 ? (
                     <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {purchaseData.vendorRankings.map((vendor, i) => {
-                        const maxAmt = purchaseData.vendorRankings[0].totalAmount;
-                        return (
-                          <div key={vendor.name} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-                            <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm text-slate-200 truncate">{vendor.name}</span>
-                                <span className="text-xs text-slate-500 shrink-0">{vendor.count}회</span>
-                                <span className="text-sm font-medium text-violet-400 ml-auto shrink-0">
-                                  {formatAmount(vendor.totalAmount)}원
-                                </span>
-                              </div>
-                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-violet-500 rounded-full" style={{ width: `${(vendor.totalAmount / maxAmt) * 100}%` }} />
+                  ) : (() => {
+                    const list = purchaseVendorExpanded
+                      ? purchaseData.vendorRankings
+                      : purchaseData.vendorRankings.slice(0, TOP_N);
+                    const maxAmt = purchaseData.vendorRankings[0].totalAmount;
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {list.map((vendor, i) => (
+                            <div key={vendor.name} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+                              <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm text-slate-200 truncate">{vendor.name}</span>
+                                  <span className="text-xs text-slate-500 shrink-0">{vendor.count}회</span>
+                                  <span className="text-sm font-medium text-violet-400 ml-auto shrink-0">
+                                    {formatAmount(vendor.totalAmount)}원
+                                  </span>
+                                </div>
+                                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-full bg-violet-500 rounded-full" style={{ width: `${(vendor.totalAmount / maxAmt) * 100}%` }} />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          ))}
+                        </div>
+                        <ShowMoreButton
+                          expanded={purchaseVendorExpanded}
+                          total={purchaseData.vendorRankings.length}
+                          onToggle={() => setPurchaseVendorExpanded((v) => !v)}
+                        />
+                      </>
+                    );
+                  })()}
                 </section>
               </>
             )}
