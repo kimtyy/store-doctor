@@ -11,12 +11,13 @@ export default function BottomTabNav() {
     { href: '/sales', label: '매출', icon: '📈', active: pathname === '/sales' },
     { href: '/purchases', label: '매입', icon: '📦', active: pathname === '/purchases' },
     { href: '/analytics/menu', label: '분석', icon: '🍽️', active: pathname.startsWith('/analytics') },
+    { href: '/chat', label: 'AI상담', icon: '🤖', active: pathname === '/chat' },
     { href: '/settings', label: '설정', icon: '⚙️', active: pathname === '/settings' },
   ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900/95 backdrop-blur">
-      <div className="mx-auto max-w-2xl grid grid-cols-5">
+      <div className="mx-auto max-w-2xl grid grid-cols-6">
         {tabs.map((tab) => (
           <Link
             key={tab.href}
