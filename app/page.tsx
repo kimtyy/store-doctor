@@ -368,7 +368,7 @@ export default function DashboardPage() {
                             })}
                           </p>
                           <p className="mt-1 text-sm text-slate-400">
-                            테이블 {day.tablesUsed}개 · {day.guestCount}명
+                            테이블 {day.tablesUsed}개
                           </p>
                         </div>
                         <div className="text-right">
