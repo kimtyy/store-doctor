@@ -109,9 +109,17 @@ function detectCrosses(
   });
 }
 
+type MAKey = 'ma5' | 'ma20' | 'ma60' | 'ma120';
+
 export default function MAChart({ data, availability }: MAChartProps) {
   const [tab, setTab] = useState<TabKey>('revenue');
   const cfg = TABS.find((t) => t.key === tab)!;
+  const [visibleMAs, setVisibleMAs] = useState<Record<MAKey, boolean>>({
+    ma5: true, ma20: true, ma60: false, ma120: false,
+  });
+  function toggleMA(key: MAKey) {
+    setVisibleMAs(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const crosses = useMemo(
     () => (data.length > 0 ? detectCrosses(data, cfg.keys[0], cfg.keys[1]) : []),
@@ -197,31 +205,32 @@ export default function MAChart({ data, availability }: MAChartProps) {
                 <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="4 3" label={{ value: '위험 70%', fill: '#f43f5e', fontSize: 9, position: 'insideTopRight' }} />
               </>
             )}
-            {/* 5일선 — cross markers 포함 */}
-            <Line
-              type="monotone"
-              dataKey={cfg.keys[0]}
-              stroke={cfg.colors[0]}
-              strokeWidth={2.5}
-              dot={renderCrossDot as unknown as boolean}
-              activeDot={{ r: 4 }}
-              name={MA_LABELS[0]}
-              isAnimationActive={false}
-              connectNulls={false}
-            />
-            {/* 20일선 */}
-            <Line
-              type="monotone"
-              dataKey={cfg.keys[1]}
-              stroke={cfg.colors[1]}
-              strokeWidth={2}
-              dot={false}
-              name={MA_LABELS[1]}
-              isAnimationActive={false}
-              connectNulls={false}
-            />
-            {/* 60일선 */}
-            {availability.ma60 && (
+            {visibleMAs.ma5 && (
+              <Line
+                type="monotone"
+                dataKey={cfg.keys[0]}
+                stroke={cfg.colors[0]}
+                strokeWidth={2.5}
+                dot={renderCrossDot as unknown as boolean}
+                activeDot={{ r: 4 }}
+                name={MA_LABELS[0]}
+                isAnimationActive={false}
+                connectNulls={false}
+              />
+            )}
+            {visibleMAs.ma20 && (
+              <Line
+                type="monotone"
+                dataKey={cfg.keys[1]}
+                stroke={cfg.colors[1]}
+                strokeWidth={2}
+                dot={false}
+                name={MA_LABELS[1]}
+                isAnimationActive={false}
+                connectNulls={false}
+              />
+            )}
+            {visibleMAs.ma60 && availability.ma60 && (
               <Line
                 type="monotone"
                 dataKey={cfg.keys[2]}
@@ -233,8 +242,7 @@ export default function MAChart({ data, availability }: MAChartProps) {
                 connectNulls={false}
               />
             )}
-            {/* 120일선 */}
-            {availability.ma120 && (
+            {visibleMAs.ma120 && availability.ma120 && (
               <Line
                 type="monotone"
                 dataKey={cfg.keys[3]}
@@ -251,16 +259,29 @@ export default function MAChart({ data, availability }: MAChartProps) {
         </ResponsiveContainer>
       </div>
 
-      {/* 데이터 충족 여부 */}
-      <div className="flex gap-3 text-xs text-slate-500">
-        {AVAIL_KEYS.map((key, i) => (
-          <span key={key} className="flex items-center gap-1">
-            {MA_LABELS[i]}선
-            {availability[key]
-              ? <span className="text-emerald-400">✅</span>
-              : <span className="text-amber-400">🔶</span>}
-          </span>
-        ))}
+      {/* MA 선 토글 */}
+      <div className="flex gap-2 flex-wrap">
+        {(AVAIL_KEYS as MAKey[]).map((key, i) => {
+          const active = visibleMAs[key];
+          const lineColor = LINE_COLORS[i];
+          const hasData = availability[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleMA(key)}
+              className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
+                active
+                  ? 'border-transparent text-slate-950'
+                  : 'border-slate-700 bg-slate-800/60 text-slate-500 hover:text-slate-300'
+              }`}
+              style={active ? { backgroundColor: lineColor } : undefined}
+            >
+              {MA_LABELS[i]}
+              {!hasData && <span className="opacity-50 text-[9px]">⚠</span>}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
