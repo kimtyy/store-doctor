@@ -52,6 +52,12 @@ interface MonthSelection {
   month: number;
 }
 
+interface VendorMasterRow {
+  id: string;
+  vendor_name: string;
+  aliases: string[];
+}
+
 // ── constants ────────────────────────────────────────────────────────────────
 
 type Period = '7' | '30' | 'monthly' | 'all';
@@ -211,6 +217,14 @@ export default function AnalyticsPage() {
   const [updatingCategory, setUpdatingCategory] = useState(false);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
+  // vendor rename popup state
+  const [editingVendor, setEditingVendor] = useState<{ name: string } | null>(null);
+  const [editedVendorName, setEditedVendorName] = useState('');
+  const [vendorMasterData, setVendorMasterData] = useState<VendorMasterRow[] | null>(null);
+  const [vendorMasterLoading, setVendorMasterLoading] = useState(false);
+  const [vendorRenameSaving, setVendorRenameSaving] = useState(false);
+  const [vendorRenameMsg, setVendorRenameMsg] = useState<string | null>(null);
+
   const fetchMenuData = useCallback(async (p: Period, month: MonthSelection) => {
     setMenuLoading(true);
     setMenuError(null);
@@ -325,6 +339,49 @@ export default function AnalyticsPage() {
       alert(e instanceof Error ? e.message : '오류가 발생했습니다.');
     } finally {
       setUpdatingCategory(false);
+    }
+  }
+
+  function openVendorEdit(name: string) {
+    setEditingVendor({ name });
+    setEditedVendorName(name);
+    setVendorRenameMsg(null);
+    if (!vendorMasterData) {
+      setVendorMasterLoading(true);
+      fetch('/api/vendor-master')
+        .then((r) => r.json())
+        .then((d) => setVendorMasterData(d.data ?? []))
+        .catch(() => setVendorMasterData([]))
+        .finally(() => setVendorMasterLoading(false));
+    }
+  }
+
+  async function handleVendorRename() {
+    if (!editingVendor || vendorRenameSaving) return;
+    const newName = editedVendorName.trim();
+    if (!newName) return;
+    setVendorRenameSaving(true);
+    try {
+      const res = await fetch('/api/vendor-master/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldName: editingVendor.name, newName }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? '저장 실패');
+      setVendorRenameMsg(json.message ?? '저장 완료');
+      // Refresh vendor master cache
+      setVendorMasterData(null);
+      // Refresh purchase data to reflect renamed vendors
+      await fetchPurchaseData(period, selectedMonth);
+      setTimeout(() => {
+        setEditingVendor(null);
+        setVendorRenameMsg(null);
+      }, 1500);
+    } catch (err) {
+      setVendorRenameMsg(`❌ ${err instanceof Error ? err.message : '오류'}`);
+    } finally {
+      setVendorRenameSaving(false);
     }
   }
 
@@ -827,9 +884,14 @@ export default function AnalyticsPage() {
                     const maxAmt = purchaseData.vendorRankings[0].totalAmount;
                     return (
                       <>
+                        <p className="text-xs text-slate-500 mb-2">상호명을 탭하면 수정할 수 있습니다.</p>
                         <div className="space-y-2">
                           {list.map((vendor, i) => (
-                            <div key={vendor.name} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+                            <button
+                              key={vendor.name}
+                              onClick={() => openVendorEdit(vendor.name)}
+                              className="w-full flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-slate-800/60 active:bg-slate-800 transition text-left"
+                            >
                               <span className="w-5 text-xs text-slate-500 text-right shrink-0">{i + 1}</span>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
@@ -843,7 +905,7 @@ export default function AnalyticsPage() {
                                   <div className="h-full bg-violet-500 rounded-full" style={{ width: `${(vendor.totalAmount / maxAmt) * 100}%` }} />
                                 </div>
                               </div>
-                            </div>
+                            </button>
                           ))}
                         </div>
                         <ShowMoreButton
@@ -895,6 +957,95 @@ export default function AnalyticsPage() {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vendor rename bottom sheet */}
+      {editingVendor && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => !vendorRenameSaving && setEditingVendor(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-t-3xl bg-slate-900 border-t border-slate-700 p-6 pb-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <p className="text-base font-semibold text-slate-100">상호명 수정</p>
+              <button
+                onClick={() => !vendorRenameSaving && setEditingVendor(null)}
+                className="text-slate-500 hover:text-slate-300 text-xl leading-none"
+              >×</button>
+            </div>
+
+            {/* Current name */}
+            <div className="mb-4">
+              <p className="text-xs text-slate-500 mb-1">현재 상호명</p>
+              <p className="text-sm font-medium text-amber-300 bg-amber-950/30 border border-amber-800/40 rounded-xl px-3 py-2.5">
+                {editingVendor.name}
+              </p>
+            </div>
+
+            {/* Vendor master status */}
+            <div className="mb-4">
+              {vendorMasterLoading ? (
+                <p className="text-xs text-slate-500 animate-pulse">마스터 조회 중...</p>
+              ) : vendorMasterData ? (() => {
+                const asCanonical = vendorMasterData.find(m => m.vendor_name === editingVendor.name);
+                const asAlias = !asCanonical && vendorMasterData.find(m => (m.aliases ?? []).includes(editingVendor.name));
+                if (asCanonical) return (
+                  <p className="text-xs text-emerald-400">✅ 매입처 마스터에 정식명으로 등록됨</p>
+                );
+                if (asAlias) return (
+                  <p className="text-xs text-emerald-400">✅ 매입처 마스터에 별칭으로 등록됨 (정식명: {asAlias.vendor_name})</p>
+                );
+                return (
+                  <p className="text-xs text-amber-400">⚠️ 미등록 — 저장하면 마스터에 자동 등록됩니다</p>
+                );
+              })() : null}
+            </div>
+
+            {/* New canonical name input */}
+            <div className="mb-5">
+              <p className="text-xs text-slate-500 mb-1.5">정식 상호명</p>
+              <input
+                type="text"
+                value={editedVendorName}
+                onChange={(e) => setEditedVendorName(e.target.value)}
+                placeholder="정식 상호명 입력"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+              />
+              {editedVendorName.trim() !== editingVendor.name && editedVendorName.trim() !== '' && (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  <span className="text-amber-400">{editingVendor.name}</span>
+                  {' → '}
+                  <span className="text-emerald-400">{editedVendorName.trim()}</span>
+                  <span className="ml-1 text-slate-600">· 동일 상호명 전체 일괄 수정</span>
+                </p>
+              )}
+            </div>
+
+            {/* Result message */}
+            {vendorRenameMsg && (
+              <p className={`text-sm mb-4 ${vendorRenameMsg.startsWith('❌') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {vendorRenameMsg}
+              </p>
+            )}
+
+            {/* Save button */}
+            <button
+              onClick={handleVendorRename}
+              disabled={vendorRenameSaving || !editedVendorName.trim()}
+              className="w-full rounded-2xl bg-sky-600 py-3.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 transition"
+            >
+              {vendorRenameSaving
+                ? '저장 중...'
+                : editedVendorName.trim() === editingVendor.name
+                  ? '마스터에 등록하기'
+                  : '일괄 수정 + 마스터 등록'}
+            </button>
           </div>
         </div>
       )}
