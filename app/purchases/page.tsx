@@ -282,6 +282,14 @@ export default function PurchasesInputPage() {
   const [note, setNote] = useState('');
   const [savingManual, setSavingManual] = useState(false);
 
+  // autocomplete
+  const vendorDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const itemDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [vendorSuggestions, setVendorSuggestions] = useState<string[]>([]);
+  const [showVendorSug, setShowVendorSug] = useState(false);
+  const [itemSuggestions, setItemSuggestions] = useState<Record<number, string[]>>({});
+  const [activeItemIdx, setActiveItemIdx] = useState<number | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
@@ -421,6 +429,32 @@ export default function PurchasesInputPage() {
     } finally {
       setSavingPhoto(false);
     }
+  }
+
+  function handleVendorChange(value: string) {
+    setManualRecord(r => ({ ...r, vendorName: value }));
+    if (vendorDebounce.current) clearTimeout(vendorDebounce.current);
+    if (!value.trim()) { setVendorSuggestions([]); setShowVendorSug(false); return; }
+    vendorDebounce.current = setTimeout(async () => {
+      const res = await fetch(`/api/purchases/autocomplete?q=${encodeURIComponent(value)}&type=vendor`);
+      const json = await res.json().catch(() => ({}));
+      const sug: string[] = json.suggestions ?? [];
+      setVendorSuggestions(sug);
+      setShowVendorSug(sug.length > 0);
+    }, 200);
+  }
+
+  function handleItemNameChange(index: number, value: string) {
+    updateManualItem(index, { name: value });
+    if (itemDebounce.current) clearTimeout(itemDebounce.current);
+    if (!value.trim()) { setItemSuggestions(prev => ({ ...prev, [index]: [] })); setActiveItemIdx(null); return; }
+    itemDebounce.current = setTimeout(async () => {
+      const res = await fetch(`/api/purchases/autocomplete?q=${encodeURIComponent(value)}&type=item`);
+      const json = await res.json().catch(() => ({}));
+      const sug: string[] = json.suggestions ?? [];
+      setItemSuggestions(prev => ({ ...prev, [index]: sug }));
+      setActiveItemIdx(sug.length > 0 ? index : null);
+    }, 200);
   }
 
   async function handleSaveManual() {
@@ -867,13 +901,31 @@ export default function PurchasesInputPage() {
               <div className="space-y-3">
                 <div>
                   <label className="text-sm font-medium text-slate-300">구매처</label>
-                  <input
-                    type="text"
-                    value={manualRecord.vendorName}
-                    onChange={(e) => setManualRecord({ ...manualRecord, vendorName: e.target.value })}
-                    placeholder="예) 홈플러스"
-                    className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100"
-                  />
+                  <div className="relative mt-2">
+                    <input
+                      type="text"
+                      value={manualRecord.vendorName}
+                      onChange={(e) => handleVendorChange(e.target.value)}
+                      onFocus={() => vendorSuggestions.length > 0 && setShowVendorSug(true)}
+                      onBlur={() => setTimeout(() => setShowVendorSug(false), 150)}
+                      placeholder="예) 홈플러스"
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100"
+                    />
+                    {showVendorSug && vendorSuggestions.length > 0 && (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
+                        {vendorSuggestions.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); setManualRecord(r => ({ ...r, vendorName: s })); setShowVendorSug(false); }}
+                            className="w-full px-4 py-2.5 text-sm text-left text-slate-100 hover:bg-slate-800 active:bg-slate-700"
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -944,13 +996,31 @@ export default function PurchasesInputPage() {
                           삭제
                         </button>
                       </div>
-                      <input
-                        type="text"
-                        value={item.name}
-                        onChange={(e) => updateManualItem(index, { name: e.target.value })}
-                        placeholder="품목명"
-                        className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => handleItemNameChange(index, e.target.value)}
+                          onFocus={() => (itemSuggestions[index]?.length ?? 0) > 0 && setActiveItemIdx(index)}
+                          onBlur={() => setTimeout(() => setActiveItemIdx(null), 150)}
+                          placeholder="품목명"
+                          className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                        />
+                        {activeItemIdx === index && (itemSuggestions[index]?.length ?? 0) > 0 && (
+                          <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
+                            {itemSuggestions[index].map((s) => (
+                              <button
+                                key={s}
+                                type="button"
+                                onMouseDown={(e) => { e.preventDefault(); updateManualItem(index, { name: s }); setActiveItemIdx(null); }}
+                                className="w-full px-3 py-2 text-sm text-left text-slate-100 hover:bg-slate-800 active:bg-slate-700"
+                              >
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <div className="grid gap-2" style={{ gridTemplateColumns: '2rem 1.4fr 1.8fr' }}>
                         <div>
                           <p className="text-xs text-slate-500 mb-1">수량</p>
