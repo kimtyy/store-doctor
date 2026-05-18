@@ -88,6 +88,7 @@ const categoryOptions: PurchaseCategory[] = [
   'telecom',
   'pos_fee',
   'insurance',
+  'fuel',
   'other',
 ];
 
@@ -103,6 +104,7 @@ const categoryLabels: Record<PurchaseCategory, string> = {
   telecom: '통신비',
   pos_fee: 'POS 사용료',
   insurance: '보험료',
+  fuel: '유류비',
   other: '기타',
 };
 

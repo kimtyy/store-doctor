@@ -95,6 +95,7 @@ const PURCHASE_CAT_COLORS: Record<string, string> = {
   food_ingredients: '#34d399',
   alcohol: '#818cf8',
   consumables: '#fb923c',
+  fuel: '#f97316',
   labor: '#f472b6',
   rent: '#a78bfa',
   electricity: '#facc15',
@@ -118,6 +119,7 @@ const PURCHASE_CAT_LABELS: Record<string, string> = {
   telecom: '통신비',
   pos_fee: 'POS 사용료',
   insurance: '보험료',
+  fuel: '유류비',
   other: '기타',
 };
 

@@ -43,6 +43,7 @@ const categoryOptions: { value: PurchaseCategory; label: string }[] = [
   { value: 'telecom', label: '통신비' },
   { value: 'pos_fee', label: 'POS 사용료' },
   { value: 'insurance', label: '보험료' },
+  { value: 'fuel', label: '유류비' },
   { value: 'other', label: '기타' },
 ];
 

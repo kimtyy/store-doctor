@@ -10,6 +10,7 @@ export type PurchaseCategory =
   | 'telecom'
   | 'pos_fee'
   | 'insurance'
+  | 'fuel'
   | 'other';
 
 export type PurchaseInputMethod = 'receipt_photo' | 'manual' | 'auto_fixed';
