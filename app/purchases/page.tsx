@@ -189,11 +189,10 @@ export default function PurchasesInputPage() {
       setExpandedId(null);
     } else {
       setExpandedId(record.id);
-      if (!draftItems[record.id]) {
-        setDraftItems((prev) => ({ ...prev, [record.id]: record.items.map((i) => ({ ...i })) }));
-        setDraftDates((prev) => ({ ...prev, [record.id]: record.date }));
-        setDraftVendorNames((prev) => ({ ...prev, [record.id]: record.vendor_name }));
-      }
+      // Always reset from current record — ensures post-save values are shown on reopen
+      setDraftItems((prev) => ({ ...prev, [record.id]: (record.items ?? []).map((i) => ({ ...i })) }));
+      setDraftDates((prev) => ({ ...prev, [record.id]: record.date }));
+      setDraftVendorNames((prev) => ({ ...prev, [record.id]: record.vendor_name }));
     }
   }
 
@@ -242,7 +241,13 @@ export default function PurchasesInputPage() {
       setHistoryList((prev) =>
         prev.map((r) =>
           r.id === record.id
-            ? { ...r, items, total_amount: totalAmount, vendor_name: vendorName }
+            ? {
+                ...r,
+                items,
+                total_amount: totalAmount,
+                vendor_name: vendorName,
+                date: draftDates[record.id] ?? r.date,
+              }
             : r
         )
       );
