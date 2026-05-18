@@ -387,15 +387,16 @@ export default function AnalyticsPage() {
 
   const canGoPrev = useMemo(() => {
     if (availableMonths.length === 0) return false;
-    const prev = shiftMonth(selectedMonth, -1);
-    return availableMonths.some(m => monthKey(m) === monthKey(prev));
+    const minMonth = availableMonths[0]; // sorted ascending from API
+    return selectedMonth.year > minMonth.year ||
+      (selectedMonth.year === minMonth.year && selectedMonth.month > minMonth.month);
   }, [availableMonths, selectedMonth]);
 
   const canGoNext = useMemo(() => {
-    if (availableMonths.length === 0) return false;
-    const next = shiftMonth(selectedMonth, 1);
-    return availableMonths.some(m => monthKey(m) === monthKey(next));
-  }, [availableMonths, selectedMonth]);
+    const now = new Date();
+    return selectedMonth.year < now.getFullYear() ||
+      (selectedMonth.year === now.getFullYear() && selectedMonth.month < now.getMonth() + 1);
+  }, [selectedMonth]);
 
   // menu chart data
   const allByAmount = menuData?.byAmount ?? [];
