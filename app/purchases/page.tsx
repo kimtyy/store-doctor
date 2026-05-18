@@ -585,7 +585,7 @@ export default function PurchasesInputPage() {
                         {/* Expanded — item list */}
                         {isExpanded && (
                           <div className="border-t border-slate-800 px-4 pb-4 pt-3 space-y-3">
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-3">
                               <div>
                                 <p className="text-xs text-slate-500 mb-1">상호명</p>
                                 <input
@@ -724,7 +724,7 @@ export default function PurchasesInputPage() {
                   <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">파싱 결과 — 수정 후 저장</p>
 
                   {/* 구매처 + 날짜 */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-3">
                     <div>
                       <label className="text-xs text-slate-400">구매처</label>
                       <input
