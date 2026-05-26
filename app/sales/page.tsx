@@ -765,7 +765,6 @@ export default function SalesInputPage() {
                   )}
                 </div>
               )}
-              )}
 
               {/* ── MANUAL MODE ────────────────────────────────────────────────── */}
               {parseMode === 'manual' && (
