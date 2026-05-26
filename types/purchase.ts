@@ -36,6 +36,7 @@ export interface PurchaseRecord {
   receiptImageUrl?: string;
   note?: string;
   memo?: string;
+  vendorCorrected?: boolean;
   isEvent?: boolean;
   createdAt?: string;
 }

@@ -47,6 +47,60 @@ export async function POST(request: Request) {
 
     const parsed = parseMenuSalesResponse(raw);
 
+    const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (supabaseUrl && supabaseServiceKey && parsed.menuItems) {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: masters } = await supabase
+        .from('menu_master')
+        .select('menu_name, aliases, category')
+        .eq('store_id', STORE_ID);
+
+      if (masters && masters.length > 0) {
+        const { correctMenuName } = await import('../../../../lib/menuCorrection');
+        parsed.menuItems = parsed.menuItems.map((item: any) => {
+          const res = correctMenuName(
+            item.name,
+            masters.map((m) => ({
+              menuName: m.menu_name,
+              aliases: m.aliases ?? [],
+              category: m.category,
+            }))
+          );
+
+          if (res.status === 'exact' || res.status === 'auto') {
+            return {
+              ...item,
+              name: res.correctedName,
+              category: res.category ?? undefined,
+              _originalName: res.originalName,
+              _correctionStatus: res.status,
+            };
+          } else if (res.status === 'suggest') {
+            return {
+              ...item,
+              _originalName: item.name,
+              _correctionStatus: 'suggest',
+              _suggestedName: res.suggestedName,
+            };
+          } else {
+            // < 60%
+            return {
+              ...item,
+              name: `[신규] ${item.name}`,
+              _originalName: item.name,
+              _correctionStatus: 'new',
+            };
+          }
+        });
+      }
+    }
+
     return NextResponse.json({ data: parsed });
 
   } catch (error) {

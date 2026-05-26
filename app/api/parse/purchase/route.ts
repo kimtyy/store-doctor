@@ -64,6 +64,16 @@ function correctVendorName(
   return bestCanonical;
 }
 
+function similarity(a: string, b: string): number {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, '');
+  const na = norm(a);
+  const nb = norm(b);
+  const maxLen = Math.max(na.length, nb.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(na, nb) / maxLen;
+}
+
+
 export async function POST(request: Request) {
   try {
     const payload = await request.json().catch(() => null);
@@ -105,6 +115,7 @@ export async function POST(request: Request) {
 
     // Apply vendor name correction from vendor_master
     const supabase = makeSupabase();
+    let vendorCorrected = false;
     if (supabase && parsed.vendorName) {
       const { data: masterData } = await supabase
         .from('vendor_master')
@@ -112,7 +123,56 @@ export async function POST(request: Request) {
         .eq('store_id', STORE_ID);
 
       if (masterData && masterData.length > 0) {
-        parsed.vendorName = correctVendorName(parsed.vendorName, masterData);
+        const originalVendorName = parsed.vendorName;
+        const corrected = correctVendorName(originalVendorName, masterData);
+        if (corrected !== originalVendorName) {
+          parsed.vendorName = corrected;
+          vendorCorrected = true;
+        }
+      }
+    }
+    parsed.vendorCorrected = vendorCorrected;
+
+    // Apply item name correction from historical records
+    if (supabase && parsed.items && parsed.items.length > 0) {
+      const { data: recentRecords } = await supabase
+        .from('purchase_records')
+        .select('items')
+        .eq('store_id', STORE_ID)
+        .order('date', { ascending: false })
+        .limit(100);
+
+      const knownItems = new Set<string>();
+      if (recentRecords) {
+        for (const rec of recentRecords) {
+          const items = (rec.items ?? []) as { name?: string }[];
+          for (const item of items) {
+            const name = item.name?.trim();
+            if (name) knownItems.add(name);
+          }
+        }
+      }
+
+      if (knownItems.size > 0) {
+        parsed.items = parsed.items.map((item: any) => {
+          const ocrName = item.name;
+          if (!ocrName) return item;
+          let bestMatch = ocrName;
+          let bestSim = 0.8; // similarity threshold 80%
+          for (const known of knownItems) {
+            const sim = similarity(ocrName, known);
+            if (sim > bestSim) {
+              bestSim = sim;
+              bestMatch = known;
+            }
+          }
+          return {
+            ...item,
+            name: bestMatch,
+            _originalName: bestMatch !== ocrName ? ocrName : undefined,
+            _corrected: bestMatch !== ocrName,
+          };
+        });
       }
     }
 
