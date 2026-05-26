@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ' *)",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\user\\\\Desktop\\\\store-doctor\\\\supabase\\\\migrations\")",
+      "Bash(Out-Null)",
+      "Bash(Write-Host \"ok\")",
+      "Bash(git commit -m 'fix: deduplicate menu_name before upsert to prevent ON CONFLICT double-update error *)",
+      "Bash(git commit -m 'feat: add menu-master sync endpoint and retroactive apply button *)",
+      "Bash(git commit -m 'feat: add item and vendor rankings to purchase analytics *)",
+      "Bash(git commit -m 'fix: exclude aliases and normalize whitespace in unmapped menu detection *)",
+      "Bash(git commit -m 'feat: save category to menu_master when selecting from analytics ranking *)",
+      "Bash(git commit -m 'feat: pie chart drill-down — tap category to see menu list and reassign *)",
+      "Bash(git commit -m 'fix: replace any with explicit type on Pie onClick to fix Vercel build error *)",
+      "Read(//c/Users/user/.claude/projects/c--Users-user-Desktop-store-doctor/**)",
+      "Bash(python3 -c \"import sys,json; lines=sys.stdin.read\\(\\).strip\\(\\).split\\('\\\\n'\\); [print\\(json.loads\\(l\\).get\\('content',''\\)[:500] if isinstance\\(json.loads\\(l\\).get\\('content',''\\),str\\) else ''\\) for l in lines[-5:] if l]\")",
+      "Bash(git commit -m 'feat: connect real purchase data to dashboard profit calculation *)",
+      "Bash(git commit -m 'feat: add monthly summary card to dashboard *)",
+      "Bash(git commit -m 'fix: recalculate totalRevenue from menu items on save in menu_only mode *)",
+      "Bash(python scripts/gen-icons.py)",
+      "Bash(powershell -Command \"Get-Item 'c:\\\\Users\\\\user\\\\Desktop\\\\store-doctor\\\\public\\\\icon-192x192.png', 'c:\\\\Users\\\\user\\\\Desktop\\\\store-doctor\\\\public\\\\icon-512x512.png' | Select-Object Name, Length\")",
+      "Bash(git commit -m 'feat: add PWA icons and manifest *)",
+      "Bash(gh run *)",
+      "Bash(git commit *)",
+      "Bash(New-Item -ItemType Directory -Force -Path \"c:\\\\Users\\\\user\\\\Desktop\\\\store-doctor\\\\app\\\\api\\\\menu-master\")",
+      "Bash(npx vercel *)",
+      "Bash(Get-ChildItem -Path 'c:\\\\Users\\\\user\\\\Desktop\\\\store-doctor\\\\app\\\\settings\\\\' -Force)"
+    ]
+  }
+}

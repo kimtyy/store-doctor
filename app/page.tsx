@@ -51,9 +51,11 @@ function fmt만(n: number): string {
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<DailySales[]>([]);
   const [purchaseByDate, setPurchaseByDate] = useState<Record<string, number>>({});
+  const [eventPurchaseByDate, setEventPurchaseByDate] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
+  const [includeEvent, setIncludeEvent] = useState(false);
 
   useEffect(() => {
     fetch('/api/fixed-costs/apply', { method: 'POST' }).catch(() => {});
@@ -86,12 +88,18 @@ export default function DashboardPage() {
 
         if (purchaseRes.ok) {
           const purchaseBody = await purchaseRes.json().catch(() => null);
-          const records: { date: string; total_amount: number }[] = purchaseBody?.data ?? [];
+          const records: { date: string; total_amount: number; is_event?: boolean }[] = purchaseBody?.data ?? [];
           const byDate: Record<string, number> = {};
+          const eventByDate: Record<string, number> = {};
           for (const r of records) {
-            byDate[r.date] = (byDate[r.date] ?? 0) + (r.total_amount ?? 0);
+            if (!r.is_event) {
+              byDate[r.date] = (byDate[r.date] ?? 0) + (r.total_amount ?? 0);
+            } else {
+              eventByDate[r.date] = (eventByDate[r.date] ?? 0) + (r.total_amount ?? 0);
+            }
           }
           setPurchaseByDate(byDate);
+          setEventPurchaseByDate(eventByDate);
         }
       } catch (err) {
         setFetchError(err instanceof Error ? err.message : '데이터를 불러오지 못했습니다.');
@@ -102,12 +110,17 @@ export default function DashboardPage() {
     fetchAll();
   }, []);
 
-  // MA chart data
+  // MA chart data — is_event=false 데이터만 (행사 제외)
+  const nonEventSalesData = useMemo(
+    () => salesData.filter((d) => !d.isEvent),
+    [salesData]
+  );
+
   const chartData = useMemo((): MAChartDataPoint[] => {
-    if (salesData.length === 0) return [];
-    const revenues = salesData.map((d) => d.netRevenue);
-    const costValues = salesData.map((d) => purchaseByDate[d.date] ?? null);
-    const profitValues = salesData.map((d, i) => {
+    if (nonEventSalesData.length === 0) return [];
+    const revenues = nonEventSalesData.map((d) => d.netRevenue);
+    const costValues = nonEventSalesData.map((d) => purchaseByDate[d.date] ?? null);
+    const profitValues = nonEventSalesData.map((d, i) => {
       const cost = costValues[i];
       return cost !== null ? d.netRevenue - cost : null;
     });
@@ -125,7 +138,7 @@ export default function DashboardPage() {
     const profitMa60  = calcNullableMA(profitValues, 60);
     const profitMa120 = calcNullableMA(profitValues, 120);
 
-    const crValues = salesData.map((d) => {
+    const crValues = nonEventSalesData.map((d) => {
       const cost = purchaseByDate[d.date];
       return cost !== undefined && d.netRevenue > 0 ? (cost / d.netRevenue) * 100 : null;
     });
@@ -134,31 +147,31 @@ export default function DashboardPage() {
     const crMa60  = calcNullableMA(crValues, 60);
     const crMa120 = calcNullableMA(crValues, 120);
 
-    return salesData.map((d, i) => ({
+    return nonEventSalesData.map((d, i) => ({
       date: d.date.slice(-5),
       revenueMa5: revMa5[i],   revenueMa20: revMa20[i],   revenueMa60: revMa60[i],   revenueMa120: revMa120[i],
       costMa5: costMa5[i],     costMa20: costMa20[i],     costMa60: costMa60[i],     costMa120: costMa120[i],
       profitMa5: profitMa5[i], profitMa20: profitMa20[i], profitMa60: profitMa60[i], profitMa120: profitMa120[i],
       costRatioMa5: crMa5[i],  costRatioMa20: crMa20[i],  costRatioMa60: crMa60[i],  costRatioMa120: crMa120[i],
     }));
-  }, [salesData, purchaseByDate]);
+  }, [nonEventSalesData, purchaseByDate]);
 
   const dataAvailability = useMemo((): DataAvailability => ({
-    ma5: salesData.length >= 5,
-    ma20: salesData.length >= 20,
-    ma60: salesData.length >= 60,
-    ma120: salesData.length >= 120,
-  }), [salesData]);
+    ma5: nonEventSalesData.length >= 5,
+    ma20: nonEventSalesData.length >= 20,
+    ma60: nonEventSalesData.length >= 60,
+    ma120: nonEventSalesData.length >= 120,
+  }), [nonEventSalesData]);
 
-  // Same weekday comparison
+  // Same weekday comparison — is_event=false 데이터만
   const sameDayComparison = useMemo(() => {
-    if (salesData.length === 0) return null;
+    if (nonEventSalesData.length === 0) return null;
     const today = new Date();
     const dow = today.getDay();
     const DOW_LABEL = ['일', '월', '화', '수', '목', '금', '토'];
 
     const salesMap: Record<string, number> = {};
-    for (const d of salesData) salesMap[d.date] = d.netRevenue;
+    for (const d of nonEventSalesData) salesMap[d.date] = d.netRevenue;
 
     const lastWeekDate = new Date(today);
     lastWeekDate.setDate(today.getDate() - 7);
@@ -170,7 +183,7 @@ export default function DashboardPage() {
     const prevYear = prevMonthDate.getFullYear();
     const prevMonth = prevMonthDate.getMonth();
 
-    const lastMonthSameDay = salesData.filter(d => {
+    const lastMonthSameDay = nonEventSalesData.filter(d => {
       const date = new Date(d.date + 'T00:00:00');
       return date.getFullYear() === prevYear
         && date.getMonth() === prevMonth
@@ -188,32 +201,57 @@ export default function DashboardPage() {
       lastMonthAvg,
       lastMonthCount: lastMonthSameDay.length,
     };
-  }, [salesData]);
+  }, [nonEventSalesData]);
 
-  // Monthly summary (영업일수, 총매출, 총매입)
+  // Monthly summary — includeEvent 토글에 따라 행사 데이터 포함 여부 결정
   const monthSummary = useMemo(() => {
     const now = new Date();
     const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const thisMonth = salesData.filter((d) => d.date.startsWith(ym));
-    if (thisMonth.length === 0) return null;
-    const totalRevenue = thisMonth.reduce((s, d) => s + d.netRevenue, 0);
-    let totalCost = 0;
+    // 기본 (행사 제외)
+    const baseMonth = nonEventSalesData.filter((d) => d.date.startsWith(ym));
+    // 행사 데이터
+    const eventMonth = salesData.filter((d) => d.isEvent && d.date.startsWith(ym));
+
+    if (baseMonth.length === 0 && eventMonth.length === 0) return null;
+
+    const baseRevenue = baseMonth.reduce((s, d) => s + d.netRevenue, 0);
+    const eventRevenue = eventMonth.reduce((s, d) => s + d.netRevenue, 0);
+
+    let baseCost = 0;
     let hasAnyReal = false;
-    for (const d of thisMonth) {
+    for (const d of baseMonth) {
       const real = purchaseByDate[d.date];
       if (real !== undefined) {
-        totalCost += real;
+        baseCost += real;
         hasAnyReal = true;
       } else {
-        totalCost += d.netRevenue * 0.4;
+        baseCost += d.netRevenue * 0.4;
       }
     }
-    return { days: thisMonth.length, totalRevenue, totalCost, hasAnyReal };
-  }, [salesData, purchaseByDate]);
+
+    // 행사 매입
+    let eventCost = 0;
+    for (const d of eventMonth) {
+      const evc = eventPurchaseByDate[d.date];
+      if (evc !== undefined) eventCost += evc;
+    }
+
+    const totalRevenue = includeEvent ? baseRevenue + eventRevenue : baseRevenue;
+    const totalCost = includeEvent ? baseCost + eventCost : baseCost;
+
+    return {
+      days: baseMonth.length,
+      totalRevenue,
+      totalCost,
+      hasAnyReal,
+      eventRevenue,
+      eventCost,
+    };
+  }, [nonEventSalesData, salesData, purchaseByDate, eventPurchaseByDate, includeEvent]);
 
   const recentDays = useMemo(
-    () => [...salesData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 7),
-    [salesData]
+    () => [...nonEventSalesData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 7),
+    [nonEventSalesData]
   );
 
   return (
@@ -316,9 +354,29 @@ export default function DashboardPage() {
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-slate-100">이번달 현황</h3>
-                    <span className="text-xs text-slate-500">
-                      {!monthSummary.hasAnyReal && '원가 추정'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {!monthSummary.hasAnyReal && <span className="text-xs text-slate-500">원가 추정</span>}
+                      {/* 행사 포함 토글 */}
+                      <button
+                        type="button"
+                        onClick={() => setIncludeEvent((v) => !v)}
+                        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition ${
+                          includeEvent
+                            ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                            : 'bg-slate-800 border border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <span>🎪</span>
+                        <span>행사 포함</span>
+                        <span className={`w-7 h-3.5 rounded-full relative inline-block ml-1 ${
+                          includeEvent ? 'bg-purple-500' : 'bg-slate-700'
+                        }`}>
+                          <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-all ${
+                            includeEvent ? 'left-3.5' : 'left-0.5'
+                          }`} />
+                        </span>
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
@@ -341,6 +399,22 @@ export default function DashboardPage() {
                       </p>
                     </div>
                   </div>
+                  {/* 행사 매출/매입 별도 표시 (includeEvent ON + 데이터 있을 때) */}
+                  {includeEvent && (monthSummary.eventRevenue > 0 || monthSummary.eventCost > 0) && (
+                    <div className="mt-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 px-4 py-3 flex flex-wrap gap-3">
+                      <span className="text-xs font-semibold text-purple-300">🎪 행사 포함</span>
+                      {monthSummary.eventRevenue > 0 && (
+                        <span className="text-xs text-purple-200">
+                          행사 매출 <span className="font-bold">+{Math.round(monthSummary.eventRevenue / 10000)}만원</span>
+                        </span>
+                      )}
+                      {monthSummary.eventCost > 0 && (
+                        <span className="text-xs text-purple-200">
+                          행사 매입 <span className="font-bold">+{Math.round(monthSummary.eventCost / 10000)}만원</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

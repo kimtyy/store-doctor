@@ -32,5 +32,6 @@ export interface DailySales {
   inputMethod: SalesInputMethod;
   receiptImageUrl?: string;
   menuItems: SalesMenuItem[];
+  isEvent?: boolean;
   createdAt?: string;
 }

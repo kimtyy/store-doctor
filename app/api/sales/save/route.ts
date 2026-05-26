@@ -75,6 +75,7 @@ export async function POST(request: Request) {
         first_order_time: receipt.firstOrderTime || null,
         input_method: 'receipt_photo',
         receipt_image_url: receipt.receiptImageUrl || null,
+        is_event: receipt.isEvent ?? false,
       })
       .select('id')
       .single();

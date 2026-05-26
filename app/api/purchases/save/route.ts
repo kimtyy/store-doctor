@@ -52,6 +52,7 @@ export async function POST(request: Request) {
         items: items ?? [],
         input_method: inputMethod ?? 'manual',
         note: note ?? null,
+        is_event: payload.isEvent ?? false,
       })
       .select('id')
       .single();

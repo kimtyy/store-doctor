@@ -29,6 +29,7 @@ function mapRow(row: Record<string, unknown>) {
     firstOrderTime: row.first_order_time ?? null,
     inputMethod: row.input_method,
     receiptImageUrl: row.receipt_image_url ?? null,
+    isEvent: row.is_event ?? false,
     createdAt: row.created_at,
     menuItems: (row.sales_menu_items as Record<string, unknown>[] ?? []).map((item) => ({
       name: item.name,
@@ -86,6 +87,7 @@ export async function PATCH(request: Request) {
       avg_spend: receipt.avgSpend ?? 0,
     };
     if (receipt.date) updateFields.date = receipt.date;
+    if (typeof receipt.isEvent === 'boolean') updateFields.is_event = receipt.isEvent;
 
     const { error: updateError } = await supabase
       .from('daily_sales')

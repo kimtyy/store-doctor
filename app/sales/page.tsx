@@ -200,6 +200,7 @@ export default function SalesInputPage() {
   const [savedSalesId, setSavedSalesId] = useState<string | null>(null);
   const [receiptSaved, setReceiptSaved] = useState(false);
   const [menuSaved, setMenuSaved] = useState(false);
+  const [isEventSales, setIsEventSales] = useState(false);
 
   // history state
   const [historyData, setHistoryData] = useState<DailySales[]>([]);
@@ -405,6 +406,7 @@ export default function SalesInputPage() {
     setMenuParsed(false); setReceiptSaved(false);
     setMenuSaved(false); setSavedSalesId(null);
     setSaveSuccess(null); setError(null);
+    setIsEventSales(false);
   }
 
   async function handleSaveReceipt() {
@@ -413,7 +415,7 @@ export default function SalesInputPage() {
     try {
       const res = await fetch('/api/sales/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receipt: editableReceipt }),
+        body: JSON.stringify({ receipt: { ...editableReceipt, isEvent: isEventSales } }),
       });
       const text = await res.text();
       let body;
@@ -458,7 +460,7 @@ export default function SalesInputPage() {
       }
       const res = await fetch('/api/sales/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receipt: finalReceipt, menu: menuParsed ? { menuItems: stripMeta(editableMenuItems) } : undefined }),
+        body: JSON.stringify({ receipt: { ...finalReceipt, isEvent: isEventSales }, menu: menuParsed ? { menuItems: stripMeta(editableMenuItems) } : undefined }),
       });
       const text = await res.text();
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
@@ -575,10 +577,35 @@ export default function SalesInputPage() {
                             </div>
 
                             {!receiptSaved && (
-                              <button type="button" onClick={handleSaveReceipt} disabled={savingReceipt}
-                                className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
-                                {savingReceipt ? '저장 중...' : '정산서 저장'}
-                              </button>
+                              <>
+                                {/* 행사 매출 토글 */}
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEventSales((v) => !v)}
+                                  className={`flex items-center gap-2 w-full rounded-xl px-4 py-3 text-sm font-medium transition ${
+                                    isEventSales
+                                      ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                                      : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  <span className="text-lg">🎪</span>
+                                  <span>행사 매출</span>
+                                  <span className={`ml-auto text-xs font-bold ${isEventSales ? 'text-purple-300' : 'text-slate-600'}`}>
+                                    {isEventSales ? 'ON' : 'OFF'}
+                                  </span>
+                                  <span className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+                                    isEventSales ? 'bg-purple-500' : 'bg-slate-700'
+                                  }`}>
+                                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                                      isEventSales ? 'left-5' : 'left-0.5'
+                                    }`} />
+                                  </span>
+                                </button>
+                                <button type="button" onClick={handleSaveReceipt} disabled={savingReceipt}
+                                  className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
+                                  {savingReceipt ? '저장 중...' : '정산서 저장'}
+                                </button>
+                              </>
                             )}
                           </>
                         )}
@@ -661,6 +688,29 @@ export default function SalesInputPage() {
                           <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={editableReceipt.guestCount ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, guestCount: Number(e.target.value) } : c)} className={iCls} /></div>
                         </div>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsEventSales((v) => !v)}
+                        className={`flex items-center gap-2 w-full rounded-xl px-4 py-3 text-sm font-medium transition ${
+                          isEventSales
+                            ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                            : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span className="text-lg">🎪</span>
+                        <span>행사 매출</span>
+                        <span className={`ml-auto text-xs font-bold ${isEventSales ? 'text-purple-300' : 'text-slate-600'}`}>
+                          {isEventSales ? 'ON' : 'OFF'}
+                        </span>
+                        <span className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+                          isEventSales ? 'bg-purple-500' : 'bg-slate-700'
+                        }`}>
+                          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                            isEventSales ? 'left-5' : 'left-0.5'
+                          }`} />
+                        </span>
+                      </button>
 
                       <button type="button" onClick={() => handleSave()} disabled={saving}
                         className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">

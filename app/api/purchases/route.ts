@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
     let query = supabase
       .from('purchase_records')
-      .select('id, date, vendor_name, total_amount, category, note, items')
+      .select('id, date, vendor_name, total_amount, category, note, items, is_event')
       .eq('store_id', STORE_ID)
       .order('date', { ascending: false });
 

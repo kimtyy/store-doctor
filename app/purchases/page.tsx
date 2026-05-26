@@ -112,7 +112,7 @@ type EditablePurchase = Omit<PurchaseRecord, 'id' | 'storeId' | 'createdAt'> & {
   category: PurchaseCategory | '';
 };
 
-async function savePurchase(record: EditablePurchase & { note?: string }): Promise<void> {
+async function savePurchase(record: EditablePurchase & { note?: string; isEvent?: boolean }): Promise<void> {
   const response = await fetch('/api/purchases/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -126,6 +126,7 @@ async function savePurchase(record: EditablePurchase & { note?: string }): Promi
       items: record.items,
       inputMethod: record.inputMethod,
       note: record.note,
+      isEvent: record.isEvent ?? false,
     }),
   });
 
@@ -294,6 +295,8 @@ export default function PurchasesInputPage() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   const [purchaseCameraOpen, setPurchaseCameraOpen] = useState(false);
+  const [isEventPurchasePhoto, setIsEventPurchasePhoto] = useState(false);
+  const [isEventPurchaseManual, setIsEventPurchaseManual] = useState(false);
 
   const manualTotal = useMemo(
     () => manualRecord.items.reduce((sum, item) => sum + item.amount, 0),
@@ -420,10 +423,12 @@ export default function PurchasesInputPage() {
         totalAmount: photoTotal,
         netAmount: photoTotal - (editableResult.taxAmount ?? 0),
         inputMethod: 'receipt_photo',
+        isEvent: isEventPurchasePhoto,
       });
       setSaveSuccess('✅ 저장 완료!');
       setEditableResult(null);
       setReceiptFile(null);
+      setIsEventPurchasePhoto(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
@@ -473,6 +478,7 @@ export default function PurchasesInputPage() {
         netAmount: manualTotal,
         note,
         inputMethod: 'manual',
+        isEvent: isEventPurchaseManual,
       });
       setSaveSuccess('✅ 저장 완료!');
       setManualRecord({
@@ -486,6 +492,7 @@ export default function PurchasesInputPage() {
         inputMethod: 'manual',
       });
       setNote('');
+      setIsEventPurchaseManual(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
@@ -879,6 +886,30 @@ export default function PurchasesInputPage() {
                     <p className="mt-1 text-2xl font-bold text-emerald-400">{photoTotal.toLocaleString()}원</p>
                   </div>
 
+                  {/* 행사 매입 토글 */}
+                  <button
+                    type="button"
+                    onClick={() => setIsEventPurchasePhoto((v) => !v)}
+                    className={`flex items-center gap-2 w-full rounded-xl px-4 py-3 text-sm font-medium transition ${
+                      isEventPurchasePhoto
+                        ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                        : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="text-lg">🎪</span>
+                    <span>행사 매입</span>
+                    <span className={`ml-auto text-xs font-bold ${isEventPurchasePhoto ? 'text-purple-300' : 'text-slate-600'}`}>
+                      {isEventPurchasePhoto ? 'ON' : 'OFF'}
+                    </span>
+                    <span className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+                      isEventPurchasePhoto ? 'bg-purple-500' : 'bg-slate-700'
+                    }`}>
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                        isEventPurchasePhoto ? 'left-5' : 'left-0.5'
+                      }`} />
+                    </span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleSavePhoto}
@@ -1060,6 +1091,30 @@ export default function PurchasesInputPage() {
                 <p className="text-xs text-slate-400">합계</p>
                 <p className="mt-2 text-3xl font-bold text-emerald-400">{manualTotal.toLocaleString()}원</p>
               </div>
+
+              {/* 행사 매입 토글 */}
+              <button
+                type="button"
+                onClick={() => setIsEventPurchaseManual((v) => !v)}
+                className={`flex items-center gap-2 w-full rounded-xl px-4 py-3 text-sm font-medium transition ${
+                  isEventPurchaseManual
+                    ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                    : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="text-lg">🎪</span>
+                <span>행사 매입</span>
+                <span className={`ml-auto text-xs font-bold ${isEventPurchaseManual ? 'text-purple-300' : 'text-slate-600'}`}>
+                  {isEventPurchaseManual ? 'ON' : 'OFF'}
+                </span>
+                <span className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+                  isEventPurchaseManual ? 'bg-purple-500' : 'bg-slate-700'
+                }`}>
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                    isEventPurchaseManual ? 'left-5' : 'left-0.5'
+                  }`} />
+                </span>
+              </button>
 
               <button
                 type="button"
