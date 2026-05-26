@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '요청 본문을 파싱할 수 없습니다.' }, { status: 400 });
     }
 
-    const { vendorName, date, totalAmount, taxAmount, netAmount, category, items, inputMethod, note } = payload;
+    const { vendorName, date, totalAmount, taxAmount, netAmount, category, items, inputMethod, note, memo } = payload;
 
     if (!vendorName || !date || totalAmount === undefined) {
       return NextResponse.json(
@@ -52,6 +52,7 @@ export async function POST(request: Request) {
         items: items ?? [],
         input_method: inputMethod ?? 'manual',
         note: note ?? null,
+        memo: memo ?? null,
         is_event: payload.isEvent ?? false,
       })
       .select('id')

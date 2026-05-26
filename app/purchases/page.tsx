@@ -112,7 +112,7 @@ type EditablePurchase = Omit<PurchaseRecord, 'id' | 'storeId' | 'createdAt'> & {
   category: PurchaseCategory | '';
 };
 
-async function savePurchase(record: EditablePurchase & { note?: string; isEvent?: boolean }): Promise<void> {
+async function savePurchase(record: EditablePurchase & { note?: string; memo?: string; isEvent?: boolean }): Promise<void> {
   const response = await fetch('/api/purchases/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -126,6 +126,7 @@ async function savePurchase(record: EditablePurchase & { note?: string; isEvent?
       items: record.items,
       inputMethod: record.inputMethod,
       note: record.note,
+      memo: record.memo,
       isEvent: record.isEvent ?? false,
     }),
   });
@@ -153,6 +154,7 @@ interface PurchaseHistoryRecord {
   total_amount: number;
   category: string;
   note: string | null;
+  memo: string | null;
   items: PurchaseHistoryItem[];
 }
 
@@ -166,6 +168,7 @@ export default function PurchasesInputPage() {
   const [draftItems, setDraftItems] = useState<Record<string, PurchaseHistoryItem[]>>({});
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
   const [draftVendorNames, setDraftVendorNames] = useState<Record<string, string>>({});
+  const [draftMemos, setDraftMemos] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -198,6 +201,7 @@ export default function PurchasesInputPage() {
       setDraftItems((prev) => ({ ...prev, [record.id]: (record.items ?? []).map((i) => ({ ...i })) }));
       setDraftDates((prev) => ({ ...prev, [record.id]: record.date }));
       setDraftVendorNames((prev) => ({ ...prev, [record.id]: record.vendor_name }));
+      setDraftMemos((prev) => ({ ...prev, [record.id]: record.memo ?? '' }));
     }
   }
 
@@ -258,6 +262,7 @@ export default function PurchasesInputPage() {
           totalAmount,
           date: draftDates[record.id],
           vendorName,
+          memo: draftMemos[record.id],
         }),
       });
       const json = await res.json();
@@ -271,6 +276,7 @@ export default function PurchasesInputPage() {
                 total_amount: totalAmount,
                 vendor_name: vendorName,
                 date: draftDates[record.id] ?? r.date,
+                memo: draftMemos[record.id] ?? r.memo,
               }
             : r
         )
@@ -301,7 +307,7 @@ export default function PurchasesInputPage() {
     items: [],
     inputMethod: 'manual',
   });
-  const [note, setNote] = useState('');
+  const [memo, setMemo] = useState('');
   const [savingManual, setSavingManual] = useState(false);
 
   // autocomplete
@@ -497,7 +503,7 @@ export default function PurchasesInputPage() {
         ...manualRecord,
         totalAmount: manualTotal,
         netAmount: manualTotal,
-        note,
+        memo,
         inputMethod: 'manual',
         isEvent: isEventPurchaseManual,
       });
@@ -512,7 +518,7 @@ export default function PurchasesInputPage() {
         items: [],
         inputMethod: 'manual',
       });
-      setNote('');
+      setMemo('');
       setIsEventPurchaseManual(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
@@ -642,7 +648,9 @@ export default function PurchasesInputPage() {
                                 {itemCount > 0 ? `${itemCount}개 품목` : '품목 없음'} {isExpanded ? '▲' : '▼'}
                               </span>
                             </div>
-                            {record.note ? (
+                            {record.memo ? (
+                              <p className="mt-1 text-xs text-slate-400 truncate">📝 {record.memo}</p>
+                            ) : record.note ? (
                               <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
                             ) : null}
                           </button>
@@ -676,6 +684,16 @@ export default function PurchasesInputPage() {
                                   type="date"
                                   value={draftDates[record.id] ?? record.date}
                                   onChange={(e) => setDraftDates((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                />
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-500 mb-1">메모 (선택)</p>
+                                <input
+                                  type="text"
+                                  value={draftMemos[record.id] ?? ''}
+                                  onChange={(e) => setDraftMemos((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                                  placeholder="메모를 입력하세요"
                                   className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                 />
                               </div>
@@ -814,6 +832,16 @@ export default function PurchasesInputPage() {
                         type="date"
                         value={editableResult.date}
                         onChange={(e) => setEditableResult((c) => c ? { ...c, date: e.target.value } : c)}
+                        className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-sm text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400">메모 (선택)</label>
+                      <input
+                        type="text"
+                        value={editableResult.memo ?? ''}
+                        onChange={(e) => setEditableResult((c) => c ? { ...c, memo: e.target.value } : c)}
+                        placeholder="예) 맹호부대 행사, 긴급 추가 발주"
                         className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-sm text-slate-100"
                       />
                     </div>
@@ -1024,8 +1052,8 @@ export default function PurchasesInputPage() {
                   <label className="text-sm font-medium text-slate-300">메모 (선택)</label>
                   <input
                     type="text"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
+                    value={memo}
+                    onChange={(e) => setMemo(e.target.value)}
                     placeholder="예) 시장 생선 50만원"
                     className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100"
                   />

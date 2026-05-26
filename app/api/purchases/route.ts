@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
     let query = supabase
       .from('purchase_records')
-      .select('id, date, vendor_name, total_amount, category, note, items, is_event')
+      .select('id, date, vendor_name, total_amount, category, note, memo, items, is_event')
       .eq('store_id', STORE_ID)
       .order('date', { ascending: false });
 
@@ -59,12 +59,13 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '요청 본문을 파싱할 수 없습니다.' }, { status: 400 });
     }
 
-    const { id, items, totalAmount, date, vendorName } = body as {
+    const { id, items, totalAmount, date, vendorName, memo } = body as {
       id: string;
       items: { name: string; quantity: number; unitPrice: number; amount: number }[];
       totalAmount: number;
       date?: string;
       vendorName?: string;
+      memo?: string;
     };
 
     if (!id) {
@@ -74,6 +75,7 @@ export async function PATCH(request: Request) {
     const updatePayload: Record<string, unknown> = { items: items ?? [], total_amount: totalAmount };
     if (date) updatePayload.date = date;
     if (vendorName !== undefined) updatePayload.vendor_name = vendorName;
+    if (memo !== undefined) updatePayload.memo = memo;
 
     const { error } = await supabase
       .from('purchase_records')

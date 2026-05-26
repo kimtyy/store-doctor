@@ -35,6 +35,7 @@ export interface PurchaseRecord {
   inputMethod: PurchaseInputMethod;
   receiptImageUrl?: string;
   note?: string;
+  memo?: string;
   isEvent?: boolean;
   createdAt?: string;
 }
