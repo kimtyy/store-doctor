@@ -167,6 +167,8 @@ export default function PurchasesInputPage() {
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
   const [draftVendorNames, setDraftVendorNames] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -219,6 +221,25 @@ export default function PurchasesInputPage() {
       ...prev,
       [recordId]: [...(prev[recordId] ?? []), { name: '', quantity: 1, unitPrice: 0, amount: 0 }],
     }));
+  }
+
+  async function deleteRecord(id: string) {
+    setDeletingId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/purchases?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? '삭제 실패');
+      setHistoryList((prev) => prev.filter((r) => r.id !== id));
+      if (expandedId === id) setExpandedId(null);
+      setSaveSuccess('✅ 삭제 완료!');
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '삭제 실패');
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+    }
   }
 
   async function saveDraftItems(record: PurchaseHistoryRecord) {
@@ -599,31 +620,41 @@ export default function PurchasesInputPage() {
 
                     return (
                       <div key={record.id} className="rounded-2xl border border-slate-800 bg-slate-950/60">
-                        {/* Header row — tap to expand */}
-                        <button
-                          type="button"
-                          onClick={() => toggleExpand(record)}
-                          className="w-full px-4 py-3 text-left"
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-slate-500">{record.date}</span>
-                            <span className="text-sm font-semibold text-emerald-400">
-                              {record.total_amount.toLocaleString()}원
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm text-slate-200 truncate flex-1">{record.vendor_name}</span>
-                            <span className="shrink-0 rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-400">
-                              {categoryLabels[record.category as PurchaseCategory] ?? record.category}
-                            </span>
-                            <span className="shrink-0 text-xs text-slate-500">
-                              {itemCount > 0 ? `${itemCount}개 품목` : '품목 없음'} {isExpanded ? '▲' : '▼'}
-                            </span>
-                          </div>
-                          {record.note ? (
-                            <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
-                          ) : null}
-                        </button>
+                        {/* Header row — tap to expand + delete button */}
+                        <div className="flex items-start gap-0">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(record)}
+                            className="flex-1 px-4 py-3 text-left min-w-0"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs text-slate-500">{record.date}</span>
+                              <span className="text-sm font-semibold text-emerald-400">
+                                {record.total_amount.toLocaleString()}원
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-slate-200 truncate flex-1">{record.vendor_name}</span>
+                              <span className="shrink-0 rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-400">
+                                {categoryLabels[record.category as PurchaseCategory] ?? record.category}
+                              </span>
+                              <span className="shrink-0 text-xs text-slate-500">
+                                {itemCount > 0 ? `${itemCount}개 품목` : '품목 없음'} {isExpanded ? '▲' : '▼'}
+                              </span>
+                            </div>
+                            {record.note ? (
+                              <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
+                            ) : null}
+                          </button>
+                          {/* 삭제 버튼 */}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(record.id); }}
+                            className="shrink-0 px-3 py-3 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-tr-2xl transition"
+                          >
+                            🗑
+                          </button>
+                        </div>
 
                         {/* Expanded — item list */}
                         {isExpanded && (
@@ -1130,6 +1161,42 @@ export default function PurchasesInputPage() {
       </main>
 
       <BottomTabNav />
+
+      {/* 삭제 확인 팝업 */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
+          {/* 배경 오버레이 */}
+          <div
+            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            onClick={() => setConfirmDeleteId(null)}
+          />
+          {/* 팝업 카드 */}
+          <div className="relative w-full max-w-sm rounded-3xl border border-slate-700 bg-slate-900 p-6 space-y-5 shadow-2xl">
+            <div className="text-center space-y-2">
+              <p className="text-3xl">🗑️</p>
+              <p className="text-base font-semibold text-slate-100">정말 삭제하시겠어요?</p>
+              <p className="text-sm text-slate-400">삭제한 매입 내역은 복구할 수 없습니다.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="rounded-2xl border border-slate-700 bg-slate-800 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-700 transition"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteRecord(confirmDeleteId)}
+                disabled={deletingId === confirmDeleteId}
+                className="rounded-2xl bg-rose-500 py-3 text-sm font-semibold text-white hover:bg-rose-400 disabled:opacity-50 transition"
+              >
+                {deletingId === confirmDeleteId ? '삭제 중...' : '삭제'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
