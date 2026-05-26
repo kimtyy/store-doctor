@@ -67,6 +67,7 @@ export async function PATCH(request: Request) {
         cardAmount?: number;
         guestCount?: number;
         avgSpend?: number;
+        isEvent?: boolean;
       };
       menuItems?: { name: string; quantity: number; amount: number; category?: string; menuId?: string }[];
     };
