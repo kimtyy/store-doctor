@@ -8,7 +8,7 @@ import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
 
 type Tab = 'input' | 'history';
-type ParseMode = 'full' | 'menu_only';
+type ParseMode = 'full' | 'menu_only' | 'manual';
 
 type EditableReceipt = Partial<DailySales> & {
   date: string;
@@ -187,6 +187,16 @@ export default function SalesInputPage() {
   const [editableMenuItems, setEditableMenuItems] = useState<SalesMenuItemWithMeta[]>([]);
   const [menuParsed, setMenuParsed] = useState(false);
   const [menuDate, setMenuDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [manualRecord, setManualRecord] = useState<EditableReceipt>({
+    date: new Date().toISOString().split('T')[0],
+    totalRevenue: 0,
+    netRevenue: 0,
+    cashAmount: 0,
+    cardAmount: 0,
+    serviceAmount: 0,
+    guestCount: 0,
+    note: '',
+  });
   const [error, setError] = useState<string | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
   const [loadingMenu, setLoadingMenu] = useState(false);
@@ -476,6 +486,41 @@ export default function SalesInputPage() {
     finally { setSaving(false); }
   }
 
+  async function handleSaveManual() {
+    if (!manualRecord.totalRevenue || manualRecord.totalRevenue <= 0) {
+      setError('총매출금액을 입력해주세요.');
+      return;
+    }
+    setError(null); setSaveSuccess(null); setSaving(true);
+    try {
+      const netRevenue = manualRecord.totalRevenue - (manualRecord.serviceAmount ?? 0);
+      const res = await fetch('/api/sales/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receipt: {
+            ...manualRecord,
+            netRevenue,
+            isEvent: isEventSales,
+            inputMethod: 'manual',
+          },
+        }),
+      });
+      const text = await res.text();
+      let body;
+      try { body = JSON.parse(text); } catch { throw new Error('서버 응답을 처리할 수 없습니다.'); }
+      if (!res.ok) throw new Error(body.error || body.details || `서버 오류 (${res.status})`);
+      if (body.success) {
+        setSaveSuccess('✅ 수동 입력 저장 완료!');
+        resetInput();
+        setManualRecord({
+          date: new Date().toISOString().split('T')[0],
+          totalRevenue: 0, netRevenue: 0, cashAmount: 0, cardAmount: 0, serviceAmount: 0, guestCount: 0, note: '',
+        });
+      } else throw new Error('저장 결과를 확인할 수 없습니다.');
+    } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
+    finally { setSaving(false); }
+  }
+
   const btnBase = 'flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition text-center cursor-pointer';
 
   return (
@@ -507,11 +552,11 @@ export default function SalesInputPage() {
 
               {/* Parse mode selector */}
               <div className="flex gap-1 rounded-2xl bg-slate-900/60 p-1.5 border border-slate-800">
-                {(['full', 'menu_only'] as ParseMode[]).map((m) => (
+                {(['full', 'menu_only', 'manual'] as ParseMode[]).map((m) => (
                   <button key={m}
                     onClick={() => { setParseMode(m); setEditableReceipt(null); setEditableMenuItems([]); setMenuParsed(false); }}
                     className={`flex-1 rounded-xl py-2 text-xs font-semibold transition ${parseMode === m ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'}`}>
-                    {m === 'full' ? '정산서 + 메뉴내역' : '메뉴내역만'}
+                    {m === 'full' ? '정산서 + 메뉴' : m === 'menu_only' ? '메뉴만' : '✏️ 수동 입력'}
                   </button>
                 ))}
               </div>
@@ -718,6 +763,77 @@ export default function SalesInputPage() {
                       </button>
                     </>
                   )}
+                </div>
+              )}
+              )}
+
+              {/* ── MANUAL MODE ────────────────────────────────────────────────── */}
+              {parseMode === 'manual' && (
+                <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
+                  <h2 className="text-lg font-semibold">✏️ 빠른 수동 입력</h2>
+                  <p className="mt-1 text-xs text-slate-400">사진 없이 매출 금액만 직접 입력합니다.</p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-slate-300">날짜</label>
+                      <input type="date" value={manualRecord.date} onChange={(e) => setManualRecord({ ...manualRecord, date: e.target.value })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-300">총매출금액</label>
+                      <input type="number" placeholder="예: 450000" value={manualRecord.totalRevenue || ''} onChange={(e) => setManualRecord({ ...manualRecord, totalRevenue: Number(e.target.value) })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-300">서비스금액 (선택)</label>
+                      <input type="number" placeholder="예: 0" value={manualRecord.serviceAmount || ''} onChange={(e) => setManualRecord({ ...manualRecord, serviceAmount: Number(e.target.value) })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium text-slate-300">현금</label>
+                        <input type="number" value={manualRecord.cashAmount || ''} onChange={(e) => setManualRecord({ ...manualRecord, cashAmount: Number(e.target.value) })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-slate-300">카드</label>
+                        <input type="number" value={manualRecord.cardAmount || ''} onChange={(e) => setManualRecord({ ...manualRecord, cardAmount: Number(e.target.value) })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-300">고객수 (선택)</label>
+                      <input type="number" value={manualRecord.guestCount || ''} onChange={(e) => setManualRecord({ ...manualRecord, guestCount: Number(e.target.value) })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-300">메모 (선택)</label>
+                      <input type="text" placeholder='예: "맹호부대 행사"' value={manualRecord.note || ''} onChange={(e) => setManualRecord({ ...manualRecord, note: e.target.value })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                    </div>
+                  </div>
+
+                  {/* 행사 매출 토글 */}
+                  <button
+                    type="button"
+                    onClick={() => setIsEventSales((v) => !v)}
+                    className={`flex items-center gap-2 w-full rounded-xl px-4 py-3 text-sm font-medium transition mt-4 ${
+                      isEventSales
+                        ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                        : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="text-lg">🎪</span>
+                    <span>행사 매출</span>
+                    <span className={`ml-auto text-xs font-bold ${isEventSales ? 'text-purple-300' : 'text-slate-600'}`}>
+                      {isEventSales ? 'ON' : 'OFF'}
+                    </span>
+                    <span className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+                      isEventSales ? 'bg-purple-500' : 'bg-slate-700'
+                    }`}>
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                        isEventSales ? 'left-5' : 'left-0.5'
+                      }`} />
+                    </span>
+                  </button>
+
+                  <button type="button" onClick={handleSaveManual} disabled={saving}
+                    className="w-full mt-4 rounded-2xl bg-sky-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
+                    {saving ? '저장 중...' : '저장하기'}
+                  </button>
                 </div>
               )}
             </>
