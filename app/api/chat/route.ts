@@ -56,7 +56,7 @@ function buildMenuSummary(salesWithMenus: SaleWithMenus[], fromDate: string, toD
     .sort((a, b) => b.amount - a.amount);
 }
 
-async function buildStoreContext(): Promise<string> {
+async function buildStoreContext(STORE_ID: string): Promise<string> {
   const supabase = makeSupabase();
   if (!supabase) return '(매장 데이터를 불러올 수 없습니다)';
 
@@ -232,7 +232,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '메시지가 없습니다.' }, { status: 400 });
     }
 
-    const storeContext = await buildStoreContext();
+    const storeContext = await buildStoreContext(STORE_ID);
 
     const now = new Date();
     const thisMonth = now.getMonth() + 1;
