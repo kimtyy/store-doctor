@@ -488,6 +488,8 @@ export default function AnalyticsPage() {
               onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
               disabled={!canGoNext}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 transition text-base"
+            >
+              →
             </button>
           </div>
         )}
