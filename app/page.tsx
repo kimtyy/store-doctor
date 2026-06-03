@@ -57,9 +57,7 @@ export default function DashboardPage() {
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/fixed-costs/apply', { method: 'POST' }).catch(() => {});
-  }, []);
+
 
   useEffect(() => {
     fetch(
