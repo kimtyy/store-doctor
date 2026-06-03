@@ -6,6 +6,22 @@ export const dynamic = 'force-dynamic';
 
 const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
 
+const PURCHASE_CAT_LABELS: Record<string, string> = {
+  food_ingredients: '식자재',
+  alcohol: '주류',
+  consumables: '소모품',
+  labor: '인건비',
+  rent: '임대료',
+  electricity: '전기요금',
+  gas: '가스요금',
+  water: '수도요금',
+  telecom: '통신비',
+  pos_fee: 'POS 사용료',
+  insurance: '보험료',
+  fuel: '유류비',
+  other: '기타'
+};
+
 export async function GET(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -109,7 +125,7 @@ export async function GET(request: Request) {
       const v = p.vendor_name || '미상';
       vendorMap[v] = (vendorMap[v] || 0) + (p.total_amount || 0);
     }
-    const purchaseCategories = Object.entries(purchaseCategoriesMap).map(([cat, amt]) => ({ name: cat, amount: amt })).sort((a,b)=>b.amount-a.amount);
+    const purchaseCategories = Object.entries(purchaseCategoriesMap).map(([cat, amt]) => ({ name: PURCHASE_CAT_LABELS[cat] || cat, amount: amt })).sort((a,b)=>b.amount-a.amount);
     const topVendors = Object.entries(vendorMap).map(([v, amt]) => ({ name: v, amount: amt })).sort((a,b)=>b.amount-a.amount).slice(0, 5);
 
     // Profit metrics

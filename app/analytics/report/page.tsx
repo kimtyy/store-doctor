@@ -2,6 +2,8 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 function MonthlyReportContent() {
   const searchParams = useSearchParams();
@@ -113,9 +115,9 @@ function MonthlyReportContent() {
           <h2 className="text-sm font-bold text-sky-800 mb-2 flex items-center gap-1">
             <span>✨</span> AI 한줄 진단
           </h2>
-          <p className="text-slate-800 font-medium leading-relaxed">
-            {data.aiDiagnosis}
-          </p>
+          <div className="text-slate-800 font-medium leading-relaxed prose prose-sm prose-slate max-w-none prose-p:my-1 prose-headings:my-2">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.aiDiagnosis}</ReactMarkdown>
+          </div>
         </section>
 
         {/* Sales Summary */}
@@ -255,9 +257,9 @@ function MonthlyReportContent() {
               <h3 className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1">
                 <span>💡</span> AI 진단
               </h3>
-              <p className="text-amber-900 font-medium text-sm leading-relaxed">
-                {data.bep.aiDiagnosis}
-              </p>
+              <div className="text-amber-900 font-medium text-sm leading-relaxed prose prose-sm prose-amber max-w-none prose-p:my-1 prose-headings:my-2">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.bep.aiDiagnosis}</ReactMarkdown>
+              </div>
             </div>
           </div>
         </section>
