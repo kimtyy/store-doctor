@@ -64,6 +64,14 @@ export default function MonthlyReportPage() {
     csv += `사장님 인건비,${data.profit.ownerSalary}\n`;
     csv += `실질 순이익,${data.profit.netProfit}\n\n`;
 
+    csv += `[손익분기점 분석]\n`;
+    csv += `고정비 합계,${data.bep.fixedCostsSum}\n`;
+    csv += `평균 변동비율,${(data.bep.variableCostRatio * 100).toFixed(1)}%\n`;
+    csv += `손익분기점,${data.bep.bep}\n`;
+    csv += `현재 월매출,${data.bep.currentRevenue}\n`;
+    csv += `${data.bep.bepShortfall > 0 ? '부족액' : '초과액'},${data.bep.bepShortfall > 0 ? '-' : '+'}${Math.abs(data.bep.bepShortfall)}\n`;
+    csv += `AI 진단,"${data.bep.aiDiagnosis}"\n\n`;
+
     csv += `[AI 진단]\n`;
     csv += `"${data.aiDiagnosis}"\n`;
 
@@ -214,6 +222,43 @@ export default function MonthlyReportPage() {
               </div>
             </div>
             
+          </div>
+        </section>
+
+        {/* BEP Summary */}
+        <section>
+          <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">손익분기점 분석</h2>
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">고정비 합계</span>
+              <span className="font-semibold text-slate-800">{fmt(data.bep.fixedCostsSum)}원</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">평균 변동비율</span>
+              <span className="font-semibold text-slate-800">{(data.bep.variableCostRatio * 100).toFixed(1)}%</span>
+            </div>
+            <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
+              <span className="font-bold text-slate-900">손익분기점 (BEP)</span>
+              <span className="font-bold text-slate-900">{fmt(data.bep.bep)}원</span>
+            </div>
+            <div className="flex justify-between text-sm mt-4">
+              <span className="text-slate-500">현재 월매출</span>
+              <span className="font-semibold text-slate-800">{fmt(data.bep.currentRevenue)}원</span>
+            </div>
+            <div className={`flex justify-between text-sm ${data.bep.bepShortfall > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+              <span className="font-bold">{data.bep.bepShortfall > 0 ? '부족액' : '초과액'}</span>
+              <span className="font-bold">{data.bep.bepShortfall > 0 ? '-' : '+'}{fmt(Math.abs(data.bep.bepShortfall))}원</span>
+            </div>
+
+            {/* BEP AI Diagnosis */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mt-4">
+              <h3 className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1">
+                <span>💡</span> AI 진단
+              </h3>
+              <p className="text-amber-900 font-medium text-sm leading-relaxed">
+                {data.bep.aiDiagnosis}
+              </p>
+            </div>
           </div>
         </section>
 

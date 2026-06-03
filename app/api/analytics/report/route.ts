@@ -131,6 +131,18 @@ export async function GET(request: Request) {
     const aiPrompt = `보고서 데이터 요약:\n총매출: ${totalRevenue}\n총매입: ${totalPurchase}\n영업이익: ${operatingProfit}\n실질순이익: ${netProfit}\n원가율: ${costRatio}%\n이 매장의 ${year}년 ${month}월 성과를 분석하는 한줄 진단 코멘트를 작성해줘.`;
     const aiDiagnosis = await callClaudeVision(aiPrompt).catch(() => '데이터 기반 진단을 생성하지 못했습니다.');
 
+    // BEP Analysis
+    const fixedCostCategories = new Set(['labor', 'rent', 'electricity', 'gas', 'water', 'telecom', 'pos_fee', 'insurance']);
+    const fixedCostPurchases = purchases.reduce((sum, p) => fixedCostCategories.has(p.category || '') ? sum + (p.total_amount || 0) : sum, 0);
+    const fixedCostsSum = fixedCostPurchases + nonOperatingExpenses;
+    const variableCostsSum = totalPurchase - fixedCostPurchases;
+    const variableCostRatio = totalRevenue > 0 ? variableCostsSum / totalRevenue : 0;
+    const bep = variableCostRatio < 1 ? Math.round(fixedCostsSum / (1 - variableCostRatio)) : 0;
+    const bepShortfall = bep - totalRevenue; // Positive means shortfall, negative means excess
+
+    const bepPrompt = `손익분기점 분석 데이터:\n고정비 합계: ${fixedCostsSum}\n평균 변동비율: ${Math.round(variableCostRatio * 100)}%\n손익분기점: ${bep}\n현재 월매출: ${totalRevenue}\n부족액: ${bepShortfall}\n영업일수: ${openDays}\n이 매장의 상황에 맞는 구체적인 조언(예: 하루 평균 얼마 추가 매출이 필요한지, 객단가를 높일지 등)을 포함한 손익분기점 진단 코멘트를 작성해줘.`;
+    const bepAiDiagnosis = await callClaudeVision(bepPrompt).catch(() => '손익분기점 진단을 생성하지 못했습니다.');
+
     return NextResponse.json({
       storeName: '설맥(현리점)',
       year,
@@ -158,6 +170,14 @@ export async function GET(request: Request) {
         nonOperatingExpenses,
         netProfit,
         totalCostRatio
+      },
+      bep: {
+        fixedCostsSum,
+        variableCostRatio,
+        bep,
+        currentRevenue: totalRevenue,
+        bepShortfall,
+        aiDiagnosis: bepAiDiagnosis
       },
       topMenus,
       topVendors,

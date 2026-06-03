@@ -138,6 +138,10 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
 function mockResponseByPrompt(prompt: string) {
   const normalized = prompt.toLowerCase();
 
+  if (normalized.includes('손익분기점') || normalized.includes('bep')) {
+    return "손익분기점까지 738,000원 부족합니다. 하루 평균 25,000원 추가 매출이 필요해요. 객단가를 높이거나 테이블 회전율을 높이는 것을 고려해보세요.";
+  }
+
   if (normalized.includes('보고서') || normalized.includes('진단') || normalized.includes('report')) {
     return "이번 달은 메뉴 다변화와 비용 절감을 통해 수익성이 크게 개선된 긍정적인 달입니다. 다음 달에도 이 추세를 유지하세요!";
   }
