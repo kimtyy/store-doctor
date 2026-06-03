@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getStoreId } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,6 +17,9 @@ function makeClient() {
 // 현재 월의 활성 고정비를 purchase_records에 자동 삽입 (중복 방지)
 // note 형식: "fixed:YYYY-MM:UUID"
 export async function POST() {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const supabase = makeClient();
   if (!supabase) return NextResponse.json({ error: 'Supabase 환경 변수 없음' }, { status: 500 });
 

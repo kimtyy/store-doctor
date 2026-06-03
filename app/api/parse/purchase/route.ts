@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { callClaudeVision } from '../../../../lib/claude';
 import { parsePurchaseResponse } from '../../../../lib/parsers/purchase';
+import { getStoreId } from '@/utils/supabase/getStore';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 
 function makeSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -75,6 +76,9 @@ function similarity(a: string, b: string): number {
 
 
 export async function POST(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const payload = await request.json().catch(() => null);
     const imageUrl = payload?.imageUrl;

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getStoreId } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,6 +18,9 @@ function makeClient() {
 // 1. Bulk-update purchase_records: vendor_name = oldName → newName
 // 2. Upsert vendor_master: canonical = newName, add oldName as alias if different
 export async function POST(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const supabase = makeClient();
     const body = await request.json().catch(() => null);

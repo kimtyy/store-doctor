@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getStoreId } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 
 interface PurchaseItem {
   name: string;
@@ -13,6 +14,9 @@ interface PurchaseItem {
 }
 
 export async function GET(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 

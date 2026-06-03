@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { getStoreId } from '@/utils/supabase/getStore';
+
+export const dynamic = 'force-dynamic';
 
 // GET /api/stores/settings
 export async function GET() {
-  const storeId = '8de2930d-a196-4aa1-b9bf-7fa83321b10c'; // hardcoded for now as per other routes
+  const storeId = await getStoreId();
+  if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const { data, error } = await supabase
@@ -27,7 +31,8 @@ export async function GET() {
 
 // PATCH /api/stores/settings
 export async function PATCH(request: Request) {
-  const storeId = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+  const storeId = await getStoreId();
+  if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const body = await request.json();

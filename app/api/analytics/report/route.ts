@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { callClaudeVision } from '@/lib/claude';
+import { getStoreId } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 
 const PURCHASE_CAT_LABELS: Record<string, string> = {
   food_ingredients: '식자재',
@@ -23,6 +24,9 @@ const PURCHASE_CAT_LABELS: Record<string, string> = {
 };
 
 export async function GET(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 

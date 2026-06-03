@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getStoreId } from '@/utils/supabase/getStore';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,6 +14,9 @@ function makeClient() {
 // POST /api/menu-master/sync
 // Retroactively applies menu_master categories and canonical names to existing sales_menu_items
 export async function POST() {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const supabase = makeClient();
 

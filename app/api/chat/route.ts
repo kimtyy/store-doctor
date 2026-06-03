@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getStoreId } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 function makeSupabase() {
@@ -216,6 +217,9 @@ async function buildStoreContext(): Promise<string> {
 }
 
 export async function POST(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   if (!ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI 기능이 설정되지 않았습니다. ANTHROPIC_API_KEY를 확인하세요.' }, { status: 500 });
   }

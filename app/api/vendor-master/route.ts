@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getStoreId } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
-const STORE_ID = '8de2930d-a196-4aa1-b9bf-7fa83321b10c';
+
 
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -14,6 +15,9 @@ function makeClient() {
 
 // GET — list vendor_master + unmapped vendors from purchase_records
 export async function GET() {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const supabase = makeClient();
 
@@ -57,6 +61,9 @@ export async function GET() {
 
 // POST — create new vendor_master entry
 export async function POST(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const supabase = makeClient();
     const body = await request.json().catch(() => null);
@@ -82,6 +89,9 @@ export async function POST(request: Request) {
 
 // PATCH — update vendor_name or aliases
 export async function PATCH(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const supabase = makeClient();
     const body = await request.json().catch(() => null);
@@ -113,6 +123,9 @@ export async function PATCH(request: Request) {
 
 // DELETE — remove entry by ?id=
 export async function DELETE(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const supabase = makeClient();
     const { searchParams } = new URL(request.url);
