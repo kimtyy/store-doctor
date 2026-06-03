@@ -5,6 +5,34 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const WEATHER_EMOJI: Record<string, string> = {
+  '맑음': '☀️',
+  '흐림': '☁️',
+  '비': '🌧',
+  '눈': '❄️'
+};
+
+function calcVariance(current: number, base: number) {
+  if (!base || base === 0) return 0;
+  return ((current - base) / base) * 100;
+}
+
+function ComparisonCell({ current, base, formatter = fmt, suffix = '원' }: { current: number, base: number, formatter?: any, suffix?: string }) {
+  const v = calcVariance(current, base);
+  return (
+    <div className="flex flex-col items-center sm:items-end justify-center">
+      <span className="font-semibold text-slate-700 text-sm">{formatter(base)}{suffix}</span>
+      {base > 0 ? (
+        <span className={`text-[10px] font-bold px-1 py-0.5 mt-0.5 rounded ${v > 0 ? 'bg-emerald-100 text-emerald-700' : v < 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
+          {v > 0 ? '↑' : v < 0 ? '↓' : '-'} {Math.abs(v).toFixed(1)}%
+        </span>
+      ) : (
+        <span className="text-[10px] text-slate-400 mt-0.5">-</span>
+      )}
+    </div>
+  );
+}
+
 function MonthlyReportContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -66,6 +94,17 @@ function MonthlyReportContent() {
     csv += `사장님 인건비,${data.profit.ownerSalary}\n`;
     csv += `실질 순이익,${data.profit.netProfit}\n\n`;
 
+    if (data.comparison) {
+      csv += `[기간 비교 분석]\n`;
+      csv += `항목,이번달,전월,전년동월\n`;
+      csv += `총매출,${data.comparison.current.totalRevenue},${data.comparison.prev.totalRevenue},${data.comparison.lastYear.totalRevenue}\n`;
+      csv += `원가율,${data.comparison.current.costRatio.toFixed(1)}%,${data.comparison.prev.costRatio.toFixed(1)}%,${data.comparison.lastYear.costRatio.toFixed(1)}%\n`;
+      csv += `영업이익,${data.comparison.current.operatingProfit},${data.comparison.prev.operatingProfit},${data.comparison.lastYear.operatingProfit}\n`;
+      csv += `일평균매출,${data.comparison.current.avgDailySales},${data.comparison.prev.avgDailySales},${data.comparison.lastYear.avgDailySales}\n`;
+      csv += `객단가,${data.comparison.current.avgSpend},${data.comparison.prev.avgSpend},${data.comparison.lastYear.avgSpend}\n`;
+      csv += `영업일수,${data.comparison.current.openDays}일,${data.comparison.prev.openDays}일,${data.comparison.lastYear.openDays}일\n\n`;
+    }
+
     csv += `[손익분기점 분석]\n`;
     csv += `고정비 합계,${data.bep.fixedCostsSum}\n`;
     csv += `평균 변동비율,${(data.bep.variableCostRatio * 100).toFixed(1)}%\n`;
@@ -74,7 +113,18 @@ function MonthlyReportContent() {
     csv += `${data.bep.bepShortfall > 0 ? '부족액' : '초과액'},${data.bep.bepShortfall > 0 ? '-' : '+'}${Math.abs(data.bep.bepShortfall)}\n`;
     csv += `AI 진단,"${data.bep.aiDiagnosis}"\n\n`;
 
-    csv += `[AI 진단]\n`;
+    if (data.weather?.stats?.length > 0) {
+      csv += `[날씨별 매출 상관관계]\n`;
+      data.weather.stats.forEach((w: any) => {
+        csv += `${w.condition} (${w.days}일),평균 ${w.avgRevenue}원\n`;
+      });
+      if (data.weather.aiDiagnosis) {
+        csv += `AI 진단,"${data.weather.aiDiagnosis}"\n`;
+      }
+      csv += `\n`;
+    }
+
+    csv += `[AI 한줄 진단]\n`;
     csv += `"${data.aiDiagnosis}"\n`;
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -227,6 +277,65 @@ function MonthlyReportContent() {
           </div>
         </section>
 
+        {/* Period Comparison */}
+        {data.comparison && (
+          <section>
+            <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">기간 비교 분석</h2>
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-center">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs">
+                    <tr>
+                      <th className="p-3 font-semibold text-left">항목</th>
+                      <th className="p-3 font-semibold">이번달<br/><span className="font-normal text-[10px]">({data.year}.{data.month})</span></th>
+                      <th className="p-3 font-semibold">전월<br/><span className="font-normal text-[10px]">대비</span></th>
+                      <th className="p-3 font-semibold">전년동월<br/><span className="font-normal text-[10px]">대비</span></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    <tr>
+                      <td className="p-3 text-left font-semibold text-slate-700">총매출</td>
+                      <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.totalRevenue)}원</td>
+                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.totalRevenue} base={data.comparison.prev.totalRevenue} /></td>
+                      <td className="p-3"><ComparisonCell current={data.comparison.current.totalRevenue} base={data.comparison.lastYear.totalRevenue} /></td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 text-left font-semibold text-slate-700">원가율</td>
+                      <td className="p-3 font-bold text-slate-900">{data.comparison.current.costRatio.toFixed(1)}%</td>
+                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.prev.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" /></td>
+                      <td className="p-3"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.lastYear.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" /></td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 text-left font-semibold text-slate-700">영업이익</td>
+                      <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.operatingProfit)}원</td>
+                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.operatingProfit} base={data.comparison.prev.operatingProfit} /></td>
+                      <td className="p-3"><ComparisonCell current={data.comparison.current.operatingProfit} base={data.comparison.lastYear.operatingProfit} /></td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 text-left font-semibold text-slate-700">일평균매출</td>
+                      <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.avgDailySales)}원</td>
+                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.avgDailySales} base={data.comparison.prev.avgDailySales} /></td>
+                      <td className="p-3"><ComparisonCell current={data.comparison.current.avgDailySales} base={data.comparison.lastYear.avgDailySales} /></td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 text-left font-semibold text-slate-700">객단가</td>
+                      <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.avgSpend)}원</td>
+                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.prev.avgSpend} /></td>
+                      <td className="p-3"><ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.lastYear.avgSpend} /></td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 text-left font-semibold text-slate-700">영업일수</td>
+                      <td className="p-3 font-bold text-slate-900">{data.comparison.current.openDays}일</td>
+                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.openDays} base={data.comparison.prev.openDays} formatter={(v: number) => String(v)} suffix="일" /></td>
+                      <td className="p-3"><ComparisonCell current={data.comparison.current.openDays} base={data.comparison.lastYear.openDays} formatter={(v: number) => String(v)} suffix="일" /></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* BEP Summary */}
         <section>
           <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">손익분기점 분석</h2>
@@ -263,6 +372,34 @@ function MonthlyReportContent() {
             </div>
           </div>
         </section>
+
+        {/* Weather Correlation */}
+        {data.weather?.stats?.length > 0 && (
+          <section>
+            <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">날씨별 평균 매출</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+              {data.weather.stats.map((w: any) => (
+                <div key={w.condition} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
+                  <div className="text-2xl mb-1">{WEATHER_EMOJI[w.condition] || '☁️'}</div>
+                  <div className="text-sm font-bold text-slate-800">{w.condition}</div>
+                  <div className="text-xs text-slate-500 mb-2">{w.days}일</div>
+                  <div className="text-sm font-semibold text-slate-900">{fmt(w.avgRevenue)}원</div>
+                </div>
+              ))}
+            </div>
+            
+            {data.weather.aiDiagnosis && (
+              <div className="bg-sky-50 border border-sky-200 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-sky-800 mb-2 flex items-center gap-1">
+                  <span>💡</span> 날씨 AI 진단
+                </h3>
+                <div className="text-sky-900 font-medium text-sm leading-relaxed prose prose-sm prose-sky max-w-none prose-p:my-1 prose-headings:my-2">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.weather.aiDiagnosis}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Top 10 Menus & Top 5 Vendors */}
         <div className="grid grid-cols-2 gap-6">

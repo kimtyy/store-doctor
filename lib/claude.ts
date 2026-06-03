@@ -142,7 +142,14 @@ function mockResponseByPrompt(prompt: string) {
     return "손익분기점까지 738,000원 부족합니다. 하루 평균 25,000원 추가 매출이 필요해요. 객단가를 높이거나 테이블 회전율을 높이는 것을 고려해보세요.";
   }
 
+  if (normalized.includes('날씨')) {
+    return "맑은 날 매출이 비 오는 날 대비 25% 높습니다. 비 오는 날에는 배달 프로모션을 강화하거나 파전/막걸리 등 특선 메뉴 배너를 노출해 보세요.";
+  }
+
   if (normalized.includes('보고서') || normalized.includes('진단') || normalized.includes('report')) {
+    if (normalized.includes('전월 매출') && normalized.includes('전년동월')) {
+      return "전월 및 전년 동월 대비 총매출과 영업이익이 모두 상승하는 뚜렷한 성장 트렌드를 보이고 있습니다. 객단가를 높이는 세트 메뉴 구성을 통해 상승세를 이어가세요.";
+    }
     return "이번 달은 메뉴 다변화와 비용 절감을 통해 수익성이 크게 개선된 긍정적인 달입니다. 다음 달에도 이 추세를 유지하세요!";
   }
 

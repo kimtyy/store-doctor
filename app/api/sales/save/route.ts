@@ -51,6 +51,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '매출 데이터가 필요합니다.' }, { status: 400 });
     }
 
+    // Fetch weather data for the receipt date
+    let weatherCondition = null;
+    let temperature = null;
+    try {
+      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=37.8&longitude=127.7&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul&start_date=${receipt.date}&end_date=${receipt.date}`);
+      if (weatherRes.ok) {
+        const weatherData = await weatherRes.json();
+        const code = weatherData?.daily?.weather_code?.[0];
+        const temp = weatherData?.daily?.temperature_2m_mean?.[0];
+
+        if (code !== undefined) {
+          if (code <= 2) weatherCondition = '맑음';
+          else if (code === 3 || code <= 48) weatherCondition = '흐림';
+          else if (code <= 67 || (code >= 80 && code <= 82) || code >= 95) weatherCondition = '비';
+          else if (code <= 77 || code === 85 || code === 86) weatherCondition = '눈';
+          else weatherCondition = '흐림';
+        }
+        if (temp !== undefined) {
+          temperature = Math.round(temp);
+        }
+      }
+    } catch (err) {
+      console.error('Weather fetch error:', err);
+    }
+
     const { data: salesData, error: salesError } = await supabase
       .from('daily_sales')
       .insert({
@@ -77,6 +102,8 @@ export async function POST(request: Request) {
         receipt_image_url: receipt.receiptImageUrl || null,
         note: receipt.note || null,
         is_event: receipt.isEvent ?? false,
+        weather_condition: weatherCondition,
+        temperature: temperature,
       })
       .select('id')
       .single();

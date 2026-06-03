@@ -58,16 +58,28 @@ export async function GET(request: Request) {
   const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
   const prevToStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(prevLastDay).padStart(2, '0')}`;
 
+  // Last year bounds
+  const lastYear = year - 1;
+  const lastYearFromStr = `${lastYear}-${String(month).padStart(2, '0')}-01`;
+  const lastYearLastDay = new Date(lastYear, month, 0).getDate();
+  const lastYearToStr = `${lastYear}-${String(month).padStart(2, '0')}-${String(lastYearLastDay).padStart(2, '0')}`;
+
   try {
     const [
       { data: storeData },
       { data: salesData },
       { data: prevSalesData },
+      { data: prevPurchaseData },
+      { data: lastYearSalesData },
+      { data: lastYearPurchaseData },
       { data: purchaseData }
     ] = await Promise.all([
       supabase.from('stores').select('owner_salary, loan_repayment').eq('id', STORE_ID).single(),
       supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr),
-      supabase.from('daily_sales').select('total_revenue').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr),
+      supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr),
+      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr),
+      supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr),
+      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr),
       supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr)
     ]);
 
@@ -81,21 +93,40 @@ export async function GET(request: Request) {
 
     const sales = salesData ?? [];
     const prevSales = prevSalesData ?? [];
+    const lastYearSales = lastYearSalesData ?? [];
     const purchases = purchaseData ?? [];
+    const prevPurchases = prevPurchaseData ?? [];
+    const lastYearPurchases = lastYearPurchaseData ?? [];
     const menus = menuDataJoin ?? [];
     
     const ownerSalary = storeData?.owner_salary || 0;
     const loanRepayment = storeData?.loan_repayment || 0;
     const nonOperatingExpenses = ownerSalary + loanRepayment;
 
-    // Sales metrics
-    const totalRevenue = sales.reduce((sum, s) => sum + (s.total_revenue || 0), 0);
+    function calcStats(s: any[], p: any[]) {
+      const totalRev = s.reduce((sum, item) => sum + (item.total_revenue || 0), 0);
+      const totalPur = p.reduce((sum, item) => sum + (item.total_amount || 0), 0);
+      const opProfit = totalRev - totalPur;
+      const cRatio = totalRev > 0 ? (totalPur / totalRev) * 100 : 0;
+      const oDays = s.length;
+      const avgDaily = oDays > 0 ? Math.round(totalRev / oDays) : 0;
+      const totalTables = s.reduce((sum, item) => sum + (item.tables_used || 0), 0);
+      const avgSpend = totalTables > 0 ? Math.round(totalRev / totalTables) : 0;
+      return { totalRevenue: totalRev, totalPurchase: totalPur, operatingProfit: opProfit, costRatio: cRatio, openDays: oDays, avgDailySales: avgDaily, avgSpend };
+    }
+
+    const currentStats = calcStats(sales, purchases);
+    const prevStats = calcStats(prevSales, prevPurchases);
+    const lastYearStats = calcStats(lastYearSales, lastYearPurchases);
+
+    // Sales metrics (keep existing for backward compatibility)
+    const totalRevenue = currentStats.totalRevenue;
     const serviceAmount = sales.reduce((sum, s) => sum + (s.service_charge || 0), 0);
     const netRevenue = sales.reduce((sum, s) => sum + (s.net_revenue || 0), 0);
-    const openDays = sales.length;
-    const avgDailySales = openDays > 0 ? Math.round(totalRevenue / openDays) : 0;
+    const openDays = currentStats.openDays;
+    const avgDailySales = currentStats.avgDailySales;
     
-    const prevTotalRevenue = prevSales.reduce((sum, s) => sum + (s.total_revenue || 0), 0);
+    const prevTotalRevenue = prevStats.totalRevenue;
     const momChangePct = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : 0;
 
     const cashAmount = sales.reduce((sum, s) => sum + (s.cash_amount || 0), 0);
@@ -140,8 +171,28 @@ export async function GET(request: Request) {
     }
     const topMenus = Object.entries(menuMap).map(([m, amt]) => ({ name: m, amount: amt })).sort((a,b)=>b.amount-a.amount).slice(0, 10);
 
+    // Weather metrics
+    const weatherMap: Record<string, { sum: number, count: number }> = { '맑음': {sum:0,count:0}, '흐림': {sum:0,count:0}, '비': {sum:0,count:0}, '눈': {sum:0,count:0} };
+    for (const s of sales) {
+      if (s.weather_condition) {
+        if (!weatherMap[s.weather_condition]) {
+          weatherMap[s.weather_condition] = {sum:0,count:0};
+        }
+        weatherMap[s.weather_condition].sum += s.total_revenue || 0;
+        weatherMap[s.weather_condition].count += 1;
+      }
+    }
+    const weatherStats = Object.entries(weatherMap)
+      .filter(([_, data]) => data.count > 0)
+      .map(([condition, data]) => ({
+        condition,
+        days: data.count,
+        avgRevenue: Math.round(data.sum / data.count)
+      }))
+      .sort((a, b) => b.avgRevenue - a.avgRevenue);
+
     // AI Diagnosis
-    const aiPrompt = `보고서 데이터 요약:\n총매출: ${totalRevenue}\n총매입: ${totalPurchase}\n영업이익: ${operatingProfit}\n실질순이익: ${netProfit}\n원가율: ${costRatio}%\n이 매장의 ${year}년 ${month}월 성과를 분석하는 한줄 진단 코멘트를 작성해줘.`;
+    const aiPrompt = `보고서 데이터 요약:\n이번달 매출: ${currentStats.totalRevenue}\n전월 매출: ${prevStats.totalRevenue}\n전년동월 매출: ${lastYearStats.totalRevenue}\n이번달 원가율: ${currentStats.costRatio.toFixed(1)}%\n이번달 영업이익: ${currentStats.operatingProfit}\n실질순이익: ${netProfit}\n이 매장의 ${year}년 ${month}월 성과 및 전월/전년 대비 성장/하락 트렌드를 분석하는 진단 코멘트를 한줄로 작성해줘.`;
     const aiDiagnosis = await callClaudeVision(aiPrompt).catch(() => '데이터 기반 진단을 생성하지 못했습니다.');
 
     // BEP Analysis
@@ -155,6 +206,9 @@ export async function GET(request: Request) {
 
     const bepPrompt = `손익분기점 분석 데이터:\n고정비 합계: ${fixedCostsSum}\n평균 변동비율: ${Math.round(variableCostRatio * 100)}%\n손익분기점: ${bep}\n현재 월매출: ${totalRevenue}\n부족액: ${bepShortfall}\n영업일수: ${openDays}\n이 매장의 상황에 맞는 구체적인 조언(예: 하루 평균 얼마 추가 매출이 필요한지, 객단가를 높일지 등)을 포함한 손익분기점 진단 코멘트를 작성해줘.`;
     const bepAiDiagnosis = await callClaudeVision(bepPrompt).catch(() => '손익분기점 진단을 생성하지 못했습니다.');
+
+    const weatherPrompt = `날씨와 매출 상관관계 데이터:\n${weatherStats.map(w => `${w.condition} ${w.days}일: 평균 ${w.avgRevenue}`).join('\n')}\n이 매장의 날씨에 따른 매출 분석 및 재료/주류 발주 조절에 대한 구체적인 조언을 포함한 AI 진단 코멘트를 작성해줘.`;
+    const weatherAiDiagnosis = weatherStats.length > 0 ? await callClaudeVision(weatherPrompt).catch(() => '날씨 진단을 생성하지 못했습니다.') : null;
 
     return NextResponse.json({
       storeName: '설맥(현리점)',
@@ -195,7 +249,16 @@ export async function GET(request: Request) {
       topMenus,
       topVendors,
       dowAverages, // 0: Sun, 1: Mon, ...
-      aiDiagnosis
+      aiDiagnosis,
+      weather: {
+        stats: weatherStats,
+        aiDiagnosis: weatherAiDiagnosis
+      },
+      comparison: {
+        current: currentStats,
+        prev: prevStats,
+        lastYear: lastYearStats
+      }
     });
   } catch (err) {
     console.error(err);
