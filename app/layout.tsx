@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { createClient } from '@/utils/supabase/server';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -20,7 +21,10 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const isAdmin = user?.email === 'kimtyy@gmail.com';
   return (
     <html lang="ko">
       <head>
@@ -31,7 +35,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <meta name="apple-mobile-web-app-title" content="매장닥터" />
         <link rel="apple-touch-icon" href="/icon-192x192.png" />
       </head>
-      <body className="bg-slate-950 text-slate-100">{children}</body>
+      <body className="bg-slate-950 text-slate-100">
+        {children}
+        {isAdmin && (
+          <a
+            href="/admin"
+            className="fixed top-3 right-4 z-50 bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg backdrop-blur transition border border-rose-500/50"
+          >
+            👑 관리자
+          </a>
+        )}
+      </body>
     </html>
   );
 }
