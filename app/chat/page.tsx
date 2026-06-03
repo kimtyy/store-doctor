@@ -227,7 +227,7 @@ export default function ChatPage() {
               <div className="w-8 h-8 rounded-full bg-sky-600 flex items-center justify-center text-sm flex-shrink-0">AI</div>
               <div className="bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs">
                 <p className="text-sm text-slate-200 leading-relaxed">
-                  안녕하세요, 사장님! 설맥(현리점) AI 경영 컨설턴트입니다.{'\n\n'}매출, 매입, 메뉴 분석 등 궁금한 점을 물어보세요. 이번달·지난달 데이터를 바탕으로 답변드릴게요.
+                  안녕하세요, 사장님! 우리 매장의 똑똑한 AI 경영 컨설턴트입니다.{'\n\n'}매출, 매입, 메뉴 분석 등 궁금한 점을 물어보세요. 이번달·지난달 데이터를 바탕으로 답변드릴게요.
                 </p>
               </div>
             </div>

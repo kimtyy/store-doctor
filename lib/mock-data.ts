@@ -54,11 +54,11 @@ export function generateMockDailySalesData(days: number = 120): DailySales[] {
 
 function generateMockMenuItems(totalRevenue: number) {
   const items = [
-    { name: '설맥치킨', ratio: 0.15 },
-    { name: '생맥주(테라)', ratio: 0.25 },
-    { name: '생맥주(카스)', ratio: 0.2 },
-    { name: '골뱅이무침', ratio: 0.1 },
-    { name: '과일빙수', ratio: 0.12 },
+    { name: '대표 메뉴 (메인)', ratio: 0.15 },
+    { name: '주류 (생맥주 등)', ratio: 0.25 },
+    { name: '주류 (소주 등)', ratio: 0.2 },
+    { name: '사이드 메뉴 1', ratio: 0.1 },
+    { name: '사이드 메뉴 2', ratio: 0.12 },
     { name: '기타 음식', ratio: 0.18 },
   ];
 

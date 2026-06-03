@@ -2,7 +2,7 @@ const anthropicKey = process.env.ANTHROPIC_API_KEY;
 const useMock = !anthropicKey;
 
 const sampleSalesResponse = JSON.stringify({
-  storeName: '설맥(현리점)',
+  storeName: '우리 매장',
   date: '2026-05-11',
   totalRevenue: 224500,
   discount: 0,
@@ -20,18 +20,18 @@ const sampleSalesResponse = JSON.stringify({
   closeTime: '00:03',
   firstOrderTime: '21:09',
   menuItems: [
-    { name: '설맥치킨', quantity: 1, amount: 18900 },
-    { name: '손살양념치킨', quantity: 1, amount: 10900 },
-    { name: '고르곤졸라피자', quantity: 1, amount: 13900 }
+    { name: '메인 메뉴 1', quantity: 1, amount: 18900 },
+    { name: '서브 메뉴 1', quantity: 1, amount: 10900 },
+    { name: '사이드 메뉴 1', quantity: 1, amount: 13900 }
   ]
 });
 
 const sampleMenuResponse = JSON.stringify({
   date: '2026-05-11',
   menuItems: [
-    { name: '설맥치킨', quantity: 1, amount: 18900 },
-    { name: '손살양념치킨', quantity: 1, amount: 10900 },
-    { name: '고르곤졸라피자', quantity: 1, amount: 13900 }
+    { name: '메인 메뉴 1', quantity: 1, amount: 18900 },
+    { name: '서브 메뉴 1', quantity: 1, amount: 10900 },
+    { name: '사이드 메뉴 1', quantity: 1, amount: 13900 }
   ]
 });
 

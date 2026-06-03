@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { callClaudeVision } from '@/lib/claude';
-import { getStoreId } from '@/utils/supabase/getStore';
+import { getStoreInfo } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +24,9 @@ const PURCHASE_CAT_LABELS: Record<string, string> = {
 };
 
 export async function GET(request: Request) {
-  const STORE_ID = await getStoreId();
-  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const storeInfo = await getStoreInfo();
+  if (!storeInfo) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const STORE_ID = storeInfo.id;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -303,7 +304,7 @@ export async function GET(request: Request) {
     const weatherAiDiagnosis = weatherStats.length > 0 ? await callClaudeVision(weatherPrompt).catch(() => '날씨 진단을 생성하지 못했습니다.') : null;
 
     return NextResponse.json({
-      storeName: '설맥(현리점)',
+      storeName: storeInfo.name,
       year,
       month,
       generatedAt: new Date().toISOString(),

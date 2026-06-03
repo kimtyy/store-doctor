@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getStoreId } from '@/utils/supabase/getStore';
+import { getStoreInfo } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -217,8 +217,9 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
 }
 
 export async function POST(request: Request) {
-  const STORE_ID = await getStoreId();
-  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const storeInfo = await getStoreInfo();
+  if (!storeInfo) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const STORE_ID = storeInfo.id;
 
   if (!ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI 기능이 설정되지 않았습니다. ANTHROPIC_API_KEY를 확인하세요.' }, { status: 500 });
@@ -238,7 +239,7 @@ export async function POST(request: Request) {
     const thisMonth = now.getMonth() + 1;
     const prevMonth = thisMonth === 1 ? 12 : thisMonth - 1;
 
-    const systemPrompt = `당신은 설맥(현리점)의 AI 경영 컨설턴트입니다. 아래 매장 데이터를 바탕으로 사장님 질문에 답변해 주세요.
+    const systemPrompt = `당신은 ${storeInfo.name}의 AI 경영 컨설턴트입니다. 아래 매장 데이터를 바탕으로 사장님 질문에 답변해 주세요.
 
 === 매장 데이터 ===
 ${storeContext}
