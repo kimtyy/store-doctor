@@ -169,6 +169,7 @@ export default function PurchasesInputPage() {
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
   const [draftVendorNames, setDraftVendorNames] = useState<Record<string, string>>({});
   const [draftMemos, setDraftMemos] = useState<Record<string, string>>({});
+  const [draftTotalAmounts, setDraftTotalAmounts] = useState<Record<string, number>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -202,6 +203,7 @@ export default function PurchasesInputPage() {
       setDraftDates((prev) => ({ ...prev, [record.id]: record.date }));
       setDraftVendorNames((prev) => ({ ...prev, [record.id]: record.vendor_name }));
       setDraftMemos((prev) => ({ ...prev, [record.id]: record.memo ?? '' }));
+      setDraftTotalAmounts((prev) => ({ ...prev, [record.id]: record.total_amount }));
     }
   }
 
@@ -248,7 +250,8 @@ export default function PurchasesInputPage() {
 
   async function saveDraftItems(record: PurchaseHistoryRecord) {
     const items = draftItems[record.id] ?? record.items;
-    const totalAmount = items.reduce((s, i) => s + i.amount, 0) || record.total_amount;
+    const computedSum = items.reduce((s, i) => s + i.amount, 0);
+    const totalAmount = items.length > 0 ? computedSum : (draftTotalAmounts[record.id] ?? record.total_amount);
     const vendorName = draftVendorNames[record.id] ?? record.vendor_name;
     setSavingId(record.id);
     setError(null);
@@ -719,14 +722,26 @@ export default function PurchasesInputPage() {
                                   className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
                                 />
                               </div>
-                              <div>
-                                <p className="text-xs text-slate-500 mb-1">날짜</p>
-                                <input
-                                  type="date"
-                                  value={draftDates[record.id] ?? record.date}
-                                  onChange={(e) => setDraftDates((prev) => ({ ...prev, [record.id]: e.target.value }))}
-                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-                                />
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <p className="text-xs text-slate-500 mb-1">날짜</p>
+                                  <input
+                                    type="date"
+                                    value={draftDates[record.id] ?? record.date}
+                                    onChange={(e) => setDraftDates((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                  />
+                                </div>
+                                <div>
+                                  <p className="text-xs text-slate-500 mb-1">총 금액</p>
+                                  <input
+                                    type="number"
+                                    value={draft.length > 0 ? draft.reduce((s, i) => s + i.amount, 0) : (draftTotalAmounts[record.id] ?? record.total_amount)}
+                                    onChange={(e) => setDraftTotalAmounts((prev) => ({ ...prev, [record.id]: Number(e.target.value) }))}
+                                    disabled={draft.length > 0}
+                                    className={`w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100 ${draft.length > 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                  />
+                                </div>
                               </div>
                               <div>
                                 <p className="text-xs text-slate-500 mb-1">메모 (선택)</p>
