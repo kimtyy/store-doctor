@@ -42,7 +42,7 @@ export default function LoginPage({
           id="invite_code"
           className="rounded-md px-4 py-2 bg-inherit border mb-6"
           name="invite_code"
-          placeholder="BETA-XXXX"
+          placeholder="BETA1"
         />
 
         <div className="flex flex-col gap-3 mt-4">
