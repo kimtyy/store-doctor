@@ -64,6 +64,21 @@ export async function GET(request: Request) {
   const lastYearLastDay = new Date(lastYear, month, 0).getDate();
   const lastYearToStr = `${lastYear}-${String(month).padStart(2, '0')}-${String(lastYearLastDay).padStart(2, '0')}`;
 
+  // Past 6 months bounds for data sufficiency check and 3-month MoM
+  const past6MonthDate = new Date(year, month - 6, 1);
+  const past6MonthFromStr = `${past6MonthDate.getFullYear()}-${String(past6MonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+
+  // Next month bounds (Current Year + Next Month)
+  const nextMonthDate = new Date(year, month, 1);
+  const nextMonthYear = nextMonthDate.getFullYear();
+  const nextMonth = nextMonthDate.getMonth() + 1;
+  const nextMonthLastDay = new Date(nextMonthYear, nextMonth, 0).getDate();
+
+  // Next month last year bounds
+  const nextMonthLastYearFromStr = `${nextMonthYear - 1}-${String(nextMonth).padStart(2, '0')}-01`;
+  const nextMonthLastYearLastDay = new Date(nextMonthYear - 1, nextMonth, 0).getDate();
+  const nextMonthLastYearToStr = `${nextMonthYear - 1}-${String(nextMonth).padStart(2, '0')}-${String(nextMonthLastYearLastDay).padStart(2, '0')}`;
+
   try {
     const [
       { data: storeData },
@@ -72,7 +87,9 @@ export async function GET(request: Request) {
       { data: prevPurchaseData },
       { data: lastYearSalesData },
       { data: lastYearPurchaseData },
-      { data: purchaseData }
+      { data: purchaseData },
+      { data: past6MonthSalesData },
+      { data: nextMonthLastYearSalesData }
     ] = await Promise.all([
       supabase.from('stores').select('owner_salary, loan_repayment').eq('id', STORE_ID).single(),
       supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr),
@@ -80,7 +97,9 @@ export async function GET(request: Request) {
       supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr),
       supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr),
       supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr),
-      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr)
+      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr),
+      supabase.from('daily_sales').select('date, total_revenue').eq('store_id', STORE_ID).gte('date', past6MonthFromStr).lte('date', toStr),
+      supabase.from('daily_sales').select('total_revenue').eq('store_id', STORE_ID).gte('date', nextMonthLastYearFromStr).lte('date', nextMonthLastYearToStr)
     ]);
 
     // Fetch menus properly with inner join via PostgREST
@@ -191,9 +210,78 @@ export async function GET(request: Request) {
       }))
       .sort((a, b) => b.avgRevenue - a.avgRevenue);
 
+    // Prediction Engine
+    const SEASON_MAP: Record<number, string> = {
+      1: '겨울 비수기', 2: '겨울 비수기 및 졸업/입학', 3: '봄 학기 개강', 4: '봄나들이 및 벚꽃',
+      5: '가정의 달 (가족 단위 외식)', 6: '초여름 및 장마 시작', 7: '여름 성수기 및 휴가철', 8: '여름 성수기 및 휴가철',
+      9: '가을 개강 및 나들이', 10: '가을 나들이 및 단풍', 11: '늦가을 비수기', 12: '연말 모임 및 크리스마스'
+    };
+    
+    const HOLIDAY_MAP: Record<number, string[]> = {
+      1: ['신정', '설날(변동)'], 2: ['설날(변동)'], 3: ['삼일절'], 5: ['어린이날', '부처님오신날(변동)'],
+      6: ['현충일'], 8: ['광복절'], 9: ['추석(변동)'], 10: ['개천절', '한글날'], 12: ['성탄절']
+    };
+
+    const past6MonthsSales = past6MonthSalesData || [];
+    const uniqueMonths = new Set(past6MonthsSales.map(s => s.date.substring(0, 7)));
+    const hasEnoughData = uniqueMonths.size >= 6;
+
+    let basePrediction = 0;
+    let predictionBasis = '';
+    const nextMonthLastYearTotal = (nextMonthLastYearSalesData || []).reduce((sum, s) => sum + (s.total_revenue || 0), 0);
+    
+    // Calculate 3-month growth rate approx
+    const recent3MonthsRev = past6MonthsSales
+      .filter(s => new Date(s.date) >= new Date(year, month - 3, 1))
+      .reduce((sum, s) => sum + (s.total_revenue || 0), 0);
+    const avgRecentRev = recent3MonthsRev / 3;
+    const growthRate = avgRecentRev > 0 ? (totalRevenue - avgRecentRev) / avgRecentRev : 0;
+
+    if (nextMonthLastYearTotal > 0) {
+      basePrediction = nextMonthLastYearTotal * (1 + growthRate);
+      predictionBasis = `전년도 ${nextMonth}월 실적(${Math.round(nextMonthLastYearTotal/10000)}만원)에 최근 성장률(${(growthRate * 100).toFixed(1)}%) 반영`;
+    } else {
+      basePrediction = totalRevenue * (1 + (growthRate > 0 ? Math.min(growthRate, 0.1) : Math.max(growthRate, -0.1))); // cap growth
+      predictionBasis = `최근 3개월 추세 기반 산출 (전년 동월 데이터 없음)`;
+    }
+
+    const predictedMin = Math.round(basePrediction * 0.9);
+    const predictedMax = Math.round(basePrediction * 1.1);
+
+    // Weekends in next month
+    let weekendCount = 0;
+    for (let d = 1; d <= nextMonthLastDay; d++) {
+      const dayOfWeek = new Date(nextMonthYear, nextMonth - 1, d).getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) weekendCount++;
+    }
+
+    const alcoholPurchase = purchases.filter(p => p.category === 'alcohol').reduce((sum, p) => sum + (p.total_amount || 0), 0);
+    const foodPurchase = purchases.filter(p => p.category === 'food_ingredients').reduce((sum, p) => sum + (p.total_amount || 0), 0);
+    const alcoholCostRatioReal = totalRevenue > 0 ? (alcoholPurchase / totalRevenue) : 0;
+    const foodCostRatioReal = totalRevenue > 0 ? (foodPurchase / totalRevenue) : 0;
+
+    const recommendedAlcohol = Math.round(basePrediction * alcoholCostRatioReal);
+    const recommendedFood = Math.round(basePrediction * foodCostRatioReal);
+
+    const prediction = {
+      nextMonth,
+      hasEnoughData,
+      predictedMin,
+      predictedMax,
+      predictionBasis,
+      seasonality: SEASON_MAP[nextMonth] || '',
+      holidays: HOLIDAY_MAP[nextMonth] || [],
+      weekendCount,
+      recommendedAlcohol,
+      recommendedFood
+    };
+
     // AI Diagnosis
     const aiPrompt = `보고서 데이터 요약:\n이번달 매출: ${currentStats.totalRevenue}\n전월 매출: ${prevStats.totalRevenue}\n전년동월 매출: ${lastYearStats.totalRevenue}\n이번달 원가율: ${currentStats.costRatio.toFixed(1)}%\n이번달 영업이익: ${currentStats.operatingProfit}\n실질순이익: ${netProfit}\n이 매장의 ${year}년 ${month}월 성과 및 전월/전년 대비 성장/하락 트렌드를 분석하는 진단 코멘트를 한줄로 작성해줘.`;
     const aiDiagnosis = await callClaudeVision(aiPrompt).catch(() => '데이터 기반 진단을 생성하지 못했습니다.');
+
+    const predictionPrompt = `다음달(${nextMonth}월) 예측 데이터:\n예측 매출 범위: ${predictedMin} ~ ${predictedMax}\n계절성: ${prediction.seasonality}\n공휴일: ${prediction.holidays.join(', ')}\n주말 일수: ${weekendCount}일\n이번 달 실적 및 위 예측 데이터를 종합하여, 다음 달을 대비하기 위한 구체적인 운영 및 발주 전략을 포함한 AI 진단 코멘트를 작성해줘.`;
+    const predictionAiDiagnosis = await callClaudeVision(predictionPrompt).catch(() => '예측 진단을 생성하지 못했습니다.');
 
     // BEP Analysis
     const fixedCostCategories = new Set(['labor', 'rent', 'electricity', 'gas', 'water', 'telecom', 'pos_fee', 'insurance']);
@@ -258,6 +346,10 @@ export async function GET(request: Request) {
         current: currentStats,
         prev: prevStats,
         lastYear: lastYearStats
+      },
+      prediction: {
+        ...prediction,
+        aiDiagnosis: predictionAiDiagnosis
       }
     });
   } catch (err) {

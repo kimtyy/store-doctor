@@ -146,6 +146,10 @@ function mockResponseByPrompt(prompt: string) {
     return "맑은 날 매출이 비 오는 날 대비 25% 높습니다. 비 오는 날에는 배달 프로모션을 강화하거나 파전/막걸리 등 특선 메뉴 배너를 노출해 보세요.";
   }
 
+  if (normalized.includes('다음달') || normalized.includes('예측')) {
+    return "다음 달은 장마 시작으로 비 오는 날이 잦아 방문객이 줄 수 있습니다. 식자재 발주를 10% 정도 보수적으로 줄이시고, 비 오는 날 특화된 배달 메뉴나 파전/막걸리 프로모션을 준비하여 매출 하락을 방어하세요. 주말 영업 비중이 높으므로 주말에는 아르바이트 인력을 추가 배치하는 것을 권장합니다.";
+  }
+
   if (normalized.includes('보고서') || normalized.includes('진단') || normalized.includes('report')) {
     if (normalized.includes('전월 매출') && normalized.includes('전년동월')) {
       return "전월 및 전년 동월 대비 총매출과 영업이익이 모두 상승하는 뚜렷한 성장 트렌드를 보이고 있습니다. 객단가를 높이는 세트 메뉴 구성을 통해 상승세를 이어가세요.";

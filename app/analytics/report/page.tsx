@@ -105,6 +105,20 @@ function MonthlyReportContent() {
       csv += `영업일수,${data.comparison.current.openDays}일,${data.comparison.prev.openDays}일,${data.comparison.lastYear.openDays}일\n\n`;
     }
 
+    if (data.prediction) {
+      csv += `[다음달 예측 (${data.prediction.nextMonth}월)]\n`;
+      if (!data.prediction.hasEnoughData) {
+        csv += `안내,데이터가 쌓일수록 예측 정확도가 높아집니다 (현재 6개월 미만)\n`;
+      }
+      csv += `매출 예측 범위,${data.prediction.predictedMin} ~ ${data.prediction.predictedMax}원\n`;
+      csv += `예측 근거,"${data.prediction.predictionBasis}"\n`;
+      csv += `계절성/날씨 영향,"${data.prediction.seasonality}"\n`;
+      csv += `공휴일/주말,"${data.prediction.holidays.join(', ')} / 주말 ${data.prediction.weekendCount}일"\n`;
+      csv += `주류 발주 권장,${data.prediction.recommendedAlcohol}원 수준\n`;
+      csv += `식자재 발주 권장,${data.prediction.recommendedFood}원 수준\n`;
+      csv += `AI 종합 예측,"${data.prediction.aiDiagnosis}"\n\n`;
+    }
+
     csv += `[손익분기점 분석]\n`;
     csv += `고정비 합계,${data.bep.fixedCostsSum}\n`;
     csv += `평균 변동비율,${(data.bep.variableCostRatio * 100).toFixed(1)}%\n`;
@@ -442,6 +456,74 @@ function MonthlyReportContent() {
             ))}
           </div>
         </section>
+
+        {/* Next Month Prediction */}
+        {data.prediction && (
+          <section>
+            <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">
+              📈 다음달 예측 ({data.prediction.nextMonth}월)
+            </h2>
+            
+            {!data.prediction.hasEnoughData && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm font-medium mb-4 flex gap-2">
+                <span>⚠️</span>
+                <span>데이터가 쌓일수록 예측 정확도가 높아집니다. (현재 6개월 미만)</span>
+              </div>
+            )}
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+              <div className="mb-6">
+                <h3 className="text-sm font-bold text-slate-500 mb-1">매출 예측 범위</h3>
+                <div className="text-2xl font-bold text-indigo-600">
+                  {fmt(data.prediction.predictedMin)}원 ~ {fmt(data.prediction.predictedMax)}원
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1">
+                    <span>🔍</span> 예측 근거
+                  </h3>
+                  <ul className="text-sm text-slate-600 space-y-1.5 list-disc list-inside">
+                    <li>{data.prediction.predictionBasis}</li>
+                    <li>계절/날씨: {data.prediction.seasonality || '특이사항 없음'}</li>
+                    <li>주말/공휴일: 주말 {data.prediction.weekendCount}일 {data.prediction.holidays.length > 0 ? `, ${data.prediction.holidays.join(', ')} 포함` : ''}</li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1">
+                    <span>📦</span> 발주 권장 (현재 원가율 기준)
+                  </h3>
+                  <ul className="text-sm text-slate-600 space-y-1.5 list-disc list-inside">
+                    <li>주류: {fmtMan(data.prediction.recommendedAlcohol)}원 수준 권장</li>
+                    <li>식자재: {fmtMan(data.prediction.recommendedFood)}원 수준 권장</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-4 mb-4 border border-slate-100">
+                <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1">
+                  <span>💡</span> 기본 운영 제안
+                </h3>
+                <ul className="text-sm text-slate-600 space-y-1.5 list-disc list-inside">
+                  <li>주말 집중 영업 및 프로모션 권장</li>
+                  <li>평일 유휴 시간대 비용 절감 검토</li>
+                </ul>
+              </div>
+
+              {data.prediction.aiDiagnosis && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                  <h3 className="text-xs font-bold text-indigo-800 mb-2 flex items-center gap-1">
+                    <span>🤖</span> AI 종합 예측 및 준비사항
+                  </h3>
+                  <div className="text-indigo-900 font-medium text-sm leading-relaxed prose prose-sm prose-indigo max-w-none prose-p:my-1 prose-headings:my-2">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.prediction.aiDiagnosis}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Footer */}
         <footer className="text-center pt-8 border-t border-slate-200">
