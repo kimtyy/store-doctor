@@ -315,6 +315,28 @@ export default function SalesInputPage() {
     }
   }
 
+  function handleAddMenuMode(record: DailySales) {
+    setEditableReceipt({
+      date: record.date,
+      totalRevenue: record.totalRevenue,
+      netRevenue: record.netRevenue,
+      cashAmount: record.cashAmount ?? 0,
+      cardAmount: record.cardAmount ?? 0,
+      serviceAmount: record.serviceAmount ?? 0,
+      guestCount: record.guestCount ?? 0,
+      tax: record.tax ?? 0,
+      discount: record.discount ?? 0,
+      actualSales: record.actualSales ?? record.totalRevenue,
+    });
+    setReceiptSaved(true);
+    setMenuSaved(false);
+    setMenuParsed(false);
+    setEditableMenuItems([]);
+    setParseMode('full');
+    setTab('input');
+    window.scrollTo(0, 0);
+  }
+
   // ── input ─────────────────────────────────────────────────────────────────────
 
   async function saveCorrectionsAsAliases(items: SalesMenuItemWithMeta[]) {
@@ -862,8 +884,13 @@ export default function SalesInputPage() {
                       <div key={record.id!} className="rounded-2xl border border-slate-800 bg-slate-900/90">
                         <button className="w-full p-4 flex items-center justify-between text-left" onClick={() => toggleExpand(record)}>
                           <div className="min-w-0">
-                            <p className="font-semibold text-slate-100">
-                              {new Date(record.date + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' })}
+                            <p className="font-semibold text-slate-100 flex items-center gap-2">
+                              <span>{new Date(record.date + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' })}</span>
+                              {menuCount === 0 && (
+                                <span className="rounded bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-400 border border-orange-500/30">
+                                  📋 메뉴 미입력
+                                </span>
+                              )}
                             </p>
                             <p className="mt-0.5 text-sm text-slate-400">
                               순매출 {(record.netRevenue / 10000).toFixed(1)}만원
@@ -900,7 +927,14 @@ export default function SalesInputPage() {
                                 <button onClick={() => addDraftItem(record.id!)} className="text-xs text-sky-400 hover:text-sky-300">+ 추가</button>
                               </div>
                               {draft.menuItems.length === 0 ? (
-                                <button onClick={() => addDraftItem(record.id!)} className="w-full rounded-xl border border-dashed border-slate-700 py-3 text-xs text-slate-500 hover:text-sky-400 hover:border-sky-700">+ 메뉴 항목 추가</button>
+                                <div className="flex flex-col gap-2">
+                                  <button type="button" onClick={() => handleAddMenuMode(record)} className="w-full rounded-xl bg-orange-500/10 border border-orange-500/30 py-3 text-sm font-semibold text-orange-400 hover:bg-orange-500/20 transition">
+                                    📸 메뉴별 매출 사진으로 추가
+                                  </button>
+                                  <button type="button" onClick={() => addDraftItem(record.id!)} className="w-full rounded-xl border border-dashed border-slate-700 py-3 text-xs text-slate-500 hover:text-sky-400 hover:border-sky-700">
+                                    + 수동 메뉴 항목 추가
+                                  </button>
+                                </div>
                               ) : (
                                 <div className="space-y-2 max-h-64 overflow-y-auto">
                                   {draft.menuItems.map((item, idx) => (

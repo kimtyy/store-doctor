@@ -93,7 +93,7 @@ export default function CameraModal({ isOpen, onCapture, onClose, galleryInputId
         onClose();
       },
       'image/jpeg',
-      0.92
+      1.0
     );
   }
 
