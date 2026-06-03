@@ -47,15 +47,12 @@ export async function GET(request: Request) {
       { data: storeData },
       { data: salesData },
       { data: prevSalesData },
-      { data: purchaseData },
-      { data: menuData }
+      { data: purchaseData }
     ] = await Promise.all([
       supabase.from('stores').select('owner_salary, loan_repayment').eq('id', STORE_ID).single(),
       supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr),
       supabase.from('daily_sales').select('total_revenue').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr),
-      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr),
-      supabase.from('sales_menu_items').select('name, amount')
-        .eq('daily_sale_id.store_id' as any, STORE_ID) // Note: actual relation filtering might need inner join, we'll fetch all and filter by date
+      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr)
     ]);
 
     // Fetch menus properly with inner join via PostgREST

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-export default function MonthlyReportPage() {
+function MonthlyReportContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const year = searchParams.get('year');
@@ -314,5 +314,13 @@ export default function MonthlyReportPage() {
 
       </main>
     </div>
+  );
+}
+
+export default function MonthlyReportPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 animate-pulse">보고서 준비 중...</div>}>
+      <MonthlyReportContent />
+    </Suspense>
   );
 }
