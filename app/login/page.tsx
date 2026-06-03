@@ -17,6 +17,7 @@ export default function LoginPage({
           이메일
         </label>
         <input
+          id="email"
           className="rounded-md px-4 py-2 bg-inherit border mb-6"
           name="email"
           placeholder="you@example.com"
@@ -26,6 +27,7 @@ export default function LoginPage({
           비밀번호
         </label>
         <input
+          id="password"
           className="rounded-md px-4 py-2 bg-inherit border mb-6"
           type="password"
           name="password"
@@ -37,6 +39,7 @@ export default function LoginPage({
           초대 코드 <span className="text-sm font-normal text-slate-500">(회원가입 시 필수)</span>
         </label>
         <input
+          id="invite_code"
           className="rounded-md px-4 py-2 bg-inherit border mb-6"
           name="invite_code"
           placeholder="BETA-XXXX"
