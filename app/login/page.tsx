@@ -18,7 +18,7 @@ export default function LoginPage({
         </label>
         <input
           id="email"
-          className="rounded-md px-4 py-2 bg-inherit border mb-6"
+          className="rounded-md px-4 py-2 bg-white border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-6"
           name="email"
           placeholder="you@example.com"
           required
@@ -28,7 +28,7 @@ export default function LoginPage({
         </label>
         <input
           id="password"
-          className="rounded-md px-4 py-2 bg-inherit border mb-6"
+          className="rounded-md px-4 py-2 bg-white border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-6"
           type="password"
           name="password"
           placeholder="••••••••"
@@ -40,7 +40,7 @@ export default function LoginPage({
         </label>
         <input
           id="invite_code"
-          className="rounded-md px-4 py-2 bg-inherit border mb-6"
+          className="rounded-md px-4 py-2 bg-white border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-6"
           name="invite_code"
           placeholder="BETA1"
         />
