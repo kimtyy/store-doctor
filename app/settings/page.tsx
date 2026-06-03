@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import BottomTabNav from '../../components/BottomTabNav';
 
 export default function SettingsPage() {
@@ -10,6 +10,43 @@ export default function SettingsPage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [normalizing, setNormalizing] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [ownerSalary, setOwnerSalary] = useState<number | ''>('');
+  const [loanRepayment, setLoanRepayment] = useState<number | ''>('');
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/stores/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.data) {
+          setOwnerSalary(data.data.owner_salary || '');
+          setLoanRepayment(data.data.loan_repayment || '');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleSaveSettings() {
+    setSavingSettings(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/stores/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner_salary: Number(ownerSalary) || 0,
+          loan_repayment: Number(loanRepayment) || 0
+        })
+      });
+      if (!res.ok) throw new Error('저장 실패');
+      setMessage({ type: 'success', text: '영업외 지출 설정이 저장되었습니다.' });
+    } catch (err) {
+      setMessage({ type: 'error', text: '설정 저장 중 오류가 발생했습니다.' });
+    } finally {
+      setSavingSettings(false);
+    }
+  }
 
   async function handleNormalize() {
     setNormalizing(true);
@@ -127,6 +164,52 @@ export default function SettingsPage() {
               <span className="text-slate-500 text-lg">→</span>
             </div>
           </a>
+
+          {/* 영업외 지출 설정 */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">영업외 지출 설정</h2>
+              <p className="mt-1 text-xs text-slate-400">월별 영업보고서의 순이익 계산에 반영됩니다.</p>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">사장님 월 인건비</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={ownerSalary}
+                    onChange={(e) => setOwnerSalary(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="예: 2000000"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 pr-8 text-base text-slate-100"
+                  />
+                  <span className="absolute right-3 top-3 text-slate-500">원</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">월 대출상환금</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={loanRepayment}
+                    onChange={(e) => setLoanRepayment(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="예: 500000"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 pr-8 text-base text-slate-100"
+                  />
+                  <span className="absolute right-3 top-3 text-slate-500">원</span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSaveSettings}
+              disabled={savingSettings}
+              className="w-full rounded-2xl bg-sky-700 px-6 py-4 text-base font-semibold text-white transition hover:bg-sky-600 disabled:opacity-40"
+            >
+              {savingSettings ? '저장 중...' : '저장하기'}
+            </button>
+          </div>
 
           {/* 데이터 정규화 */}
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">

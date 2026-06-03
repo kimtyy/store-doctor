@@ -488,9 +488,15 @@ export default function AnalyticsPage() {
               onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
               disabled={!canGoNext}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 transition text-base"
-            >
-              →
             </button>
+          </div>
+        )}
+
+        {period === 'monthly' && (
+          <div className="mb-6">
+            <a href={`/analytics/report?year=${selectedMonth.year}&month=${selectedMonth.month}`} className="block w-full rounded-2xl bg-sky-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-sky-500">
+              📊 보고서 생성
+            </a>
           </div>
         )}
 
