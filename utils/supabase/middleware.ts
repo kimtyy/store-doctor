@@ -75,7 +75,7 @@ export async function updateSession(request: NextRequest) {
       .eq('owner_id', user.id)
       .single()
 
-    if (!store && !isOnboardingPage && !isAuthPage) {
+    if (!store && !isOnboardingPage) {
       const url = request.nextUrl.clone()
       url.pathname = '/onboarding'
       return NextResponse.redirect(url)

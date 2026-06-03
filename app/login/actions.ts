@@ -52,17 +52,20 @@ export async function signup(formData: FormData) {
   })
 
   if (signUpError) {
-    return redirect('/login?message=회원가입에 실패했습니다.')
+    return redirect('/login?message=회원가입에 실패했습니다. (이미 가입된 이메일이거나 오류)')
   }
 
   // Mark invite code as used
   if (authData.user) {
-    // Need to use service role to update invite code if RLS blocks it during auth transition, 
-    // but the authenticated policy allows it. Let's try.
     await supabase
       .from('invite_codes')
       .update({ is_used: true, used_by: authData.user.id })
       .eq('code', inviteCode)
+  }
+
+  // Check if email confirmation is required (session is null)
+  if (!authData.session) {
+    return redirect('/login?message=회원가입 성공! 이메일을 확인하여 인증을 완료해주세요.')
   }
 
   revalidatePath('/', 'layout')
