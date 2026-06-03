@@ -28,7 +28,7 @@ export async function signup(formData: FormData) {
 
   const email = formData.get('email') as string
   const password = formData.get('password') as string
-  const inviteCode = formData.get('invite_code') as string
+  const inviteCode = (formData.get('invite_code') as string)?.trim().toUpperCase()
 
   if (!inviteCode) {
     return redirect('/login?message=초대 코드가 필요합니다.')
