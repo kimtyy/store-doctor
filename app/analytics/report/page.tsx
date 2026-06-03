@@ -12,6 +12,14 @@ const WEATHER_EMOJI: Record<string, string> = {
   '눈': '❄️'
 };
 
+function fmt(n: number): string {
+  return n.toLocaleString();
+}
+
+function fmtMan(n: number): string {
+  return (n / 10000).toFixed(1) + '만';
+}
+
 function calcVariance(current: number, base: number) {
   if (!base || base === 0) return 0;
   return ((current - base) / base) * 100;
@@ -61,9 +69,6 @@ function MonthlyReportContent() {
   if (loading) return <div className="p-8 text-center text-slate-400 animate-pulse">보고서 생성 중...</div>;
   if (error) return <div className="p-8 text-center text-rose-400">오류: {error}</div>;
   if (!data) return null;
-
-  const fmt = (n: number) => n.toLocaleString();
-  const fmtMan = (n: number) => (n / 10000).toFixed(1) + '만';
 
   const handlePrint = () => {
     window.print();
