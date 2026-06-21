@@ -19,17 +19,7 @@ export async function submitStore(formData: FormData) {
   // Insert store
   const { error } = await supabase
     .from('stores')
-    .insert([
-      {
-        owner_id: user.id,
-        name,
-        // You might want to save category and region in stores table too, 
-        // if your schema has them. Currently schema has 'name'. 
-        // For now, if schema doesn't have it, we just insert name.
-        // Wait, I didn't add category/region to stores schema in the migration.
-        // I will just insert 'name', or I'll need to alter the table first.
-      }
-    ])
+    .insert([{ owner_id: user.id, name, category, region }])     
 
   if (error) {
     console.error('Error creating store:', error)
