@@ -77,8 +77,8 @@ export default function DashboardPage() {
     async function fetchAll() {
       try {
         const [salesRes, purchaseRes] = await Promise.all([
-          fetch('/api/sales?days=240'),
-          fetch('/api/purchases?days=240'),
+          fetch('/api/sales?days=130&simple=true'),
+          fetch('/api/purchases?days=130'),
         ]);
         const salesBody = await salesRes.json().catch(() => null);
         if (!salesRes.ok) throw new Error(salesBody?.error ?? `서버 오류 (${salesRes.status})`);

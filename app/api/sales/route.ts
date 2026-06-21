@@ -155,9 +155,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') ?? '0', 10);
 
-    let query = supabase
-      .from('daily_sales')
-      .select('*, sales_menu_items(*)')
+    const simple = searchParams.get('simple') === 'true';
+    let query = (
+      simple
+        ? supabase.from('daily_sales').select('*')
+        : supabase.from('daily_sales').select('*, sales_menu_items(*)')
+    )
       .eq('store_id', STORE_ID)
       .order('date', { ascending: true });
 
@@ -173,7 +176,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data: (data ?? []).map(mapRow) });
+    return NextResponse.json({ data: ((data ?? []) as any[]).map(mapRow) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
     return NextResponse.json({ error: msg }, { status: 500 });
