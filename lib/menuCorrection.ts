@@ -69,7 +69,7 @@ export function correctMenuName(
   for (const m of masters) {
     for (const c of [m.menuName, ...m.aliases]) {
       const nc = normalize(c);
-      if (Math.abs(nc.length - normalizedOcrLen) >= 2) continue;
+      if (Math.abs(nc.length - normalizedOcrLen) > Math.max(3, Math.floor(normalizedOcrLen * 0.4))) continue;
       const sim = similarity(ocrName, c);
       if (sim > bestSim) {
         bestSim = sim;
