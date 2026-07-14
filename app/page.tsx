@@ -203,8 +203,12 @@ export default function DashboardPage() {
 
   // Monthly summary — includeEvent 토글에 따라 행사 데이터 포함 여부 결정
   const monthSummary = useMemo(() => {
-    const now = new Date();
-    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const todayDay = now.getDate();
+
+    const ym = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
     // 기본 (행사 제외)
     const baseMonth = nonEventSalesData.filter((d) => d.date.startsWith(ym));
     // 행사 데이터
@@ -237,6 +241,48 @@ export default function DashboardPage() {
     const totalRevenue = includeEvent ? baseRevenue + eventRevenue : baseRevenue;
     const totalCost = includeEvent ? baseCost + eventCost : baseCost;
 
+    // ── 전월 동기간 대비 계산 (MoM) ──
+    const prevDate = new Date(currentYear, currentMonth - 2, 1);
+    const prevYear = prevDate.getFullYear();
+    const prevMonth = prevDate.getMonth() + 1;
+    const prevYm = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+    const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
+    const prevDayLimit = Math.min(todayDay, prevLastDay);
+
+    // 전월 동기간 기본 매출
+    const prevBaseMonth = nonEventSalesData.filter(
+      (d) => d.date.startsWith(prevYm) && parseInt(d.date.split('-')[2], 10) <= prevDayLimit
+    );
+    // 전월 동기간 행사 매출
+    const prevEventMonth = salesData.filter(
+      (d) => d.isEvent && d.date.startsWith(prevYm) && parseInt(d.date.split('-')[2], 10) <= prevDayLimit
+    );
+
+    const prevBaseRev = prevBaseMonth.reduce((s, d) => s + d.netRevenue, 0);
+    const prevEventRev = prevEventMonth.reduce((s, d) => s + d.netRevenue, 0);
+
+    let prevBaseCost = 0;
+    for (const d of prevBaseMonth) {
+      const real = purchaseByDate[d.date];
+      if (real !== undefined) {
+        prevBaseCost += real;
+      } else {
+        prevBaseCost += d.netRevenue * 0.4;
+      }
+    }
+
+    let prevEventCost = 0;
+    for (const d of prevEventMonth) {
+      const evc = eventPurchaseByDate[d.date];
+      if (evc !== undefined) prevEventCost += evc;
+    }
+
+    const prevTotalRevenue = includeEvent ? prevBaseRev + prevEventRev : prevBaseRev;
+    const prevTotalCost = includeEvent ? prevBaseCost + prevEventCost : prevBaseCost;
+
+    const revenueChangePct = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : 0;
+    const costChangePct = prevTotalCost > 0 ? ((totalCost - prevTotalCost) / prevTotalCost) * 100 : 0;
+
     return {
       days: baseMonth.length,
       totalRevenue,
@@ -244,6 +290,10 @@ export default function DashboardPage() {
       hasAnyReal,
       eventRevenue,
       eventCost,
+      revenueChangePct,
+      costChangePct,
+      prevTotalRevenue,
+      prevTotalCost,
     };
   }, [nonEventSalesData, salesData, purchaseByDate, eventPurchaseByDate, includeEvent]);
 
@@ -389,12 +439,22 @@ export default function DashboardPage() {
                       <p className="text-lg font-bold text-slate-100">
                         {Math.round(monthSummary.totalRevenue / 10000)}만
                       </p>
+                      {monthSummary.prevTotalRevenue > 0 && (
+                        <p className={`text-[10px] font-bold mt-1.5 ${monthSummary.revenueChangePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {monthSummary.revenueChangePct >= 0 ? '↑' : '↓'} {Math.abs(monthSummary.revenueChangePct).toFixed(1)}%
+                        </p>
+                      )}
                     </div>
                     <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
                       <p className="text-xs text-slate-400 mb-1">총 매입</p>
                       <p className="text-lg font-bold text-amber-400">
                         {Math.round(monthSummary.totalCost / 10000)}만
                       </p>
+                      {monthSummary.prevTotalCost > 0 && (
+                        <p className={`text-[10px] font-bold mt-1.5 ${monthSummary.costChangePct >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {monthSummary.costChangePct >= 0 ? '↑' : '↓'} {Math.abs(monthSummary.costChangePct).toFixed(1)}%
+                        </p>
+                      )}
                     </div>
                   </div>
                   {/* 행사 매출/매입 별도 표시 (includeEvent ON + 데이터 있을 때) */}

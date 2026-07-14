@@ -50,10 +50,20 @@ export async function GET(request: Request) {
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
 
+  // 1. 한국 표준시 기준 오늘 구하기
+  const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1;
+  const todayDay = today.getDate();
+
   // Current month bounds
   const fromStr = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
-  const toStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  let dayLimit = lastDay;
+  if (year === todayYear && month === todayMonth) {
+    dayLimit = todayDay;
+  }
+  const toStr = `${year}-${String(month).padStart(2, '0')}-${String(dayLimit).padStart(2, '0')}`;
 
   // Previous month bounds
   const prevDate = new Date(year, month - 2, 1);
@@ -61,13 +71,21 @@ export async function GET(request: Request) {
   const prevMonth = prevDate.getMonth() + 1;
   const prevFromStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`;
   const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
-  const prevToStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(prevLastDay).padStart(2, '0')}`;
+  let prevDayLimit = prevLastDay;
+  if (year === todayYear && month === todayMonth) {
+    prevDayLimit = Math.min(todayDay, prevLastDay);
+  }
+  const prevToStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(prevDayLimit).padStart(2, '0')}`;
 
   // Last year bounds
   const lastYear = year - 1;
   const lastYearFromStr = `${lastYear}-${String(month).padStart(2, '0')}-01`;
   const lastYearLastDay = new Date(lastYear, month, 0).getDate();
-  const lastYearToStr = `${lastYear}-${String(month).padStart(2, '0')}-${String(lastYearLastDay).padStart(2, '0')}`;
+  let lastYearDayLimit = lastYearLastDay;
+  if (year === todayYear && month === todayMonth) {
+    lastYearDayLimit = Math.min(todayDay, lastYearLastDay);
+  }
+  const lastYearToStr = `${lastYear}-${String(month).padStart(2, '0')}-${String(lastYearDayLimit).padStart(2, '0')}`;
 
   // Past 6 months bounds for data sufficiency check and 3-month MoM
   const past6MonthDate = new Date(year, month - 6, 1);
