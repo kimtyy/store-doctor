@@ -58,15 +58,21 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  const isRootPage = request.nextUrl.pathname === '/'
   const isAuthPage = request.nextUrl.pathname.startsWith('/login')
   const isOnboardingPage = request.nextUrl.pathname.startsWith('/onboarding')
   
-  if (!user && !isAuthPage) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+  // 1. 비로그인 사용자 처리
+  if (!user) {
+    // 루트(/), 로그인(/login), 콜백 경로는 무인증 통과 허용
+    if (!isRootPage && !isAuthPage && !request.nextUrl.pathname.startsWith('/auth/callback')) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return NextResponse.redirect(url)
+    }
   }
 
+  // 2. 로그인 사용자 처리
   if (user) {
     // Check if store exists
     const { data: store } = await supabase
@@ -75,16 +81,21 @@ export async function updateSession(request: NextRequest) {
       .eq('owner_id', user.id)
       .single()
 
-    if (!store && !isOnboardingPage) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/onboarding'
-      return NextResponse.redirect(url)
+    // 2-A. 스토어가 없는 사용자 -> 온보딩으로 강제 유도
+    if (!store) {
+      if (!isOnboardingPage && !request.nextUrl.pathname.startsWith('/auth/callback') && !request.nextUrl.pathname.startsWith('/api/')) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/onboarding'
+        return NextResponse.redirect(url)
+      }
     }
-
-    if (store && (isAuthPage || isOnboardingPage)) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/' // Redirect to dashboard if trying to access login/onboarding when already has a store
-      return NextResponse.redirect(url)
+    // 2-B. 스토어가 이미 존재하는 사용자 -> 루트, 로그인, 온보딩 접속 시 대시보드로 리디렉션
+    else {
+      if (isRootPage || isAuthPage || isOnboardingPage) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/dashboard'
+        return NextResponse.redirect(url)
+      }
     }
   }
 

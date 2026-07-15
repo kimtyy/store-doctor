@@ -1,525 +1,676 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { calculateMovingAverage } from '@/lib/analytics/movingAverage';
-import MAChart from '@/components/charts/MAChart';
-import BottomTabNav from '@/components/BottomTabNav';
-import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
-import type { DailySales } from '@/types/sales';
+import { useState, useEffect, useRef } from 'react';
+import {
+  motion,
+  useScroll,
+  useTransform,
+  useSpring,
+  useMotionTemplate,
+} from 'framer-motion';
+import { Navbar } from '@/components/landing/Navbar';
+import { ScrambleIn } from '@/components/landing/ScrambleText';
+import { ConnectAILabLogo } from '@/components/landing/ConnectAILabLogo';
+import { SITE_CONFIG } from '@/config/landingContent';
 
-function calcNullableMA(values: (number | null)[], period: number): (number | null)[] {
-  return values.map((_, i) => {
-    if (i < period - 1) return null;
-    const window = values.slice(i - period + 1, i + 1);
-    const nonNull = window.filter((v): v is number => v !== null);
-    if (nonNull.length < Math.ceil(period / 2)) return null;
-    return nonNull.reduce((a, b) => a + b, 0) / nonNull.length;
+export default function LandingPage() {
+  const [entranceComplete, setEntranceComplete] = useState(false);
+
+  /* ── Dynamic Icon Injection ── */
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css';
+    document.head.appendChild(link);
+    return () => {
+      document.head.removeChild(link);
+    };
+  }, []);
+
+  /* ── Entrance delay ── */
+  useEffect(() => {
+    const timer = setTimeout(() => setEntranceComplete(true), 800);
+    return () => clearTimeout(timer);
+  }, []);
+
+  /* ── Section 2 scroll-driven 3D text ── */
+  const section2Ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: section2Ref,
+    offset: ['start end', 'end start'],
   });
-}
+  const smoothProgress = useSpring(scrollYProgress, {
+    stiffness: 15,
+    damping: 32,
+    mass: 1.8,
+  });
+  const yScaleValue = useTransform(smoothProgress, [0, 1], [60, -120]);
+  const textOpacity = useTransform(smoothProgress, [0.3, 0.5], [0, 1]);
+  const transform3D = useMotionTemplate`rotateX(24deg) translateY(${yScaleValue}px) translateZ(15px)`;
 
-// ── Weather ──────────────────────────────────────────────────────────────────
-
-interface WeatherInfo {
-  emoji: string;
-  text: string;
-  temp: number;
-  comment: string;
-}
-
-function getWeatherInfo(code: number, temp: number): WeatherInfo {
-  if (code === 0)  return { emoji: '☀️',  text: '맑음',    temp, comment: '맑은 날씨 — 야외 활동이 늘어나는 시간대를 노려보세요' };
-  if (code <= 2)   return { emoji: '🌤',  text: '구름 조금', temp, comment: '대체로 맑아 좋은 영업 날씨예요' };
-  if (code === 3)  return { emoji: '☁️',  text: '흐림',    temp, comment: '흐린 날씨 — 평소와 비슷한 매출이 예상됩니다' };
-  if (code <= 48)  return { emoji: '🌫',  text: '안개',    temp, comment: '안개 — 이른 시간 손님이 줄 수 있어요' };
-  if (code <= 55)  return { emoji: '🌦',  text: '이슬비',   temp, comment: '이슬비 — 포장·배달 수요가 늘 수 있어요' };
-  if (code <= 65)  return { emoji: '🌧',  text: '비',      temp, comment: '비 — 포장·배달 위주로 준비하세요' };
-  if (code <= 75)  return { emoji: '❄️',  text: '눈',      temp, comment: '눈 — 도로 상황에 따라 방문이 줄 수 있어요' };
-  if (code <= 82)  return { emoji: '🌦',  text: '소나기',   temp, comment: '소나기 예보 — 우산 준비를 권장해요' };
-  return             { emoji: '⛈',   text: '천둥번개',  temp, comment: '악천후 — 매출에 영향이 있을 수 있어요' };
-}
-
-function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function fmt만(n: number): string {
-  return `${(n / 10000).toFixed(1)}만`;
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-export default function DashboardPage() {
-  const [salesData, setSalesData] = useState<DailySales[]>([]);
-  const [purchaseByDate, setPurchaseByDate] = useState<Record<string, number>>({});
-  const [eventPurchaseByDate, setEventPurchaseByDate] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [weather, setWeather] = useState<WeatherInfo | null>(null);
-  const [includeEvent, setIncludeEvent] = useState(false);
-
-
-
-  useEffect(() => {
-    fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=37.8&longitude=127.7' +
-      '&current=temperature_2m,weather_code&timezone=Asia%2FSeoul&forecast_days=1'
-    )
-      .then(r => r.json())
-      .then(data => {
-        const code = data.current?.weather_code ?? 0;
-        const temp = Math.round(data.current?.temperature_2m ?? 0);
-        setWeather(getWeatherInfo(code, temp));
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    async function fetchAll() {
-      try {
-        const [salesRes, purchaseRes] = await Promise.all([
-          fetch('/api/sales?days=130&simple=true'),
-          fetch('/api/purchases?days=130'),
-        ]);
-        const salesBody = await salesRes.json().catch(() => null);
-        if (!salesRes.ok) throw new Error(salesBody?.error ?? `서버 오류 (${salesRes.status})`);
-        setSalesData(salesBody.data ?? []);
-
-        if (purchaseRes.ok) {
-          const purchaseBody = await purchaseRes.json().catch(() => null);
-          const records: { date: string; total_amount: number; is_event?: boolean }[] = purchaseBody?.data ?? [];
-          const byDate: Record<string, number> = {};
-          const eventByDate: Record<string, number> = {};
-          for (const r of records) {
-            if (!r.is_event) {
-              byDate[r.date] = (byDate[r.date] ?? 0) + (r.total_amount ?? 0);
-            } else {
-              eventByDate[r.date] = (eventByDate[r.date] ?? 0) + (r.total_amount ?? 0);
-            }
-          }
-          setPurchaseByDate(byDate);
-          setEventPurchaseByDate(eventByDate);
-        }
-      } catch (err) {
-        setFetchError(err instanceof Error ? err.message : '데이터를 불러오지 못했습니다.');
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchAll();
-  }, []);
-
-  // MA chart data — is_event=false 데이터만 (행사 제외)
-  const nonEventSalesData = useMemo(
-    () => salesData.filter((d) => !d.isEvent),
-    [salesData]
-  );
-
-  const chartData = useMemo((): MAChartDataPoint[] => {
-    if (nonEventSalesData.length === 0) return [];
-    const revenues = nonEventSalesData.map((d) => d.netRevenue);
-    const costValues = nonEventSalesData.map((d) => purchaseByDate[d.date] ?? null);
-    const profitValues = nonEventSalesData.map((d, i) => {
-      const cost = costValues[i];
-      return cost !== null ? d.netRevenue - cost : null;
-    });
-
-    const revMa5   = calculateMovingAverage(revenues, 5);
-    const revMa20  = calculateMovingAverage(revenues, 20);
-    const revMa60  = calculateMovingAverage(revenues, 60);
-    const revMa120 = calculateMovingAverage(revenues, 120);
-    const costMa5   = calcNullableMA(costValues, 5);
-    const costMa20  = calcNullableMA(costValues, 20);
-    const costMa60  = calcNullableMA(costValues, 60);
-    const costMa120 = calcNullableMA(costValues, 120);
-    const profitMa5   = calcNullableMA(profitValues, 5);
-    const profitMa20  = calcNullableMA(profitValues, 20);
-    const profitMa60  = calcNullableMA(profitValues, 60);
-    const profitMa120 = calcNullableMA(profitValues, 120);
-
-    const crValues = nonEventSalesData.map((d) => {
-      const cost = purchaseByDate[d.date];
-      return cost !== undefined && d.netRevenue > 0 ? (cost / d.netRevenue) * 100 : null;
-    });
-    const crMa5   = calcNullableMA(crValues, 5);
-    const crMa20  = calcNullableMA(crValues, 20);
-    const crMa60  = calcNullableMA(crValues, 60);
-    const crMa120 = calcNullableMA(crValues, 120);
-
-    return nonEventSalesData.map((d, i) => ({
-      date: d.date.slice(-5),
-      revenueMa5: revMa5[i],   revenueMa20: revMa20[i],   revenueMa60: revMa60[i],   revenueMa120: revMa120[i],
-      costMa5: costMa5[i],     costMa20: costMa20[i],     costMa60: costMa60[i],     costMa120: costMa120[i],
-      profitMa5: profitMa5[i], profitMa20: profitMa20[i], profitMa60: profitMa60[i], profitMa120: profitMa120[i],
-      costRatioMa5: crMa5[i],  costRatioMa20: crMa20[i],  costRatioMa60: crMa60[i],  costRatioMa120: crMa120[i],
-    }));
-  }, [nonEventSalesData, purchaseByDate]);
-
-  const dataAvailability = useMemo((): DataAvailability => ({
-    ma5: nonEventSalesData.length >= 5,
-    ma20: nonEventSalesData.length >= 20,
-    ma60: nonEventSalesData.length >= 60,
-    ma120: nonEventSalesData.length >= 120,
-  }), [nonEventSalesData]);
-
-  // Same weekday comparison — is_event=false 데이터만
-  const sameDayComparison = useMemo(() => {
-    if (nonEventSalesData.length === 0) return null;
-    const today = new Date();
-    const dow = today.getDay();
-    const DOW_LABEL = ['일', '월', '화', '수', '목', '금', '토'];
-
-    const salesMap: Record<string, number> = {};
-    for (const d of nonEventSalesData) salesMap[d.date] = d.netRevenue;
-
-    const lastWeekDate = new Date(today);
-    lastWeekDate.setDate(today.getDate() - 7);
-    const twoWeeksAgoDate = new Date(today);
-    twoWeeksAgoDate.setDate(today.getDate() - 14);
-
-    // Last month's same weekday average
-    const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const prevYear = prevMonthDate.getFullYear();
-    const prevMonth = prevMonthDate.getMonth();
-
-    const lastMonthSameDay = nonEventSalesData.filter(d => {
-      const date = new Date(d.date + 'T00:00:00');
-      return date.getFullYear() === prevYear
-        && date.getMonth() === prevMonth
-        && date.getDay() === dow;
-    });
-
-    const lastMonthAvg = lastMonthSameDay.length > 0
-      ? Math.round(lastMonthSameDay.reduce((s, d) => s + d.netRevenue, 0) / lastMonthSameDay.length)
-      : null;
-
-    return {
-      dowLabel: DOW_LABEL[dow],
-      lastWeek: salesMap[localDateStr(lastWeekDate)] ?? null,
-      twoWeeksAgo: salesMap[localDateStr(twoWeeksAgoDate)] ?? null,
-      lastMonthAvg,
-      lastMonthCount: lastMonthSameDay.length,
-    };
-  }, [nonEventSalesData]);
-
-  // Monthly summary — includeEvent 토글에 따라 행사 데이터 포함 여부 결정
-  const monthSummary = useMemo(() => {
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
-    const todayDay = now.getDate();
-
-    const ym = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
-    // 기본 (행사 제외)
-    const baseMonth = nonEventSalesData.filter((d) => d.date.startsWith(ym));
-    // 행사 데이터
-    const eventMonth = salesData.filter((d) => d.isEvent && d.date.startsWith(ym));
-
-    if (baseMonth.length === 0 && eventMonth.length === 0) return null;
-
-    const baseRevenue = baseMonth.reduce((s, d) => s + d.netRevenue, 0);
-    const eventRevenue = eventMonth.reduce((s, d) => s + d.netRevenue, 0);
-
-    let baseCost = 0;
-    let hasAnyReal = false;
-    for (const d of baseMonth) {
-      const real = purchaseByDate[d.date];
-      if (real !== undefined) {
-        baseCost += real;
-        hasAnyReal = true;
-      } else {
-        baseCost += d.netRevenue * 0.4;
-      }
-    }
-
-    // 행사 매입
-    let eventCost = 0;
-    for (const d of eventMonth) {
-      const evc = eventPurchaseByDate[d.date];
-      if (evc !== undefined) eventCost += evc;
-    }
-
-    const totalRevenue = includeEvent ? baseRevenue + eventRevenue : baseRevenue;
-    const totalCost = includeEvent ? baseCost + eventCost : baseCost;
-
-    // ── 전월 동기간 대비 계산 (MoM) ──
-    const prevDate = new Date(currentYear, currentMonth - 2, 1);
-    const prevYear = prevDate.getFullYear();
-    const prevMonth = prevDate.getMonth() + 1;
-    const prevYm = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
-    const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
-    const prevDayLimit = Math.min(todayDay, prevLastDay);
-
-    // 전월 동기간 기본 매출
-    const prevBaseMonth = nonEventSalesData.filter(
-      (d) => d.date.startsWith(prevYm) && parseInt(d.date.split('-')[2], 10) <= prevDayLimit
-    );
-    // 전월 동기간 행사 매출
-    const prevEventMonth = salesData.filter(
-      (d) => d.isEvent && d.date.startsWith(prevYm) && parseInt(d.date.split('-')[2], 10) <= prevDayLimit
-    );
-
-    const prevBaseRev = prevBaseMonth.reduce((s, d) => s + d.netRevenue, 0);
-    const prevEventRev = prevEventMonth.reduce((s, d) => s + d.netRevenue, 0);
-
-    let prevBaseCost = 0;
-    for (const d of prevBaseMonth) {
-      const real = purchaseByDate[d.date];
-      if (real !== undefined) {
-        prevBaseCost += real;
-      } else {
-        prevBaseCost += d.netRevenue * 0.4;
-      }
-    }
-
-    let prevEventCost = 0;
-    for (const d of prevEventMonth) {
-      const evc = eventPurchaseByDate[d.date];
-      if (evc !== undefined) prevEventCost += evc;
-    }
-
-    const prevTotalRevenue = includeEvent ? prevBaseRev + prevEventRev : prevBaseRev;
-    const prevTotalCost = includeEvent ? prevBaseCost + prevEventCost : prevBaseCost;
-
-    const revenueChangePct = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : 0;
-    const costChangePct = prevTotalCost > 0 ? ((totalCost - prevTotalCost) / prevTotalCost) * 100 : 0;
-
-    return {
-      days: baseMonth.length,
-      totalRevenue,
-      totalCost,
-      hasAnyReal,
-      eventRevenue,
-      eventCost,
-      revenueChangePct,
-      costChangePct,
-      prevTotalRevenue,
-      prevTotalCost,
-    };
-  }, [nonEventSalesData, salesData, purchaseByDate, eventPurchaseByDate, includeEvent]);
-
-  const recentDays = useMemo(
-    () => [...nonEventSalesData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 7),
-    [nonEventSalesData]
-  );
+  /* ── Destructure config for readability ── */
+  const { hero, cinematic, metrics, technology, architecture, footer } = SITE_CONFIG;
 
   return (
-    <>
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
-        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-sky-400">📊 매장닥터</h1>
-          <p className="text-xs text-slate-400">
-            {new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' })}
-          </p>
+    <div className="bg-black text-white min-h-screen">
+      <Navbar entranceComplete={entranceComplete} />
+
+      {/* ════════════════ SECTION 1: HERO ════════════════ */}
+      <section className="relative h-screen h-[100dvh] flex flex-col overflow-hidden">
+        {/* Hero looping video background */}
+        <video
+          src="/hero.mp4"
+          poster="/hero-bg.png"
+          className="absolute inset-0 w-full h-full object-cover"
+          autoPlay
+          muted
+          loop
+          playsInline
+        />
+
+        {/* Adjusted light dark overlay for brightness */}
+        <div className="absolute inset-0 bg-black/20 z-10" />
+
+        {/* Dot grid overlay */}
+        <div
+          className="absolute inset-0 pointer-events-none z-10"
+          style={{
+            backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+            opacity: 0.03,
+          }}
+        />
+
+        {/* Watermark text */}
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+          style={{ paddingTop: 50 }}
+        >
+          <span
+            className="uppercase select-none drop-shadow-lg"
+            style={{
+              fontFamily: '"Anton SC", sans-serif',
+              fontSize: 'clamp(80px, 20vw, 360px)',
+              letterSpacing: '-4px',
+              opacity: 0.08,
+              background:
+                'radial-gradient(circle, rgba(142,127,148,0) 0%, #8E7F94 70%)',
+              WebkitBackgroundClip: 'text',
+              backgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              color: 'transparent',
+              lineHeight: 1,
+              textShadow: '0 2px 8px rgba(0,0,0,0.8)',
+            }}
+          >
+            {hero.watermark}
+          </span>
         </div>
-      </header>
 
-      <main className="min-h-screen bg-slate-950 px-4 py-6 pb-32">
-        <div className="mx-auto max-w-2xl space-y-5">
+        {/* Hero content */}
+        <motion.div
+          className="relative z-20 flex flex-col flex-1 px-4 sm:px-6 md:px-8 pt-20 sm:pt-24 pb-8 sm:pb-12"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: entranceComplete ? 1 : 0 }}
+          transition={{ duration: 1 }}
+        >
+          <div className="flex-1" />
 
-          {loading ? (
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-8 text-center">
-              <p className="text-slate-400 text-sm">데이터 불러오는 중...</p>
-            </div>
-          ) : fetchError ? (
-            <div className="rounded-3xl border border-rose-500/30 bg-rose-500/10 p-6">
-              <p className="text-rose-300 text-sm font-medium">데이터 로드 실패</p>
-              <p className="mt-1 text-rose-400/70 text-xs">{fetchError}</p>
-            </div>
-          ) : salesData.length === 0 ? (
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-8 text-center space-y-3">
-              <p className="text-4xl">📋</p>
-              <p className="text-slate-300 font-semibold">아직 데이터가 없습니다</p>
-              <p className="text-slate-500 text-sm">매출 탭에서 POS 영수증을 입력하면<br />여기에 분석이 표시됩니다</p>
-              <a
-                href="/sales"
-                className="mt-2 inline-block rounded-2xl bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-400"
+          <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+            {/* Left column */}
+            <div className="flex flex-col gap-4 items-start">
+              <h1
+                className="text-white font-light leading-[0.95] tracking-[-0.03em] drop-shadow-lg"
+                style={{ fontSize: 'clamp(40px, 8vw, 88px)', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
               >
-                매출 입력하기
-              </a>
+                <ScrambleIn text={hero.titleLeft[0]} delay={200} triggered={entranceComplete} />
+                <br />
+                <ScrambleIn text={hero.titleLeft[1]} delay={500} triggered={entranceComplete} />
+              </h1>
+
+              <motion.p
+                className="max-w-sm text-[13px] sm:text-[15px] text-white/90 font-medium leading-relaxed drop-shadow-lg"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                initial={{ opacity: 0, y: 25 }}
+                animate={entranceComplete ? { opacity: 1, y: 0 } : {}}
+                transition={{
+                  duration: 0.9,
+                  ease: [0.215, 0.61, 0.355, 1.0],
+                  delay: 0.2,
+                }}
+              >
+                {hero.description}
+              </motion.p>
+
+              {/* Register CTA button */}
+              <motion.button
+                className="mt-6 px-8 py-3.5 bg-[#0064FF] text-white font-semibold rounded-full hover:bg-blue-600 active:scale-95 transition-all text-[14px] cursor-pointer drop-shadow-lg border-none"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                onClick={() => window.location.href = '/login'}
+                initial={{ opacity: 0, y: 20 }}
+                animate={entranceComplete ? { opacity: 1, y: 0 } : {}}
+                transition={{
+                  duration: 0.9,
+                  ease: [0.215, 0.61, 0.355, 1.0],
+                  delay: 0.4,
+                }}
+              >
+                지금 시작하기
+              </motion.button>
             </div>
-          ) : (
-            <>
-              {/* ── 오늘 영업 참고 ─────────────────────────────────────── */}
-              <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-                <h2 className="text-lg font-semibold text-slate-100 mb-4">오늘 영업 참고</h2>
 
-                {/* Weather */}
-                {weather ? (
-                  <div className="flex items-center gap-3 mb-5 rounded-2xl bg-slate-950/60 px-4 py-3">
-                    <span className="text-3xl">{weather.emoji}</span>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-100">
-                        {weather.text}
-                        <span className="ml-2 text-slate-400 font-normal">{weather.temp}°C</span>
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">{weather.comment}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-16 rounded-2xl bg-slate-800/40 animate-pulse mb-5" />
-                )}
+            {/* Right heading */}
+            <h1
+              className="text-white font-light leading-[0.95] tracking-[-0.03em] text-left md:text-right drop-shadow-lg"
+              style={{ fontSize: 'clamp(40px, 8vw, 88px)', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+            >
+              <ScrambleIn text={hero.titleRight[0]} delay={700} triggered={entranceComplete} />
+              <br />
+              <ScrambleIn text={hero.titleRight[1]} delay={1000} triggered={entranceComplete} />
+            </h1>
+          </div>
+        </motion.div>
+      </section>
 
-                {/* Same weekday comparison */}
-                {sameDayComparison && (
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                      {sameDayComparison.dowLabel}요일 매출 비교
-                    </p>
-                    <div className="space-y-2">
-                      {[
-                        { label: `지난주 ${sameDayComparison.dowLabel}요일`, value: sameDayComparison.lastWeek },
-                        { label: `2주 전 ${sameDayComparison.dowLabel}요일`, value: sameDayComparison.twoWeeksAgo },
-                      ].map(({ label, value }) => (
-                        <div key={label} className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
-                          <span className="text-sm text-slate-400">{label}</span>
-                          <span className="text-sm font-semibold text-slate-100">
-                            {value !== null ? `${fmt만(value)}원` : <span className="text-slate-600">—</span>}
-                          </span>
-                        </div>
-                      ))}
-                      <div className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
-                        <span className="text-sm text-slate-400">
-                          지난달 {sameDayComparison.dowLabel}요일 평균
-                        </span>
-                        <span className="text-sm font-semibold text-slate-100">
-                          {sameDayComparison.lastMonthAvg !== null ? (
-                            <>
-                              {fmt만(sameDayComparison.lastMonthAvg)}원
-                              <span className="text-xs text-slate-500 ml-1">({sameDayComparison.lastMonthCount}회)</span>
-                            </>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+      {/* ════════════════ SECTION 2: CINEMATIC TEXT ════════════════ */}
+      <section
+        ref={section2Ref}
+        className="relative h-screen h-[100dvh] flex items-center justify-center overflow-hidden"
+      >
+        {/* Looping video background for receipt processing */}
+        <video
+          src="/receipt.mp4"
+          poster="/receipt-bg.png"
+          className="absolute inset-0 w-full h-full object-cover"
+          autoPlay
+          muted
+          loop
+          playsInline
+        />
 
-              {/* ── 이번달 현황 ────────────────────────────────────────── */}
-              {monthSummary && (
-                <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-slate-100">이번달 현황</h3>
-                    <div className="flex items-center gap-2">
-                      {!monthSummary.hasAnyReal && <span className="text-xs text-slate-500">원가 추정</span>}
-                      {/* 행사 포함 토글 */}
-                      <button
-                        type="button"
-                        onClick={() => setIncludeEvent((v) => !v)}
-                        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition ${
-                          includeEvent
-                            ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
-                            : 'bg-slate-800 border border-slate-700 text-slate-400'
-                        }`}
-                      >
-                        <span>🎪</span>
-                        <span>행사 포함</span>
-                        <span className={`w-7 h-3.5 rounded-full relative inline-block ml-1 ${
-                          includeEvent ? 'bg-purple-500' : 'bg-slate-700'
-                        }`}>
-                          <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-all ${
-                            includeEvent ? 'left-3.5' : 'left-0.5'
-                          }`} />
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1">영업일</p>
-                      <p className="text-xl font-bold text-slate-100">
-                        {monthSummary.days}
-                        <span className="text-sm font-normal text-slate-400">일</span>
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1">총 매출</p>
-                      <p className="text-lg font-bold text-slate-100">
-                        {Math.round(monthSummary.totalRevenue / 10000)}만
-                      </p>
-                      {monthSummary.prevTotalRevenue > 0 && (
-                        <p className={`text-[10px] font-bold mt-1.5 ${monthSummary.revenueChangePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {monthSummary.revenueChangePct >= 0 ? '↑' : '↓'} {Math.abs(monthSummary.revenueChangePct).toFixed(1)}%
-                        </p>
-                      )}
-                    </div>
-                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1">총 매입</p>
-                      <p className="text-lg font-bold text-amber-400">
-                        {Math.round(monthSummary.totalCost / 10000)}만
-                      </p>
-                      {monthSummary.prevTotalCost > 0 && (
-                        <p className={`text-[10px] font-bold mt-1.5 ${monthSummary.costChangePct >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                          {monthSummary.costChangePct >= 0 ? '↑' : '↓'} {Math.abs(monthSummary.costChangePct).toFixed(1)}%
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {/* 행사 매출/매입 별도 표시 (includeEvent ON + 데이터 있을 때) */}
-                  {includeEvent && (monthSummary.eventRevenue > 0 || monthSummary.eventCost > 0) && (
-                    <div className="mt-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 px-4 py-3 flex flex-wrap gap-3">
-                      <span className="text-xs font-semibold text-purple-300">🎪 행사 포함</span>
-                      {monthSummary.eventRevenue > 0 && (
-                        <span className="text-xs text-purple-200">
-                          행사 매출 <span className="font-bold">+{Math.round(monthSummary.eventRevenue / 10000)}만원</span>
-                        </span>
-                      )}
-                      {monthSummary.eventCost > 0 && (
-                        <span className="text-xs text-purple-200">
-                          행사 매입 <span className="font-bold">+{Math.round(monthSummary.eventCost / 10000)}만원</span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+        {/* Top gradient overlay */}
+        <div
+          className="absolute top-0 left-0 right-0 z-10"
+          style={{
+            height: 180,
+            background: 'linear-gradient(to bottom, #010103, transparent)',
+          }}
+        />
 
-              {/* ── 이동평균선 차트 ────────────────────────────────────── */}
-              {chartData.length >= 2 && (
-                <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
-                  <h3 className="text-lg font-semibold text-slate-100">이동평균선</h3>
-                  <div className="mt-4">
-                    <MAChart data={chartData} availability={dataAvailability} />
-                  </div>
-                </div>
-              )}
+        {/* Adjusted light dark overlay for brightness */}
+        <div className="absolute inset-0 bg-black/20 z-10" />
 
-              {/* ── 최근 7일 ───────────────────────────────────────────── */}
-              <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-                <h3 className="text-lg font-semibold text-slate-100">최근 7일</h3>
-                <div className="mt-4 space-y-3">
-                  {recentDays.map((day, idx) => (
-                    <div key={`${day.date}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-slate-100">
-                            {new Date(day.date + 'T00:00:00').toLocaleDateString('ko-KR', {
-                              month: 'short', day: 'numeric', weekday: 'short',
-                            })}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-400">
-                            테이블 {day.tablesUsed}개
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-slate-100">
-                            {(day.netRevenue / 10000).toFixed(1)}만원
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">순매출</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+        {/* 3D text content */}
+        <div className="relative z-20 max-w-5xl mx-auto" style={{ perspective: 400 }}>
+          <motion.p
+            className="font-sans font-normal text-[22px] sm:text-[30px] md:text-[36px] lg:text-[42px] text-white leading-[1.35] tracking-[-0.02em] select-none px-6 sm:px-12 text-center drop-shadow-lg"
+            style={{
+              transform: transform3D,
+              opacity: textOpacity,
+              textShadow: '0 2px 8px rgba(0,0,0,0.8)',
+            }}
+          >
+            {cinematic.text}
+          </motion.p>
         </div>
-      </main>
+      </section>
 
-      <BottomTabNav />
-    </>
+      {/* ════════════════ SECTION 3: METRICS ════════════════ */}
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-black">
+        {/* Bright cafe counter image background */}
+        <img
+          src="/cafe_counter_bright.png"
+          className="absolute inset-0 w-full h-full object-cover"
+          alt="Bright Cafe Counter Background"
+        />
+
+        {/* Adjusted light dark overlay for brightness */}
+        <div className="absolute inset-0 bg-black/20 z-10" />
+
+        <div className="relative z-20 pt-32 pb-32 px-6 max-w-6xl mx-auto w-full">
+          <motion.p
+            className="text-white/80 text-[13px] sm:text-[14px] tracking-[0.2em] uppercase mb-20 text-center drop-shadow-lg font-semibold"
+            style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            transition={{ duration: 1.2 }}
+            viewport={{ once: true, amount: 0.3 }}
+          >
+            {metrics.subtitle}
+          </motion.p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-16 md:gap-8 text-center">
+            {metrics.items.map((m, i) => (
+              <motion.div
+                key={m.label}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: i * 0.15 }}
+                viewport={{ once: true, amount: 0.3 }}
+              >
+                <div
+                  className="text-white font-semibold tracking-[-0.04em] leading-none drop-shadow-lg"
+                  style={{ fontSize: 'clamp(28px, 5vw, 56px)', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                >
+                  {m.value}
+                </div>
+                <div 
+                  className="text-white/90 text-[13px] sm:text-[15px] mt-4 tracking-wide drop-shadow-lg font-medium"
+                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                >
+                  {m.label}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════ SECTION 4: TECHNOLOGY ════════════════ */}
+      <section className="relative min-h-[500px] flex flex-col justify-center overflow-hidden py-32">
+        {/* Bright kitchen background image */}
+        <img
+          src="/restaurant_kitchen_bright.png"
+          className="absolute inset-0 w-full h-full object-cover"
+          alt="Bright Restaurant Kitchen Background"
+        />
+
+        {/* Adjusted light dark overlay for brightness */}
+        <div className="absolute inset-0 bg-black/20 z-10" />
+
+        <div className="relative z-20 flex flex-col px-8 sm:px-12 md:px-16 max-w-6xl mx-auto w-full">
+          <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-8">
+            <motion.h2
+              className="text-white font-semibold leading-[0.95] tracking-[-0.03em] drop-shadow-lg"
+              style={{ fontSize: 'clamp(36px, 8vw, 72px)', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 1.0 }}
+              viewport={{ once: true, amount: 0.3 }}
+            >
+              {technology.title[0]}
+              <br />
+              {technology.title[1]}
+            </motion.h2>
+
+            <motion.p
+              className="text-white/90 text-[15px] sm:text-[17px] leading-relaxed max-w-sm md:text-right md:pt-4 drop-shadow-lg font-medium"
+              style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 1.0, delay: 0.2 }}
+              viewport={{ once: true, amount: 0.3 }}
+            >
+              {technology.description}
+            </motion.p>
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════ SECTION 4B: INDEPENDENT FEATURES CARD GRID (WHITE THEME) ════════════════ */}
+      <section className="bg-white py-24 px-6 md:px-12 relative z-20">
+        <div className="max-w-6xl mx-auto">
+          <motion.div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8"
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            transition={{ duration: 1.0 }}
+            viewport={{ once: true, amount: 0.2 }}
+          >
+            {technology.features.map((f, i) => (
+              <motion.div
+                key={f.title}
+                className="bg-white border border-zinc-200 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col gap-3"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: i * 0.1 }}
+                viewport={{ once: true, amount: 0.2 }}
+              >
+                <h3 className="text-zinc-900 text-[17px] sm:text-[19px] font-bold tracking-tight">
+                  {f.title}
+                </h3>
+                <p className="text-zinc-600 text-[14px] sm:text-[15px] leading-relaxed font-normal">
+                  {f.desc}
+                </p>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ════════════════ SECTION 5: ARCHITECTURE ════════════════ */}
+      <section className="relative min-h-screen flex items-center justify-center bg-black overflow-hidden py-32">
+        {/* App background image */}
+        <img
+          src="/phone_app_bright.png"
+          className="absolute inset-0 w-full h-full object-cover"
+          alt="App Background"
+        />
+
+        {/* Adjusted dark overlay to highlight phone mockup */}
+        <div className="absolute inset-0 bg-black/40 z-10" />
+
+        <div className="relative z-20 max-w-6xl mx-auto px-6 w-full">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            {/* Left Column: Text & Steps */}
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 1.0 }}
+              viewport={{ once: true, amount: 0.3 }}
+            >
+              <p 
+                className="text-white/80 text-[13px] sm:text-[14px] tracking-[0.2em] uppercase mb-6 drop-shadow-lg font-semibold"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                {architecture.subtitle}
+              </p>
+              <h2
+                className="text-white font-semibold leading-[1.15] tracking-[-0.02em] mb-8 drop-shadow-lg"
+                style={{ fontSize: 'clamp(28px, 5vw, 52px)', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                {architecture.heading}
+              </h2>
+              <p 
+                className="text-white/90 text-[15px] sm:text-[17px] leading-relaxed max-w-xl mb-12 drop-shadow-lg font-medium"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                {architecture.description}
+              </p>
+
+              {/* 1단계 / 2단계 / 3단계 List */}
+              <div className="flex flex-col gap-4 max-w-md">
+                {architecture.layers.map((l) => (
+                  <div
+                    key={l.num}
+                    className="w-full h-[72px] border border-white/20 bg-black/25 backdrop-blur-md rounded-lg flex items-center justify-between px-6 drop-shadow-lg"
+                  >
+                    <span className="text-white/80 text-[13px] tracking-[0.1em] font-semibold">
+                      {l.num}단계
+                    </span>
+                    <span className="text-white text-[15px] sm:text-[17px] font-semibold">
+                      {l.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Right Column: Phone Mockup Frame */}
+            <motion.div
+              className="flex justify-center"
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 1.0, delay: 0.2 }}
+              viewport={{ once: true, amount: 0.3 }}
+            >
+              {/* Premium Phone Frame */}
+              <div className="relative w-[260px] h-[530px] bg-zinc-900 rounded-[44px] p-3 border-4 border-zinc-700 shadow-2xl overflow-hidden shrink-0">
+                {/* Speaker/Camera Notch */}
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-28 h-4 bg-zinc-800 rounded-full z-30" />
+                
+                {/* Screen */}
+                <div className="w-full h-full rounded-[32px] overflow-hidden relative bg-black">
+                  <img
+                    src="/dashboard.jpg"
+                    className="w-full h-full object-cover"
+                    alt="매장닥터 대시보드 화면"
+                  />
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════ SECTION 6: PRICING ════════════════ */}
+      <section className="relative min-h-screen bg-black py-32 px-6 overflow-hidden">
+        {/* Bright store front image background */}
+        <img
+          src="/store_front_bright.png"
+          className="absolute inset-0 w-full h-full object-cover"
+          alt="Bright Storefront Background"
+        />
+
+        {/* Adjusted dark overlay for better pricing text contrast */}
+        <div className="absolute inset-0 bg-black/50 z-10" />
+
+        <div className="relative z-20 max-w-6xl mx-auto">
+          <motion.div
+            className="text-center mb-20"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1.0 }}
+            viewport={{ once: true, amount: 0.3 }}
+          >
+            <p 
+              className="text-white/80 text-[13px] sm:text-[14px] tracking-[0.2em] uppercase mb-8 drop-shadow-lg font-semibold"
+              style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+            >
+              요금제 안내
+            </p>
+            <h2
+              className="text-white font-semibold leading-[1.15] tracking-[-0.02em] mb-6 drop-shadow-lg"
+              style={{ fontSize: 'clamp(24px, 5vw, 44px)', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+            >
+              매장닥터 플랜 선택
+            </h2>
+            <p 
+              className="text-white/95 text-[15px] sm:text-[17px] leading-relaxed max-w-xl mx-auto drop-shadow-lg font-medium"
+              style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+            >
+              사장님의 매장 규모와 필요 기능에 맞춰 가장 효율적인 플랜을 선택하세요.
+            </p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
+            {/* ── Basic ── */}
+            <motion.div
+              className="border border-white/20 bg-black/75 backdrop-blur-md rounded-2xl p-6 sm:p-8 flex flex-col relative drop-shadow-lg"
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0 }}
+              viewport={{ once: true, amount: 0.3 }}
+            >
+              <p 
+                className="text-white/80 text-[12px] tracking-[0.15em] uppercase mb-3 font-semibold"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                Basic
+              </p>
+              <div className="flex items-baseline gap-1 mb-2 whitespace-nowrap">
+                <span 
+                  className="text-white text-[32px] sm:text-[38px] font-semibold tracking-tight"
+                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                >
+                  9,900원
+                </span>
+                <span className="text-white/80 text-[12px] sm:text-[14px]">/월</span>
+              </div>
+              <p 
+                className="text-white/95 text-[13px] leading-relaxed mb-8 font-medium drop-shadow-lg"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                매장 1개, OCR 월 100건
+              </p>
+              <ul className="flex flex-col gap-3 mb-10 flex-1">
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> 영수증/POS 사진 분석
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> 기초 매출·매입 장부 자동화
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> 월간 기본 정산서 제공
+                </li>
+              </ul>
+              <button
+                onClick={() => window.location.href = '/login'}
+                className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
+              >
+                선택하기
+              </button>
+            </motion.div>
+
+            {/* ── Pro (Featured) ── */}
+            <motion.div
+              className="border border-[#0064FF]/60 bg-black/80 backdrop-blur-md rounded-2xl p-6 sm:p-8 flex flex-col relative drop-shadow-xl"
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.1 }}
+              viewport={{ once: true, amount: 0.3 }}
+            >
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                <span className="bg-[#0064FF] text-white text-[11px] font-bold tracking-[0.1em] uppercase px-4 py-1.5 rounded-full drop-shadow-md">
+                  Most Popular
+                </span>
+              </div>
+              <p 
+                className="text-white/80 text-[12px] tracking-[0.15em] uppercase mb-3 font-semibold"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                Pro
+              </p>
+              <div className="flex items-baseline gap-1 mb-2 whitespace-nowrap">
+                <span 
+                  className="text-white text-[32px] sm:text-[38px] font-semibold tracking-tight"
+                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                >
+                  19,900원
+                </span>
+                <span className="text-white/80 text-[12px] sm:text-[14px]">/월</span>
+              </div>
+              <p 
+                className="text-white/95 text-[13px] leading-relaxed mb-8 font-medium drop-shadow-lg"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                매장 1개, OCR 월 300건 + AI 진단
+              </p>
+              <ul className="flex flex-col gap-3 mb-10 flex-1">
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> Basic의 모든 기능 제공
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> AI 영업 진단 분석
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> 실시간 원가율 및 마진 추적
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> 다음 달 예측 분석 보고서
+                </li>
+              </ul>
+              <button
+                onClick={() => window.location.href = '/login'}
+                className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-blue-500/20 drop-shadow-lg"
+              >
+                선택하기
+              </button>
+            </motion.div>
+
+            {/* ── Premium ── */}
+            <motion.div
+              className="border border-white/20 bg-black/75 backdrop-blur-md rounded-2xl p-6 sm:p-8 flex flex-col relative drop-shadow-lg"
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              viewport={{ once: true, amount: 0.3 }}
+            >
+              <p 
+                className="text-white/80 text-[12px] tracking-[0.15em] uppercase mb-3 font-semibold"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                Premium
+              </p>
+              <div className="flex items-baseline gap-1 mb-2 whitespace-nowrap">
+                <span 
+                  className="text-white text-[32px] sm:text-[38px] font-semibold tracking-tight"
+                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                >
+                  29,900원
+                </span>
+                <span className="text-white/80 text-[12px] sm:text-[14px]">/월</span>
+              </div>
+              <p 
+                className="text-white/95 text-[13px] leading-relaxed mb-8 font-medium drop-shadow-lg"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                매장 1개, OCR 월 1,000건 + 전체 기능
+              </p>
+              <ul className="flex flex-col gap-3 mb-10 flex-1">
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> Pro의 모든 기능 제공
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> 대용량 영수증 우선 파싱
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> 무제한 데이터 보존 기능
+                </li>
+              </ul>
+              <button
+                onClick={() => window.location.href = '/login'}
+                className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
+              >
+                선택하기
+              </button>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* ════════════════ FOOTER ════════════════ */}
+      <footer className="bg-black overflow-hidden border-t border-white/10 relative z-20">
+        <div className="flex flex-col md:flex-row min-h-[400px]">
+          {/* Left: Food Preparation Image */}
+          <div className="md:w-1/2 h-[300px] md:h-auto relative">
+            <img
+              src="/food_prep_bright.png"
+              className="absolute inset-0 w-full h-full object-cover opacity-60"
+              alt="Bright Culinary Plating Food Background"
+            />
+            <div className="absolute inset-0 bg-black/20" />
+          </div>
+
+          {/* Right: Content with Smiling Owner Background */}
+          <div className="md:w-1/2 flex flex-col justify-between p-10 sm:p-16 relative overflow-hidden bg-black/50">
+            {/* Blended background owner image */}
+            <img
+              src="/owner_smiling_bright.png"
+              className="absolute inset-0 w-full h-full object-cover opacity-15"
+              alt="Smiling Owner Background"
+            />
+            <div className="absolute inset-0 bg-black/35 z-10" />
+
+            <div className="relative z-20 flex flex-col justify-between h-full flex-1">
+              <div>
+                <div className="flex items-center gap-2.5 mb-8">
+                  <ConnectAILabLogo size={18} className="text-white/80" />
+                  <span 
+                    className="text-[16px] font-medium text-white/85 tracking-tight drop-shadow-lg"
+                    style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                  >
+                    {SITE_CONFIG.brandName}
+                  </span>
+                </div>
+                <p 
+                  className="text-white/80 text-[14px] sm:text-[15px] leading-relaxed max-w-sm drop-shadow-lg font-medium"
+                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                >
+                  {footer.tagline}
+                </p>
+              </div>
+
+              <p 
+                className="text-white/40 text-[12px] mt-12 drop-shadow-sm font-semibold"
+                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+              >
+                {SITE_CONFIG.copyright}
+              </p>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 }
