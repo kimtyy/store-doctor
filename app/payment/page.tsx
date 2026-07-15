@@ -26,6 +26,11 @@ function PaymentContent() {
   const [loading, setLoading] = useState(true);
   const [paymentWidget, setPaymentWidget] = useState<PaymentWidgetInstance | null>(null);
   const [paymentMethodsWidget, setPaymentMethodsWidget] = useState<any>(null);
+  // customerKey가 바뀔 때마다(비로그인 → 로그인) 증가시켜, 위젯 컨테이너 DOM을
+  // 완전히 새로 마운트하기 위한 key로 사용한다. (같은 DOM 노드를 여러 위젯
+  // 인스턴스가 재사용하면 토스 SDK 내부 상태가 꼬여 결제 버튼이 무반응이 됨)
+  const [widgetInstanceKey, setWidgetInstanceKey] = useState(0);
+  const [widgetError, setWidgetError] = useState<string | null>(null);
 
   const errorParam = searchParams.get('error');
   const errorMessage = searchParams.get('message');
@@ -48,15 +53,22 @@ function PaymentContent() {
 
     async function initWidget() {
       try {
-        // 기존 위젯 인스턴스를 초기화하여 재마운트 시 캐시 충돌 방지
+        // 기존 위젯 인스턴스와 렌더 상태를 초기화하여 재마운트 시 캐시 충돌 방지.
+        // customerKey가 바뀌는 시점(비로그인 → 로그인)마다 컨테이너 DOM 자체를
+        // 새로 만들도록 key를 증가시켜, 이전 위젯 인스턴스가 점유했던 DOM 노드를
+        // 새 위젯이 재사용하지 않게 한다.
         setPaymentWidget(null);
+        setPaymentMethodsWidget(null);
+        setWidgetError(null);
 
         const customerKey = user ? user.id : ANONYMOUS;
         const widget = await loadPaymentWidget(TOSS_CLIENT_KEY, customerKey);
-        
+
+        setWidgetInstanceKey((k) => k + 1);
         setPaymentWidget(widget);
       } catch (err) {
         console.error('Toss Payments widget load failed:', err);
+        setWidgetError('결제 위젯을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.');
       }
     }
     initWidget();
@@ -86,8 +98,11 @@ function PaymentContent() {
       paymentWidget.renderAgreement('#agreement', { variantKey: 'DEFAULT' });
 
       setPaymentMethodsWidget(methodsWidget);
+      setWidgetError(null);
     } catch (err) {
       console.error('Toss widget render methods failed:', err);
+      setPaymentMethodsWidget(null);
+      setWidgetError('결제 수단을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.');
     }
   }, [paymentWidget, selectedPlan]);
 
@@ -100,9 +115,10 @@ function PaymentContent() {
       return;
     }
 
-    if (!paymentWidget) return;
+    if (!paymentWidget || !paymentMethodsWidget) return;
 
     try {
+      setWidgetError(null);
       const planDetail = PLAN_DETAILS[selectedPlan];
       const orderId = `order_${user.id.slice(0, 8)}_${Date.now()}`;
 
@@ -116,6 +132,7 @@ function PaymentContent() {
       });
     } catch (err) {
       console.error('Payment request failed:', err);
+      setWidgetError('결제 요청 중 오류가 발생했습니다. 다시 시도해 주세요.');
     }
   };
 
@@ -184,8 +201,22 @@ function PaymentContent() {
           })}
         </div>
 
-        {/* ── 토스 결제위젯 영역 ── */}
-        <div className="bg-[#0c0c12] rounded-xl border border-[#1a1a24] p-4 sm:p-6 mb-8">
+        {widgetError && (
+          <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
+            <i className="bi bi-exclamation-triangle-fill text-red-400 text-lg mt-0.5" />
+            <div>
+              <h4 className="text-sm font-semibold text-red-400">결제 위젯 오류</h4>
+              <p className="text-xs text-red-400/80 mt-1">{widgetError}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── 토스 결제위젯 영역 ──
+            key={widgetInstanceKey}: customerKey가 바뀌어(비로그인 → 로그인)
+            새 위젯 인스턴스가 생성될 때마다 컨테이너 DOM을 통째로 새로 마운트한다.
+            이전 위젯이 렌더링했던 DOM 노드를 재사용하면 토스 SDK 내부 상태가
+            꼬여 결제 수단이 렌더링되지 않고, "결제하기" 클릭이 조용히 실패한다. */}
+        <div key={widgetInstanceKey} className="bg-[#0c0c12] rounded-xl border border-[#1a1a24] p-4 sm:p-6 mb-8">
           <div id="payment-method" className="w-full min-h-[250px]" />
           <div className="border-t border-[#1a1a24] my-6" />
           <div id="agreement" className="w-full" />
@@ -194,7 +225,7 @@ function PaymentContent() {
         {/* ── 결제하기 버튼 ── */}
         <button
           onClick={handlePaymentRequest}
-          disabled={!paymentWidget}
+          disabled={!paymentWidget || !paymentMethodsWidget}
           className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold rounded-xl transition-all shadow-[0_4px_20px_rgba(16,185,129,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-base"
         >
           {PLAN_DETAILS[selectedPlan].price.toLocaleString()}원 결제하기
