@@ -61,8 +61,8 @@ export default function LandingPage() {
         {/* Hero looping video background */}
         {!videoFailed ? (
           <video
-            src="https://videos.pexels.com/video-files/3195394/3195394-hd_1920_1080_25fps.mp4"
-            poster="/cafe_counter_bright.png"
+            src="/hero.mp4"
+            poster="/hero-bg.png"
             className="absolute inset-0 w-full h-full object-cover"
             autoPlay
             muted
@@ -72,9 +72,9 @@ export default function LandingPage() {
           />
         ) : (
           <img
-            src="/cafe_counter_bright.png"
+            src="/hero-bg.png"
             className="absolute inset-0 w-full h-full object-cover"
-            alt="Fallback Cafe Counter Background"
+            alt="Fallback Hero Background"
           />
         )}
 
