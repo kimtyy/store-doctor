@@ -48,6 +48,9 @@ function PaymentContent() {
 
     async function initWidget() {
       try {
+        // 기존 위젯 인스턴스를 초기화하여 재마운트 시 캐시 충돌 방지
+        setPaymentWidget(null);
+
         const customerKey = user ? user.id : ANONYMOUS;
         const widget = await loadPaymentWidget(TOSS_CLIENT_KEY, customerKey);
         
@@ -59,23 +62,33 @@ function PaymentContent() {
     initWidget();
   }, [user, loading]);
 
-  // 3. 결제수단 및 이용약관 렌더링 (플랜 선택 가격 변화 시 반영)
+  // 3. 결제수단 및 이용약관 렌더링 (플랜 선택 가격 변화 및 widget 재생성 시 반영)
   useEffect(() => {
     if (!paymentWidget) return;
 
     const amount = PLAN_DETAILS[selectedPlan].price;
 
-    // 결제 수단 렌더링
-    const methodsWidget = paymentWidget.renderPaymentMethods(
-      '#payment-method',
-      { value: amount },
-      { variantKey: 'DEFAULT' }
-    );
+    // SDK 중복 렌더링 에러 방지를 위해 기존 결제 위젯 DOM 컨테이너를 강제로 비움
+    const methodContainer = document.getElementById('payment-method');
+    if (methodContainer) methodContainer.innerHTML = '';
+    const agreementContainer = document.getElementById('agreement');
+    if (agreementContainer) agreementContainer.innerHTML = '';
 
-    // 이용약관 렌더링
-    paymentWidget.renderAgreement('#agreement', { variantKey: 'DEFAULT' });
+    try {
+      // 결제 수단 렌더링
+      const methodsWidget = paymentWidget.renderPaymentMethods(
+        '#payment-method',
+        { value: amount },
+        { variantKey: 'DEFAULT' }
+      );
 
-    setPaymentMethodsWidget(methodsWidget);
+      // 이용약관 렌더링
+      paymentWidget.renderAgreement('#agreement', { variantKey: 'DEFAULT' });
+
+      setPaymentMethodsWidget(methodsWidget);
+    } catch (err) {
+      console.error('Toss widget render methods failed:', err);
+    }
   }, [paymentWidget, selectedPlan]);
 
   // 결제 요청
