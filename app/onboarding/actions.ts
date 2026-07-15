@@ -27,5 +27,5 @@ export async function submitStore(formData: FormData) {
   }
 
   revalidatePath('/', 'layout')
-  redirect('/')
+  redirect('/payment')
 }

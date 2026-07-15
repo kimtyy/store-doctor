@@ -91,12 +91,36 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(url)
       }
     }
-    // 2-B. 스토어가 이미 존재하는 사용자 -> 루트, 로그인, 온보딩 접속 시 대시보드로 리디렉션
+    // 2-B. 스토어가 이미 존재하는 사용자 -> 구독 상태를 확인해 결제/대시보드로 유도
     else {
-      if (isRootPage || isAuthPage || isOnboardingPage) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/dashboard'
-        return NextResponse.redirect(url)
+      const isPaymentPage = request.nextUrl.pathname.startsWith('/payment')
+      const isExemptPath =
+        request.nextUrl.pathname.startsWith('/auth/callback') ||
+        request.nextUrl.pathname.startsWith('/api/') ||
+        request.nextUrl.pathname.startsWith('/admin')
+
+      const { data: subscription } = await supabase
+        .from('subscriptions')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle()
+
+      if (!subscription) {
+        // 2-B-1. 구독이 없는 사용자 -> 결제 페이지로 강제 유도
+        if (!isPaymentPage && !isExemptPath) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/payment'
+          return NextResponse.redirect(url)
+        }
+      } else {
+        // 2-B-2. 구독이 있는 사용자 -> 루트, 로그인, 온보딩, 결제 접속 시 대시보드로 리디렉션
+        if (isRootPage || isAuthPage || isOnboardingPage || isPaymentPage) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
       }
     }
   }

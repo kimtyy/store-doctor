@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { login, signup } from './actions'
+import { login } from './actions'
 
 export default function LoginPage({
   searchParams,
@@ -90,21 +90,11 @@ export default function LoginPage({
         </label>
         <input
           id="password"
-          className="rounded-md px-4 py-2 bg-white border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+          className="rounded-md px-4 py-2 bg-white border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-6"
           type="password"
           name="password"
           placeholder="••••••••"
           required
-        />
-        
-        <label className="text-md font-semibold" htmlFor="invite_code">
-          초대 코드 <span className="text-sm font-normal text-slate-500">(회원가입 시 필수)</span>
-        </label>
-        <input
-          id="invite_code"
-          className="rounded-md px-4 py-2 bg-white border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-6"
-          name="invite_code"
-          placeholder="BETA1"
         />
 
         <div className="flex flex-col gap-3 mt-2">
@@ -113,12 +103,6 @@ export default function LoginPage({
             className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-4 py-3 font-semibold transition cursor-pointer"
           >
             로그인
-          </button>
-          <button
-            formAction={signup}
-            className="border border-indigo-600 text-indigo-600 hover:bg-indigo-50 rounded-md px-4 py-3 font-semibold transition cursor-pointer"
-          >
-            초대 코드로 회원가입
           </button>
         </div>
 

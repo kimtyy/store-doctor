@@ -74,15 +74,6 @@ export default function OnboardingPage({ searchParams }: { searchParams: { messa
             매장 등록 후, <strong>[매출 입력]</strong> 및 <strong>[매입 입력]</strong> 메뉴를 통해 일일 영수증이나 장부 내용을 사진으로 찍거나 수기로 입력해주세요. 데이터가 쌓일수록 AI 진단의 정확도가 높아집니다.
           </p>
         </div>
-
-        <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-5">
-          <h3 className="font-bold text-emerald-900 mb-2 flex items-center gap-2">
-            <span>🎁</span> 베타 테스터 특별 혜택
-          </h3>
-          <p className="text-sm text-emerald-800 leading-relaxed">
-            초대 코드로 가입하신 베타 테스터 분들께는 <strong className="text-emerald-900 bg-emerald-200 px-1 rounded">처음 30일 무료</strong> 혜택이 제공됩니다! 지금 바로 모든 AI 분석 기능을 무제한으로 체험해 보세요.
-          </p>
-        </div>
       </div>
     </div>
   )
