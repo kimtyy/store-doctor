@@ -7,17 +7,18 @@ import { login, signup } from './actions'
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: { message: string }
+  searchParams: { message?: string; redirect?: string }
 }) {
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
 
   const handleGoogleLogin = async () => {
     setLoading(true)
+    const nextPath = searchParams?.redirect || '/onboarding'
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     })
     if (error) {
@@ -73,6 +74,7 @@ export default function LoginPage({
       </div>
 
       <form className="animate-in flex-1 flex flex-col w-full justify-center gap-2 text-foreground">
+        <input type="hidden" name="redirect_to" value={searchParams?.redirect || ''} />
         <label className="text-md font-semibold" htmlFor="email">
           이메일
         </label>

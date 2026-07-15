@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
-import { loadPaymentWidget, PaymentWidgetInstance } from '@tosspayments/payment-widget-sdk';
+import { loadPaymentWidget, ANONYMOUS, PaymentWidgetInstance } from '@tosspayments/payment-widget-sdk';
 
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || 'test_ck_D53w41Gb827ZaPz5o5q3oEqZJaWx';
 
@@ -30,29 +30,25 @@ function PaymentContent() {
   const errorParam = searchParams.get('error');
   const errorMessage = searchParams.get('message');
 
-  // 1. 사용자 세션 체크
+  // 1. 사용자 세션 체크 (비로그인 상태도 허용)
   useEffect(() => {
     async function checkUser() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        // 미로그인 사용자는 로그인 페이지로 리다이렉트
-        router.push('/login?redirect=/payment');
-        return;
+      if (user) {
+        setUser(user);
       }
-      setUser(user);
       setLoading(false);
     }
     checkUser();
-  }, [supabase, router]);
+  }, [supabase]);
 
-  // 2. 토스 결제위젯 초기화
+  // 2. 토스 결제위젯 초기화 (비로그인의 경우 ANONYMOUS 키 사용)
   useEffect(() => {
-    if (!user) return;
+    if (loading) return;
 
     async function initWidget() {
       try {
-        // 고객 키로 유저 고유 ID 사용 (보안을 위해 unique 비식별자 전달)
-        const customerKey = user.id;
+        const customerKey = user ? user.id : ANONYMOUS;
         const widget = await loadPaymentWidget(TOSS_CLIENT_KEY, customerKey);
         
         setPaymentWidget(widget);
@@ -61,7 +57,7 @@ function PaymentContent() {
       }
     }
     initWidget();
-  }, [user]);
+  }, [user, loading]);
 
   // 3. 결제수단 및 이용약관 렌더링 (플랜 선택 가격 변화 시 반영)
   useEffect(() => {
@@ -84,7 +80,14 @@ function PaymentContent() {
 
   // 결제 요청
   const handlePaymentRequest = async () => {
-    if (!paymentWidget || !user) return;
+    // 비로그인 사용자라면 로그인 페이지로 이동 (리다이렉트 지점을 현재 플랜 정보와 함께 주입)
+    if (!user) {
+      const redirectPath = encodeURIComponent(`/payment?plan=${selectedPlan}`);
+      router.push(`/login?redirect=${redirectPath}`);
+      return;
+    }
+
+    if (!paymentWidget) return;
 
     try {
       const planDetail = PLAN_DETAILS[selectedPlan];

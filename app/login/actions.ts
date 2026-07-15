@@ -9,6 +9,7 @@ export async function login(formData: FormData) {
 
   const email = formData.get('email') as string
   const password = formData.get('password') as string
+  const redirectTo = (formData.get('redirect_to') as string) || '/onboarding'
 
   const { error } = await supabase.auth.signInWithPassword({
     email,
@@ -16,11 +17,14 @@ export async function login(formData: FormData) {
   })
 
   if (error) {
-    return redirect('/login?message=로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.')
+    const failUrl = `/login?message=로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.${
+      redirectTo ? `&redirect=${encodeURIComponent(redirectTo)}` : ''
+    }`
+    return redirect(failUrl)
   }
 
   revalidatePath('/', 'layout')
-  redirect('/onboarding') // middleware will redirect to / if store exists
+  redirect(redirectTo)
 }
 
 export async function signup(formData: FormData) {
@@ -29,9 +33,13 @@ export async function signup(formData: FormData) {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
   const inviteCode = (formData.get('invite_code') as string)?.trim().toUpperCase()
+  const redirectTo = (formData.get('redirect_to') as string) || '/onboarding'
 
   if (!inviteCode) {
-    return redirect('/login?message=초대 코드가 필요합니다.')
+    const failUrl = `/login?message=초대 코드가 필요합니다.${
+      redirectTo ? `&redirect=${encodeURIComponent(redirectTo)}` : ''
+    }`
+    return redirect(failUrl)
   }
 
   // Verify invite code
@@ -43,7 +51,10 @@ export async function signup(formData: FormData) {
     .single()
 
   if (codeError || !codeData) {
-    return redirect('/login?message=유효하지 않거나 이미 사용된 초대 코드입니다.')
+    const failUrl = `/login?message=유효하지 않거나 이미 사용된 초대 코드입니다.${
+      redirectTo ? `&redirect=${encodeURIComponent(redirectTo)}` : ''
+    }`
+    return redirect(failUrl)
   }
 
   const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -52,7 +63,10 @@ export async function signup(formData: FormData) {
   })
 
   if (signUpError) {
-    return redirect('/login?message=회원가입에 실패했습니다. (이미 가입된 이메일이거나 오류)')
+    const failUrl = `/login?message=회원가입에 실패했습니다. (이미 가입된 이메일이거나 오류)${
+      redirectTo ? `&redirect=${encodeURIComponent(redirectTo)}` : ''
+    }`
+    return redirect(failUrl)
   }
 
   // Mark invite code as used
@@ -65,11 +79,14 @@ export async function signup(formData: FormData) {
 
   // Check if email confirmation is required (session is null)
   if (!authData.session) {
-    return redirect('/login?message=회원가입 성공! 이메일을 확인하여 인증을 완료해주세요.')
+    const failUrl = `/login?message=회원가입 성공! 이메일을 확인하여 인증을 완료해주세요.${
+      redirectTo ? `&redirect=${encodeURIComponent(redirectTo)}` : ''
+    }`
+    return redirect(failUrl)
   }
 
   revalidatePath('/', 'layout')
-  redirect('/onboarding')
+  redirect(redirectTo)
 }
 
 export async function signout() {
