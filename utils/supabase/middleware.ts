@@ -61,6 +61,7 @@ export async function updateSession(request: NextRequest) {
   const isRootPage = request.nextUrl.pathname === '/'
   const isAuthPage = request.nextUrl.pathname.startsWith('/login')
   const isOnboardingPage = request.nextUrl.pathname.startsWith('/onboarding')
+  const isAdmin = !!user?.email && user.email === process.env.ADMIN_EMAIL
   
   // 1. 비로그인 사용자 처리
   if (!user) {
@@ -92,12 +93,12 @@ export async function updateSession(request: NextRequest) {
       }
     }
     // 2-B. 스토어가 이미 존재하는 사용자 -> 구독 상태를 확인해 결제/대시보드로 유도
-    else {
+    // (관리자 계정은 구독 체크 자체를 건너뛰고 모든 페이지에 자유롭게 접근)
+    else if (!isAdmin) {
       const isPaymentPage = request.nextUrl.pathname.startsWith('/payment')
       const isExemptPath =
         request.nextUrl.pathname.startsWith('/auth/callback') ||
-        request.nextUrl.pathname.startsWith('/api/') ||
-        request.nextUrl.pathname.startsWith('/admin')
+        request.nextUrl.pathname.startsWith('/api/')
 
       const { data: subscription } = await supabase
         .from('subscriptions')

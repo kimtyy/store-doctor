@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  const isAdmin = user?.email === 'kimtyy@gmail.com';
+  const isAdmin = !!user?.email && user.email === process.env.ADMIN_EMAIL;
   return (
     <html lang="ko">
       <head>

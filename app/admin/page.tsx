@@ -9,7 +9,7 @@ export default async function AdminPage() {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user || user.email !== 'kimtyy@gmail.com') {
+  if (!user || user.email !== process.env.ADMIN_EMAIL) {
     redirect('/');
   }
 
