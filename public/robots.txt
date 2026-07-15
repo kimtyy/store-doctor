@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://connectai-lab-template-coral.vercel.app/sitemap.xml

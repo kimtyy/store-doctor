@@ -229,7 +229,7 @@ export default function LandingPage() {
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-black">
         {/* Bright cafe counter image background */}
         <img
-          src="/cafe_counter_bright.png"
+          src="/cafe-bg.png"
           className="absolute inset-0 w-full h-full object-cover"
           alt="Bright Cafe Counter Background"
         />
@@ -280,7 +280,7 @@ export default function LandingPage() {
       <section className="relative min-h-[500px] flex flex-col justify-center overflow-hidden py-32">
         {/* Bright kitchen background image */}
         <img
-          src="/restaurant_kitchen_bright.png"
+          src="/kitchen-bg.png"
           className="absolute inset-0 w-full h-full object-cover"
           alt="Bright Restaurant Kitchen Background"
         />
@@ -352,7 +352,7 @@ export default function LandingPage() {
       <section className="relative min-h-screen flex items-center justify-center bg-black overflow-hidden py-32">
         {/* App background image */}
         <img
-          src="/phone_app_bright.png"
+          src="/app-bg.png"
           className="absolute inset-0 w-full h-full object-cover"
           alt="App Background"
         />
@@ -437,7 +437,7 @@ export default function LandingPage() {
       <section className="relative min-h-screen bg-black py-32 px-6 overflow-hidden">
         {/* Bright store front image background */}
         <img
-          src="/store_front_bright.png"
+          src="/store-bg.png"
           className="absolute inset-0 w-full h-full object-cover"
           alt="Bright Storefront Background"
         />
@@ -635,7 +635,7 @@ export default function LandingPage() {
           {/* Left: Food Preparation Image */}
           <div className="md:w-1/2 h-[300px] md:h-auto relative">
             <img
-              src="/food_prep_bright.png"
+              src="/food-bg.png"
               className="absolute inset-0 w-full h-full object-cover opacity-60"
               alt="Bright Culinary Plating Food Background"
             />
@@ -646,7 +646,7 @@ export default function LandingPage() {
           <div className="md:w-1/2 flex flex-col justify-between p-10 sm:p-16 relative overflow-hidden bg-black/50">
             {/* Blended background owner image */}
             <img
-              src="/owner_smiling_bright.png"
+              src="/owner-bg.png"
               className="absolute inset-0 w-full h-full object-cover opacity-15"
               alt="Smiling Owner Background"
             />
