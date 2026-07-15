@@ -15,6 +15,8 @@ import { SITE_CONFIG } from '@/config/landingContent';
 
 export default function LandingPage() {
   const [entranceComplete, setEntranceComplete] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef2 = useRef<HTMLVideoElement>(null);
 
   /* ── Dynamic Icon Injection ── */
   useEffect(() => {
@@ -32,6 +34,18 @@ export default function LandingPage() {
     const timer = setTimeout(() => setEntranceComplete(true), 800);
     return () => clearTimeout(timer);
   }, []);
+
+  /* ── Autoplay Policy Bypass ── */
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = true;
+      videoRef.current.play().catch(() => {});
+    }
+    if (videoRef2.current) {
+      videoRef2.current.muted = true;
+      videoRef2.current.play().catch(() => {});
+    }
+  }, [entranceComplete]);
 
   /* ── Section 2 scroll-driven 3D text ── */
   const section2Ref = useRef<HTMLDivElement>(null);
@@ -59,6 +73,7 @@ export default function LandingPage() {
       <section className="relative h-screen h-[100dvh] flex flex-col overflow-hidden">
         {/* Hero looping video background */}
         <video
+          ref={videoRef}
           src="/hero.mp4"
           poster="/hero-bg.png"
           className="absolute inset-0 w-full h-full object-cover"
@@ -179,6 +194,7 @@ export default function LandingPage() {
       >
         {/* Looping video background for receipt processing */}
         <video
+          ref={videoRef2}
           src="/receipt.mp4"
           poster="/receipt-bg.png"
           className="absolute inset-0 w-full h-full object-cover"
