@@ -521,7 +521,7 @@ export default function LandingPage() {
                 </li>
               </ul>
               <button
-                onClick={() => window.location.href = '/login'}
+                onClick={() => window.location.href = '/payment?plan=basic'}
                 className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
               >
                 선택하기
@@ -577,7 +577,7 @@ export default function LandingPage() {
                 </li>
               </ul>
               <button
-                onClick={() => window.location.href = '/login'}
+                onClick={() => window.location.href = '/payment?plan=pro'}
                 className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-blue-500/20 drop-shadow-lg"
               >
                 선택하기
@@ -625,7 +625,7 @@ export default function LandingPage() {
                 </li>
               </ul>
               <button
-                onClick={() => window.location.href = '/login'}
+                onClick={() => window.location.href = '/payment?plan=premium'}
                 className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
               >
                 선택하기
