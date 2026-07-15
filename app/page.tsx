@@ -15,6 +15,7 @@ import { SITE_CONFIG } from '@/config/landingContent';
 
 export default function LandingPage() {
   const [entranceComplete, setEntranceComplete] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
 
   /* ── Dynamic Icon Injection ── */
   useEffect(() => {
@@ -58,15 +59,24 @@ export default function LandingPage() {
       {/* ════════════════ SECTION 1: HERO ════════════════ */}
       <section className="relative h-screen h-[100dvh] flex flex-col overflow-hidden">
         {/* Hero looping video background */}
-        <video
-          src="/hero.mp4"
-          poster="/hero-bg.png"
-          className="absolute inset-0 w-full h-full object-cover"
-          autoPlay
-          muted
-          loop
-          playsInline
-        />
+        {!videoFailed ? (
+          <video
+            src="https://videos.pexels.com/video-files/3195394/3195394-hd_1920_1080_25fps.mp4"
+            poster="/cafe_counter_bright.png"
+            className="absolute inset-0 w-full h-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            onError={() => setVideoFailed(true)}
+          />
+        ) : (
+          <img
+            src="/cafe_counter_bright.png"
+            className="absolute inset-0 w-full h-full object-cover"
+            alt="Fallback Cafe Counter Background"
+          />
+        )}
 
         {/* Adjusted light dark overlay for brightness */}
         <div className="absolute inset-0 bg-black/20 z-10" />

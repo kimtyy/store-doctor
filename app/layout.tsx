@@ -34,6 +34,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="매장닥터" />
         <link rel="apple-touch-icon" href="/icon-192x192.png" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
       </head>
       <body className="bg-slate-950 text-slate-100">
         {children}
