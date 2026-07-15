@@ -100,13 +100,26 @@ export async function updateSession(request: NextRequest) {
         request.nextUrl.pathname.startsWith('/auth/callback') ||
         request.nextUrl.pathname.startsWith('/api/')
 
-      const { data: subscription } = await supabase
-        .from('subscriptions')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle()
+      // subscriptions 조회 자체가 실패하더라도(테이블/RLS 미비 등) 미들웨어가
+      // 통째로 죽지 않도록 방어한다. 조회 실패 시 "구독 없음"으로 간주해
+      // 결제 페이지로 보내되, 전체 요청이 500으로 죽는 것은 막는다.
+      let subscription: { id: string } | null = null
+      try {
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .gt('expires_at', new Date().toISOString())
+          .maybeSingle()
+
+        if (error) {
+          console.error('subscriptions 조회 실패:', error.message)
+        }
+        subscription = data
+      } catch (err) {
+        console.error('subscriptions 조회 중 예외 발생:', err)
+      }
 
       if (!subscription) {
         // 2-B-1. 구독이 없는 사용자 -> 결제 페이지로 강제 유도
