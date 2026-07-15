@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { loadPaymentWidget, ANONYMOUS, PaymentWidgetInstance } from '@tosspayments/payment-widget-sdk';
 
-const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || 'test_ck_D53w41Gb827ZaPz5o5q3oEqZJaWx';
+const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
 
 const PLAN_DETAILS = {
   basic: { name: 'Basic', price: 9900, description: '1인 매장 및 기초 장부 자동화' },
@@ -60,6 +60,12 @@ function PaymentContent() {
         setPaymentWidget(null);
         setPaymentMethodsWidget(null);
         setWidgetError(null);
+
+        if (!TOSS_CLIENT_KEY) {
+          console.error('NEXT_PUBLIC_TOSS_CLIENT_KEY 환경변수가 설정되지 않았습니다.');
+          setWidgetError('결제 위젯 설정 오류가 발생했습니다. 관리자에게 문의해 주세요.');
+          return;
+        }
 
         const customerKey = user ? user.id : ANONYMOUS;
         const widget = await loadPaymentWidget(TOSS_CLIENT_KEY, customerKey);

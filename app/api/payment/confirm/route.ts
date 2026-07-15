@@ -42,7 +42,15 @@ export async function GET(request: Request) {
   }
 
   // 3. 토스페이먼츠 결제 승인 API 호출
-  const tossSecretKey = process.env.TOSS_SECRET_KEY || 'test_sk_Z5oyuKz5q2N4oqEZaWxVn41Gb827';
+  const tossSecretKey = process.env.TOSS_SECRET_KEY;
+  if (!tossSecretKey) {
+    console.error('TOSS_SECRET_KEY 환경변수가 설정되지 않았습니다.');
+    const failUrl = new URL('/payment', request.url);
+    failUrl.searchParams.set('plan', plan);
+    failUrl.searchParams.set('error', 'true');
+    failUrl.searchParams.set('message', '결제 서버 설정 오류가 발생했습니다. 관리자에게 문의해 주세요.');
+    return NextResponse.redirect(failUrl);
+  }
   // Basic Auth 헤더 조립 (SecretKey + ":")
   const encodedCredential = Buffer.from(`${tossSecretKey}:`).toString('base64');
 
