@@ -16,10 +16,21 @@ export async function submitStore(formData: FormData) {
   const category = formData.get('category') as string
   const region = formData.get('region') as string
 
-  // Insert store (using both legacy owner_id and the new user_id column)
+  // 중복 생성 방지: 이미 owner_id 에 매핑된 매장이 존재하는지 사전 체크
+  const { data: existingStore } = await supabase
+    .from('stores')
+    .select('id')
+    .eq('owner_id', user.id)
+    .single()
+
+  if (existingStore) {
+    return redirect('/payment')
+  }
+
+  // Insert store (using owner_id only as the single unified criteria)
   const { error } = await supabase
     .from('stores')
-    .insert([{ owner_id: user.id, user_id: user.id, name, category, region }])     
+    .insert([{ owner_id: user.id, name, category, region }])     
 
   if (error) {
     console.error('Error creating store:', error)
