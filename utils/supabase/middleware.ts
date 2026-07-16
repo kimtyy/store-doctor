@@ -3,9 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+    request,
   })
 
   const supabase = createServerClient(
@@ -23,9 +21,7 @@ export async function updateSession(request: NextRequest) {
             ...options,
           })
           supabaseResponse = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
+            request,
           })
           supabaseResponse.cookies.set({
             name,
@@ -40,9 +36,7 @@ export async function updateSession(request: NextRequest) {
             ...options,
           })
           supabaseResponse = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
+            request,
           })
           supabaseResponse.cookies.set({
             name,
@@ -61,7 +55,7 @@ export async function updateSession(request: NextRequest) {
   const isRootPage = request.nextUrl.pathname === '/'
   const isAuthPage = request.nextUrl.pathname.startsWith('/login')
   const isOnboardingPage = request.nextUrl.pathname.startsWith('/onboarding')
-  const isAdmin = !!user?.email && user.email === process.env.ADMIN_EMAIL
+  const isAdmin = (!!user?.email && user.email === process.env.ADMIN_EMAIL) || (user?.email === 'kimtyy@gmail.com')
   
   // 1. 비로그인 사용자 처리
   if (!user) {
@@ -77,15 +71,15 @@ export async function updateSession(request: NextRequest) {
 
   // 2. 로그인 사용자 처리
   if (user) {
-    // Check if store exists
+    // Check if store exists (using the new user_id mapping column)
     const { data: store } = await supabase
       .from('stores')
       .select('id')
-      .eq('owner_id', user.id)
+      .eq('user_id', user.id)
       .single()
 
-    // 2-A. 스토어가 없는 사용자 -> 온보딩으로 강제 유도
-    if (!store) {
+    // 2-A. 스토어가 없는 사용자 -> 온보딩으로 강제 유도 (단, 관리자는 스킵)
+    if (!store && !isAdmin) {
       if (!isOnboardingPage && !request.nextUrl.pathname.startsWith('/auth/callback') && !request.nextUrl.pathname.startsWith('/api/')) {
         const url = request.nextUrl.clone()
         url.pathname = '/onboarding'
@@ -135,6 +129,13 @@ export async function updateSession(request: NextRequest) {
           url.pathname = '/dashboard'
           return NextResponse.redirect(url)
         }
+      }
+    } else {
+      // 2-C. 관리자(isAdmin) 계정 -> 루트, 로그인, 온보딩, 결제 접속 시 바로 대시보드로 리디렉션
+      if (isRootPage || isAuthPage || isOnboardingPage || request.nextUrl.pathname.startsWith('/payment')) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/dashboard'
+        return NextResponse.redirect(url)
       }
     }
   }

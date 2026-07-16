@@ -16,10 +16,10 @@ export async function submitStore(formData: FormData) {
   const category = formData.get('category') as string
   const region = formData.get('region') as string
 
-  // Insert store
+  // Insert store (using both legacy owner_id and the new user_id column)
   const { error } = await supabase
     .from('stores')
-    .insert([{ owner_id: user.id, name, category, region }])     
+    .insert([{ owner_id: user.id, user_id: user.id, name, category, region }])     
 
   if (error) {
     console.error('Error creating store:', error)

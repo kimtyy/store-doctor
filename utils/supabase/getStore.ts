@@ -8,7 +8,7 @@ export async function getStoreId() {
   const { data: store } = await supabase
     .from('stores')
     .select('id')
-    .eq('owner_id', user.id)
+    .eq('user_id', user.id)
     .single()
     
   return store?.id || null
@@ -22,7 +22,7 @@ export async function getStoreInfo() {
   const { data: store } = await supabase
     .from('stores')
     .select('id, name, category, region')
-    .eq('owner_id', user.id)
+    .eq('user_id', user.id)
     .single()
     
   return store || null
