@@ -72,11 +72,21 @@ export async function updateSession(request: NextRequest) {
   // 2. 로그인 사용자 처리
   if (user) {
     // Check if store exists (using the new user_id mapping column)
-    const { data: store } = await supabase
+    let { data: store } = await supabase
       .from('stores')
       .select('id')
       .eq('user_id', user.id)
       .single()
+
+    // user_id 매칭 실패 시 legacy owner_id로 폴백 조회
+    if (!store) {
+      const { data: fallbackStore } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('owner_id', user.id)
+        .single()
+      store = fallbackStore
+    }
 
     // 2-A. 스토어가 없는 사용자 -> 온보딩으로 강제 유도 (단, 관리자는 스킵)
     if (!store && !isAdmin) {
