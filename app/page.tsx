@@ -636,88 +636,56 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ════════════════ FOOTER ════════════════ */}
-      <footer className="bg-black overflow-hidden border-t border-white/10 relative z-20">
-        <div className="flex flex-col md:flex-row min-h-[400px]">
-          {/* Left: Food Preparation Image */}
-          <div className="md:w-1/2 h-[300px] md:h-auto relative">
-            <img
-              src="/food-bg.png"
-              className="absolute inset-0 w-full h-full object-cover opacity-60"
-              alt="Bright Culinary Plating Food Background"
-            />
-            <div className="absolute inset-0 bg-black/20" />
+      {/* ════════════════ UNIFIED FOOTER ════════════════ */}
+      <footer className="bg-slate-950 border-t border-white/10 py-16 px-6 relative z-20 text-slate-500 text-xs">
+        <div className="max-w-6xl mx-auto space-y-8">
+          {/* Top: Logo & Slogan */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2.5">
+              <ConnectAILabLogo size={18} className="text-white/80" />
+              <span className="text-[16px] font-semibold text-white/90 tracking-tight">
+                {SITE_CONFIG.brandName}
+              </span>
+            </div>
+            <p className="text-white/70 text-[13px] leading-relaxed max-w-xl font-medium">
+              소상공인 사장님들의 경영 파트너. 이제 진짜 순이익을 확인하고 더 스마트하게 매장을 운영하세요.
+            </p>
           </div>
 
-          {/* Right: Content with Smiling Owner Background */}
-          <div className="md:w-1/2 flex flex-col justify-between p-10 sm:p-16 relative overflow-hidden bg-black/50">
-            {/* Blended background owner image */}
-            <img
-              src="/owner-bg.png"
-              className="absolute inset-0 w-full h-full object-cover opacity-15"
-              alt="Smiling Owner Background"
-            />
-            <div className="absolute inset-0 bg-black/35 z-10" />
-
-            <div className="relative z-20 flex flex-col justify-between h-full flex-1">
-              <div>
-                <div className="flex items-center gap-2.5 mb-8">
-                  <ConnectAILabLogo size={18} className="text-white/80" />
-                  <span 
-                    className="text-[16px] font-medium text-white/85 tracking-tight drop-shadow-lg"
-                    style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-                  >
-                    {SITE_CONFIG.brandName}
-                  </span>
+          {/* Divider & Details */}
+          <div className="border-t border-white/5 pt-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              {/* Left: Company Details */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-slate-400">
+                  <span>상호: 허브스마트</span>
+                  <span className="text-slate-600">|</span>
+                  <span>대표: 김태영</span>
+                  <span className="text-slate-600">|</span>
+                  <span>사업자등록번호: 526-04-00927</span>
+                  <span className="text-slate-600">|</span>
+                  <span>통신판매업신고: {MAIL_ORDER_LICENSE}</span>
                 </div>
-                <p 
-                  className="text-white/80 text-[14px] sm:text-[15px] leading-relaxed max-w-sm drop-shadow-lg font-medium"
-                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-                >
-                  {footer.tagline}
-                </p>
+                <div className="text-slate-500">
+                  주소: 경기도 가평군 조종면 조종희망로 16-19, 1층
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  <span>이메일: <a href="mailto:kimtyy@naver.com" className="hover:underline text-slate-400">kimtyy@naver.com</a></span>
+                  <span className="text-slate-600">|</span>
+                  <span>고객센터: <a href="tel:031-5175-8887" className="hover:underline text-slate-400">031-5175-8887</a></span>
+                </div>
+                <div className="text-[10px] text-slate-600 pt-2">
+                  © 2026 허브스마트. All rights reserved.
+                </div>
               </div>
 
-              <p 
-                className="text-white/40 text-[12px] mt-12 drop-shadow-sm font-semibold"
-                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-              >
-                {SITE_CONFIG.copyright}
-              </p>
+              {/* Right: Links */}
+              <div className="flex gap-4 font-semibold shrink-0">
+                <a href="/terms" className="hover:text-slate-300 transition text-slate-400">이용약관</a>
+                <span className="text-slate-700">|</span>
+                <a href="/privacy" className="hover:text-slate-300 transition text-slate-400">개인정보처리방침</a>
+              </div>
             </div>
-          </div>
-        </div>
-      </footer>
-
-      {/* ════════════════ COMPANY INFO FOOTER ════════════════ */}
-      <footer className="bg-slate-950 border-t border-white/10 py-12 px-6 relative z-20 text-slate-500 text-xs">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-slate-400">
-              <span>상호: 허브스마트</span>
-              <span className="text-slate-600">|</span>
-              <span>대표: 김태영</span>
-              <span className="text-slate-600">|</span>
-              <span>사업자등록번호: 526-04-00927</span>
-              <span className="text-slate-600">|</span>
-              <span>통신판매업신고: {MAIL_ORDER_LICENSE}</span>
-            </div>
-            <div className="text-slate-500">
-              주소: 경기도 가평군 조종면 조종희망로 16-19, 1층
-            </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-1">
-              <span>이메일: <a href="mailto:kimtyy@naver.com" className="hover:underline text-slate-400">kimtyy@naver.com</a></span>
-              <span className="text-slate-600">|</span>
-              <span>고객센터: <a href="tel:031-5175-8887" className="hover:underline text-slate-400">031-5175-8887</a></span>
-            </div>
-            <div className="text-[10px] text-slate-600 pt-2">
-              © 2026 허브스마트. All rights reserved.
-            </div>
-          </div>
-          <div className="flex gap-4 font-semibold shrink-0">
-            <a href="/terms" className="hover:text-slate-300 transition">이용약관</a>
-            <span className="text-slate-700">|</span>
-            <a href="/privacy" className="hover:text-slate-300 transition">개인정보처리방침</a>
           </div>
         </div>
       </footer>

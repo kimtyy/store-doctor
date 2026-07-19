@@ -11,7 +11,7 @@ export const SITE_CONFIG = {
 
   // 히어로 섹션
   hero: {
-    titleLeft: ['내 가게', '잘 가고 있나?'],
+    titleLeft: ['우리 매장', '잘 되고 있나?'],
     titleRight: ['매장', '닥터'],
     watermark: 'MAEJANG DOCTOR',
     description:
