@@ -25,6 +25,23 @@ export default async function AdminPage() {
   const { data: stores } = await adminClient.from('stores').select('*').order('created_at', { ascending: false });
   const { data: subscriptions } = await adminClient.from('subscriptions').select('*').order('created_at', { ascending: false });
 
+  // 안전하게 subscription_extensions 조회 (테이블 미생성 대비)
+  let extensions: any[] = [];
+  try {
+    const { data, error } = await adminClient
+      .from('subscription_extensions')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('subscription_extensions 조회 실패:', error.message);
+    } else {
+      extensions = data || [];
+    }
+  } catch (err) {
+    console.error('subscription_extensions 조회 중 예외 발생:', err);
+  }
+
   // 유저 정보 매핑
   const storeList = (stores || []).map(store => {
     const owner = users.find(u => u.id === store.owner_id);
@@ -41,6 +58,14 @@ export default async function AdminPage() {
       ...sub,
       ownerEmail: owner?.email || '미상',
       storeName: store?.name || '미등록'
+    };
+  });
+
+  const extensionList = extensions.map(ext => {
+    const owner = users.find(u => u.id === ext.user_id);
+    return {
+      ...ext,
+      ownerEmail: owner?.email || '미상'
     };
   });
 
@@ -154,6 +179,47 @@ export default async function AdminPage() {
                       <td className="px-4 py-3 whitespace-nowrap text-center">
                         <ExtendSubscriptionSection userId={sub.user_id} userEmail={sub.ownerEmail} />
                       </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* 구독 연장 이력 */}
+        <section>
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <span>📜</span> 구독 연장 이력 ({extensionList.length}개)
+          </h2>
+          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-800/50 text-slate-300">
+                <tr>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">일시</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">이메일</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">연장 기간</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">연장 사유</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {extensionList.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
+                      구독 연장 이력이 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  extensionList.map(ext => (
+                    <tr key={ext.id} className="hover:bg-slate-800/20">
+                      <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
+                        {new Date(ext.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{ext.ownerEmail}</td>
+                      <td className="px-4 py-3 text-center text-emerald-400 font-medium whitespace-nowrap">
+                        +{ext.months}개월
+                      </td>
+                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{ext.reason || '-'}</td>
                     </tr>
                   ))
                 )}

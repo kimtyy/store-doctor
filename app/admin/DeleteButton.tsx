@@ -30,17 +30,44 @@ export function DeleteStoreButton({ storeId, ownerId }: { storeId: string, owner
   );
 }
 
-export function ExtendSubscriptionButton({ userId, userEmail, months }: { userId: string, userEmail: string, months: number }) {
+export function ExtendSubscriptionButton({ 
+  userId, 
+  userEmail, 
+  months, 
+  reason,
+  onExtendSuccess
+}: { 
+  userId: string, 
+  userEmail: string, 
+  months: number,
+  reason: string,
+  onExtendSuccess?: () => void
+}) {
   const [loading, setLoading] = useState(false);
 
   async function handleExtend() {
-    if (!window.confirm(`${userEmail}님 구독을 ${months}개월 연장합니다.\n진행하시겠습니까?`)) return;
+    // UI Level Validation
+    if (!Number.isInteger(months) || months < 1 || months > 12) {
+      alert('연장 기간은 1개월에서 12개월 사이의 정수만 가능합니다.');
+      return;
+    }
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      alert('연장 사유를 입력해 주세요.');
+      return;
+    }
+
+    if (!window.confirm(`${userEmail}님 구독을 ${months}개월 연장합니다.\n사유: ${trimmedReason}\n진행하시겠습니까?`)) return;
     
     try {
       setLoading(true);
-      const res = await extendSubscription(userId, months);
+      const res = await extendSubscription(userId, months, trimmedReason);
       if (res.success) {
         alert('성공적으로 연장되었습니다.');
+        if (onExtendSuccess) {
+          onExtendSuccess();
+        }
       }
     } catch (e: any) {
       alert(e.message || '연장 중 오류가 발생했습니다.');
@@ -53,7 +80,7 @@ export function ExtendSubscriptionButton({ userId, userEmail, months }: { userId
     <button
       onClick={handleExtend}
       disabled={loading}
-      className="px-2 py-1 bg-emerald-950/50 hover:bg-emerald-600/80 text-emerald-300 hover:text-white rounded text-xs transition border border-emerald-800/50 whitespace-nowrap cursor-pointer"
+      className="px-2 py-1 bg-emerald-950/50 hover:bg-emerald-600/80 text-emerald-300 hover:text-white rounded text-xs transition border border-emerald-800/50 whitespace-nowrap cursor-pointer disabled:opacity-50"
     >
       {loading ? '연장중...' : '연장'}
     </button>
@@ -63,6 +90,7 @@ export function ExtendSubscriptionButton({ userId, userEmail, months }: { userId
 export function ExtendSubscriptionSection({ userId, userEmail }: { userId: string, userEmail: string }) {
   const [months, setMonths] = useState<number>(1);
   const [customInput, setCustomInput] = useState<string>('');
+  const [reason, setReason] = useState<string>('');
 
   const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
@@ -74,7 +102,7 @@ export function ExtendSubscriptionSection({ userId, userEmail }: { userId: strin
     }
   };
 
-  const finalMonths = months === 0 ? (Number(customInput) || 1) : months;
+  const finalMonths = months === 0 ? (Number(customInput) || 0) : months;
 
   return (
     <div className="flex items-center gap-1.5 justify-center">
@@ -94,14 +122,40 @@ export function ExtendSubscriptionSection({ userId, userEmail }: { userId: strin
         <input
           type="number"
           min="1"
+          max="12"
           placeholder="개월"
           value={customInput}
-          onChange={(e) => setCustomInput(e.target.value)}
+          onChange={(e) => {
+            const val = e.target.value;
+            // UI level check: block negative, float or values outside 1-12
+            if (val === '') {
+              setCustomInput('');
+            } else {
+              const numVal = Number(val);
+              if (numVal >= 1 && numVal <= 12 && Number.isInteger(numVal)) {
+                setCustomInput(val);
+              }
+            }
+          }}
           className="bg-slate-800 text-slate-200 border border-slate-700 rounded px-1.5 py-0.5 text-xs w-14 focus:outline-none focus:ring-1 focus:ring-sky-500 text-center"
         />
       )}
 
-      <ExtendSubscriptionButton userId={userId} userEmail={userEmail} months={finalMonths} />
+      <input
+        type="text"
+        placeholder="연장 사유"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        className="bg-slate-800 text-slate-200 border border-slate-700 rounded px-2 py-0.5 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-sky-500"
+      />
+
+      <ExtendSubscriptionButton 
+        userId={userId} 
+        userEmail={userEmail} 
+        months={finalMonths} 
+        reason={reason}
+        onExtendSuccess={() => setReason('')}
+      />
     </div>
   );
 }
