@@ -25,13 +25,19 @@ function calcVariance(current: number, base: number) {
   return ((current - base) / base) * 100;
 }
 
-function ComparisonCell({ current, base, formatter = fmt, suffix = '원' }: { current: number, base: number, formatter?: any, suffix?: string }) {
+function ComparisonCell({ current, base, formatter = fmt, suffix = '원', invertColor = false }: { current: number, base: number, formatter?: any, suffix?: string, invertColor?: boolean }) {
   const v = calcVariance(current, base);
+  let colorClass = 'bg-slate-100 text-slate-500';
+  if (v > 0) {
+    colorClass = invertColor ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700';
+  } else if (v < 0) {
+    colorClass = invertColor ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
+  }
   return (
     <div className="flex flex-col items-center sm:items-end justify-center">
       <span className="font-semibold text-slate-700 text-sm">{formatter(base)}{suffix}</span>
       {base > 0 ? (
-        <span className={`text-[10px] font-bold px-1 py-0.5 mt-0.5 rounded ${v > 0 ? 'bg-emerald-100 text-emerald-700' : v < 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
+        <span className={`text-[10px] font-bold px-1 py-0.5 mt-0.5 rounded ${colorClass}`}>
           {v > 0 ? '↑' : v < 0 ? '↓' : '-'} {Math.abs(v).toFixed(1)}%
         </span>
       ) : (
@@ -323,8 +329,8 @@ function MonthlyReportContent() {
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700">원가율</td>
                       <td className="p-3 font-bold text-slate-900">{data.comparison.current.costRatio.toFixed(1)}%</td>
-                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.prev.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" /></td>
-                      <td className="p-3"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.lastYear.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" /></td>
+                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.prev.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" invertColor /></td>
+                      <td className="p-3"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.lastYear.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" invertColor /></td>
                     </tr>
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700">영업이익</td>

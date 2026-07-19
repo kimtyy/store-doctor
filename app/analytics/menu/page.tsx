@@ -164,6 +164,13 @@ function CategoryBadge({ category }: { category: string | null }) {
 function MoMBadge({ current, prev, invertColor = false }: { current: number; prev: number; invertColor?: boolean }) {
   if (prev === 0) return null;
   const pct = ((current - prev) / Math.abs(prev)) * 100;
+  if (pct === 0) {
+    return (
+      <p className="text-xs mt-0.5 font-medium text-slate-400">
+        0.0% -
+      </p>
+    );
+  }
   const isUp = pct > 0;
   const isGood = invertColor ? !isUp : isUp;
   return (

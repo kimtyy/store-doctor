@@ -224,13 +224,6 @@ export default function DashboardPage() {
       }
     }
 
-    let missingCostDays = 0;
-    for (const d of baseMonth) {
-      if (purchaseByDate[d.date] === undefined) {
-        missingCostDays++;
-      }
-    }
-
     let eventCost = 0;
     for (const [date, amount] of Object.entries(eventPurchaseByDate)) {
       if (date.startsWith(ym)) {
@@ -291,14 +284,12 @@ export default function DashboardPage() {
       days: baseMonth.length,
       totalRevenue,
       totalCost,
-      hasAnyReal: true,
       eventRevenue,
       eventCost,
       revenueChangePct,
       costChangePct,
       prevTotalRevenue,
       prevTotalCost,
-      missingCostDays,
     };
   }, [nonEventSalesData, salesData, purchaseByDate, eventPurchaseByDate, includeEvent]);
 
@@ -408,11 +399,6 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-slate-100">이번달 현황</h3>
                     <div className="flex items-center gap-2">
-                      {monthSummary.missingCostDays > 0 && (
-                        <span className="rounded bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5 text-[10px] text-amber-300 font-semibold">
-                          매입 미입력 {monthSummary.missingCostDays}일
-                        </span>
-                      )}
                       {/* 행사 포함 토글 */}
                       <button
                         type="button"
@@ -449,8 +435,14 @@ export default function DashboardPage() {
                         {Math.round(monthSummary.totalRevenue / 10000)}만
                       </p>
                       {monthSummary.prevTotalRevenue > 0 && (
-                        <p className={`text-[10px] font-bold mt-1.5 ${monthSummary.revenueChangePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {monthSummary.revenueChangePct >= 0 ? '↑' : '↓'} {Math.abs(monthSummary.revenueChangePct).toFixed(1)}%
+                        <p className={`text-[10px] font-bold mt-1.5 ${
+                          monthSummary.revenueChangePct > 0 
+                            ? 'text-emerald-400' 
+                            : monthSummary.revenueChangePct < 0 
+                            ? 'text-rose-400' 
+                            : 'text-slate-400'
+                        }`}>
+                          {monthSummary.revenueChangePct > 0 ? '↑' : monthSummary.revenueChangePct < 0 ? '↓' : '-'} {Math.abs(monthSummary.revenueChangePct).toFixed(1)}%
                         </p>
                       )}
                     </div>
@@ -460,8 +452,14 @@ export default function DashboardPage() {
                         {Math.round(monthSummary.totalCost / 10000)}만
                       </p>
                       {monthSummary.prevTotalCost > 0 && (
-                        <p className={`text-[10px] font-bold mt-1.5 ${monthSummary.costChangePct >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                          {monthSummary.costChangePct >= 0 ? '↑' : '↓'} {Math.abs(monthSummary.costChangePct).toFixed(1)}%
+                        <p className={`text-[10px] font-bold mt-1.5 ${
+                          monthSummary.costChangePct > 0 
+                            ? 'text-rose-400' 
+                            : monthSummary.costChangePct < 0 
+                            ? 'text-emerald-400' 
+                            : 'text-slate-400'
+                        }`}>
+                          {monthSummary.costChangePct > 0 ? '↑' : monthSummary.costChangePct < 0 ? '↓' : '-'} {Math.abs(monthSummary.costChangePct).toFixed(1)}%
                         </p>
                       )}
                     </div>

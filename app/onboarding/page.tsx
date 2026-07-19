@@ -17,23 +17,23 @@ export default function OnboardingPage({ searchParams }: { searchParams: { messa
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-8">
         <form action={submitStore} className="flex flex-col gap-5">
           <div>
-            <label className="block text-sm font-semibold mb-1" htmlFor="name">매장명 <span className="text-rose-500">*</span></label>
+            <label className="block text-sm font-semibold mb-1 text-slate-800" htmlFor="name">매장명 <span className="text-rose-500">*</span></label>
             <input
               id="name"
               name="name"
               required
-              className="w-full rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full bg-white text-slate-800 placeholder-slate-400 rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="예: 설맥 현리점"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-semibold mb-1" htmlFor="category">업종 <span className="text-rose-500">*</span></label>
+            <label className="block text-sm font-semibold mb-1 text-slate-800" htmlFor="category">업종 <span className="text-rose-500">*</span></label>
             <select
               id="category"
               name="category"
               required
-              className="w-full rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              className="w-full bg-white text-slate-800 rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">업종 선택</option>
               <option value="F&B">F&B (일반 음식점, 주점 등)</option>
@@ -44,12 +44,12 @@ export default function OnboardingPage({ searchParams }: { searchParams: { messa
           </div>
 
           <div>
-            <label className="block text-sm font-semibold mb-1" htmlFor="region">지역 <span className="text-rose-500">*</span></label>
+            <label className="block text-sm font-semibold mb-1 text-slate-800" htmlFor="region">지역 <span className="text-rose-500">*</span></label>
             <input
               id="region"
               name="region"
               required
-              className="w-full rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full bg-white text-slate-800 placeholder-slate-400 rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="예: 서울 강남구"
             />
           </div>
