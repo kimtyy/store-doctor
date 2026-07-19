@@ -14,6 +14,4 @@ ALTER TABLE public.subscription_extensions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their own subscription extensions" ON public.subscription_extensions
     FOR SELECT USING (auth.uid() = user_id);
 
--- Create policy for service_role to manage all subscription extension records
-CREATE POLICY "Service role can manage subscription extensions" ON public.subscription_extensions
-    USING (true) WITH CHECK (true);
+-- Note: The service_role client automatically bypasses RLS policies, so no additional policies are needed for it.

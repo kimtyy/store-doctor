@@ -17,6 +17,4 @@ ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their own subscription" ON public.subscriptions
     FOR SELECT USING (auth.uid() = user_id);
 
--- Create policy for service_role to manage all subscription records (inserts/updates from backend confirm route)
-CREATE POLICY "Service role can manage subscriptions" ON public.subscriptions
-    USING (true) WITH CHECK (true);
+-- Note: The service_role client automatically bypasses RLS policies, so no additional policies are needed for it.
