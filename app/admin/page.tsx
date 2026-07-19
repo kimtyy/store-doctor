@@ -1,7 +1,7 @@
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
-import { DeleteStoreButton, DeleteCodeButton } from './DeleteButton';
+import { DeleteStoreButton, ExtendSubscriptionSection } from './DeleteButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +23,7 @@ export default async function AdminPage() {
   const users = userData?.users || [];
 
   const { data: stores } = await adminClient.from('stores').select('*').order('created_at', { ascending: false });
-  const { data: inviteCodes } = await adminClient.from('invite_codes').select('*').order('created_at', { ascending: false });
+  const { data: subscriptions } = await adminClient.from('subscriptions').select('*').order('created_at', { ascending: false });
 
   // 유저 정보 매핑
   const storeList = (stores || []).map(store => {
@@ -34,11 +34,13 @@ export default async function AdminPage() {
     };
   });
 
-  const codeList = (inviteCodes || []).map(code => {
-    const usedByUser = users.find(u => u.id === code.used_by);
+  const subscriptionList = (subscriptions || []).map(sub => {
+    const owner = users.find(u => u.id === sub.user_id);
+    const store = (stores || []).find(s => s.owner_id === sub.user_id);
     return {
-      ...code,
-      usedByEmail: usedByUser?.email || null
+      ...sub,
+      ownerEmail: owner?.email || '미상',
+      storeName: store?.name || '미등록'
     };
   });
 
@@ -97,54 +99,60 @@ export default async function AdminPage() {
           </div>
         </section>
 
-        {/* 초대 코드 목록 */}
+        {/* 구독 관리 현황 */}
         <section>
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-            <span>🎟️</span> 초대 코드 발급 현황 ({codeList.length}개)
+            <span>💳</span> 구독 관리 현황 ({subscriptionList.length}개)
           </h2>
           <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
             <table className="w-full text-sm text-left">
               <thead className="bg-slate-800/50 text-slate-300">
                 <tr>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap">초대 코드</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap">발급일</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">사용 여부</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap">사용자 이메일</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">관리</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">이메일</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">매장명</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">플랜</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">상태</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">결제일</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">만료일</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">구독 연장</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {codeList.length === 0 ? (
+                {subscriptionList.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
-                      발급된 초대 코드가 없습니다.
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
+                      가입된 구독 정보가 없습니다.
                     </td>
                   </tr>
                 ) : (
-                  codeList.map(code => (
-                    <tr key={code.code} className="hover:bg-slate-800/20">
-                      <td className="px-4 py-3 font-mono text-emerald-400 font-medium whitespace-nowrap">
-                        {code.code}
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
-                        {new Date(code.created_at).toLocaleDateString()}
-                      </td>
+                  subscriptionList.map(sub => (
+                    <tr key={sub.id} className="hover:bg-slate-800/20">
+                      <td className="px-4 py-3 font-medium text-slate-200 whitespace-nowrap">{sub.ownerEmail}</td>
+                      <td className="px-4 py-3 text-sky-400 whitespace-nowrap">{sub.storeName}</td>
+                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap uppercase text-xs font-semibold">{sub.plan}</td>
                       <td className="px-4 py-3 text-center whitespace-nowrap">
-                        {code.is_used ? (
+                        {sub.status === 'active' ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-xs bg-emerald-950 text-emerald-400 border border-emerald-900/50">
+                            활성
+                          </span>
+                        ) : sub.status === 'expired' ? (
                           <span className="inline-block px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-400">
-                            사용 완료
+                            만료
                           </span>
                         ) : (
-                          <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-900/50 text-sky-400 border border-sky-800/50">
-                            사용 가능
+                          <span className="inline-block px-2 py-0.5 rounded text-xs bg-rose-950 text-rose-400 border border-rose-900/50">
+                            취소됨
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap">
-                        {code.usedByEmail || '-'}
+                      <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
+                        {new Date(sub.started_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
+                        {new Date(sub.expires_at).toLocaleDateString()} {new Date(sub.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-center">
-                        <DeleteCodeButton code={code.code} />
+                        <ExtendSubscriptionSection userId={sub.user_id} userEmail={sub.ownerEmail} />
                       </td>
                     </tr>
                   ))

@@ -55,7 +55,7 @@ export async function updateSession(request: NextRequest) {
   const isRootPage = request.nextUrl.pathname === '/'
   const isAuthPage = request.nextUrl.pathname.startsWith('/login')
   const isOnboardingPage = request.nextUrl.pathname.startsWith('/onboarding')
-  const isAdmin = (!!user?.email && user.email === process.env.ADMIN_EMAIL) || (user?.email === 'kimtyy@gmail.com')
+  const isAdmin = !!user?.email && user.email === process.env.ADMIN_EMAIL
   
   // 1. 비로그인 사용자 처리
   if (!user) {

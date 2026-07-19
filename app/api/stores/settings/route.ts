@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
@@ -9,6 +9,7 @@ export async function GET() {
   const storeId = await getStoreId();
   if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const supabase = createClient();
   try {
     const { data, error } = await supabase
       .from('stores')
@@ -34,6 +35,7 @@ export async function PATCH(request: Request) {
   const storeId = await getStoreId();
   if (!storeId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const supabase = createClient();
   try {
     const body = await request.json();
     const { owner_salary, loan_repayment } = body;
