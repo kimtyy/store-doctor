@@ -12,6 +12,7 @@ import { Navbar } from '@/components/landing/Navbar';
 import { ScrambleIn } from '@/components/landing/ScrambleText';
 import { ConnectAILabLogo } from '@/components/landing/ConnectAILabLogo';
 import { SITE_CONFIG } from '@/config/landingContent';
+const MAIL_ORDER_LICENSE = '신청 중';
 
 export default function LandingPage() {
   const [entranceComplete, setEntranceComplete] = useState(false);
@@ -684,6 +685,39 @@ export default function LandingPage() {
                 {SITE_CONFIG.copyright}
               </p>
             </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* ════════════════ COMPANY INFO FOOTER ════════════════ */}
+      <footer className="bg-slate-950 border-t border-white/10 py-12 px-6 relative z-20 text-slate-500 text-xs">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-slate-400">
+              <span>상호: 허브스마트</span>
+              <span className="text-slate-600">|</span>
+              <span>대표: 김태영</span>
+              <span className="text-slate-600">|</span>
+              <span>사업자등록번호: 526-04-00927</span>
+              <span className="text-slate-600">|</span>
+              <span>통신판매업신고: {MAIL_ORDER_LICENSE}</span>
+            </div>
+            <div className="text-slate-500">
+              주소: 경기도 가평군 조종면 조종희망로 16-19, 1층
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              <span>이메일: <a href="mailto:kimtyy@naver.com" className="hover:underline text-slate-400">kimtyy@naver.com</a></span>
+              <span className="text-slate-600">|</span>
+              <span>고객센터: <a href="tel:031-5175-8887" className="hover:underline text-slate-400">031-5175-8887</a></span>
+            </div>
+            <div className="text-[10px] text-slate-600 pt-2">
+              © 2026 허브스마트. All rights reserved.
+            </div>
+          </div>
+          <div className="flex gap-4 font-semibold shrink-0">
+            <a href="/terms" className="hover:text-slate-300 transition">이용약관</a>
+            <span className="text-slate-700">|</span>
+            <a href="/privacy" className="hover:text-slate-300 transition">개인정보처리방침</a>
           </div>
         </div>
       </footer>
