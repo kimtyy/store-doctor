@@ -12,12 +12,21 @@ import { Navbar } from '@/components/landing/Navbar';
 import { ScrambleIn } from '@/components/landing/ScrambleText';
 import { ConnectAILabLogo } from '@/components/landing/ConnectAILabLogo';
 import { SITE_CONFIG } from '@/config/landingContent';
+import { createClient } from '@/utils/supabase/client';
 const MAIL_ORDER_LICENSE = '신청 중';
 
 export default function LandingPage() {
   const [entranceComplete, setEntranceComplete] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoRef2 = useRef<HTMLVideoElement>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session);
+    });
+  }, []);
 
   /* ── Dynamic Icon Injection ── */
   useEffect(() => {
@@ -162,7 +171,7 @@ export default function LandingPage() {
               <motion.button
                 className="mt-6 px-8 py-3.5 bg-[#0064FF] text-white font-semibold rounded-full hover:bg-blue-600 active:scale-95 transition-all text-[14px] cursor-pointer drop-shadow-lg border-none"
                 style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-                onClick={() => window.location.href = '/login'}
+                onClick={() => window.location.href = isLoggedIn ? '/dashboard' : '/login'}
                 initial={{ opacity: 0, y: 20 }}
                 animate={entranceComplete ? { opacity: 1, y: 0 } : {}}
                 transition={{
@@ -171,7 +180,7 @@ export default function LandingPage() {
                   delay: 0.4,
                 }}
               >
-                지금 시작하기
+                {isLoggedIn ? '대시보드로 이동' : '지금 시작하기'}
               </motion.button>
             </div>
 

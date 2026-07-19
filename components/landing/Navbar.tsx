@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConnectAILabLogo } from './ConnectAILabLogo';
 import { SquashHamburger } from './SquashHamburger';
 import { ScrambleText } from './ScrambleText';
 import { SITE_CONFIG } from '../../config/landingContent';
+import { createClient } from '@/utils/supabase/client';
 
 interface NavbarProps {
   entranceComplete: boolean;
@@ -16,6 +17,14 @@ export function Navbar({ entranceComplete }: NavbarProps) {
   const [downloadHovered, setDownloadHovered] = useState(false);
   const [aboutHovered, setAboutHovered] = useState(false);
   const [metricsHovered, setMetricsHovered] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session);
+    });
+  }, []);
 
   const scrollTo = (y: number) => {
     window.scrollTo({ top: y, behavior: 'smooth' });
@@ -104,17 +113,19 @@ export function Navbar({ entranceComplete }: NavbarProps) {
 
           {/* Right buttons */}
           <div className="flex items-center gap-2">
-            <motion.button
-              className="h-12 px-5 bg-white/10 backdrop-blur-md rounded-[14px] flex items-center gap-2 cursor-pointer border-none text-white/85 text-[15px] font-medium hover:bg-white/20 transition-colors"
-              whileTap={{ scale: 0.97 }}
-              onClick={() => window.location.href = '/login'}
-            >
-              로그인
-            </motion.button>
+            {!isLoggedIn && (
+              <motion.button
+                className="h-12 px-5 bg-white/10 backdrop-blur-md rounded-[14px] flex items-center gap-2 cursor-pointer border-none text-white/85 text-[15px] font-medium hover:bg-white/20 transition-colors"
+                whileTap={{ scale: 0.97 }}
+                onClick={() => window.location.href = '/login'}
+              >
+                로그인
+              </motion.button>
+            )}
 
             {/* Start App button */}
             <motion.button
-              onClick={() => window.location.href = '/login'}
+              onClick={() => window.location.href = isLoggedIn ? '/dashboard' : '/login'}
               className="h-12 px-6 bg-white rounded-full flex items-center gap-2.5 cursor-pointer border-none"
               whileHover={{ scale: 1.03, backgroundColor: '#e2e2e6' }}
               whileTap={{ scale: 0.97 }}
@@ -123,7 +134,7 @@ export function Navbar({ entranceComplete }: NavbarProps) {
             >
               <i className="bi bi-play-circle text-black text-[16px]" />
               <span className="text-black text-[16px] font-medium">
-                <ScrambleText text="지금 시작하기" isHovered={downloadHovered} />
+                <ScrambleText text={isLoggedIn ? '대시보드로 이동' : '지금 시작하기'} isHovered={downloadHovered} />
               </span>
             </motion.button>
           </div>
@@ -194,22 +205,26 @@ export function Navbar({ entranceComplete }: NavbarProps) {
 
           {/* Right buttons */}
           <div className="flex items-center gap-1.5 ml-2">
-            <motion.button
-              className="h-9 px-3 bg-white/15 backdrop-blur-md rounded-[10px] flex items-center cursor-pointer border-none text-white/85 text-[12px] font-medium"
-              whileTap={{ scale: 0.95 }}
-              onClick={() => window.location.href = '/login'}
-            >
-              로그인
-            </motion.button>
+            {!isLoggedIn && (
+              <motion.button
+                className="h-9 px-3 bg-white/15 backdrop-blur-md rounded-[10px] flex items-center cursor-pointer border-none text-white/85 text-[12px] font-medium"
+                whileTap={{ scale: 0.95 }}
+                onClick={() => window.location.href = '/login'}
+              >
+                로그인
+              </motion.button>
+            )}
 
             {/* Start App button */}
             <motion.button
-              onClick={() => window.location.href = '/login'}
+              onClick={() => window.location.href = isLoggedIn ? '/dashboard' : '/login'}
               className="h-9 px-3.5 bg-white rounded-full flex items-center gap-1.5 cursor-pointer border-none shrink-0"
               whileTap={{ scale: 0.95 }}
             >
               <i className="bi bi-play-circle text-black text-[13px]" />
-              <span className="text-black text-[13px] font-medium">지금 시작하기</span>
+              <span className="text-black text-[13px] font-medium">
+                {isLoggedIn ? '대시보드로 이동' : '지금 시작하기'}
+              </span>
             </motion.button>
           </div>
         </div>

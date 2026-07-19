@@ -55,14 +55,16 @@ export async function updateSession(request: NextRequest) {
   const isRootPage = request.nextUrl.pathname === '/'
   const isAuthPage = request.nextUrl.pathname.startsWith('/login')
   const isOnboardingPage = request.nextUrl.pathname.startsWith('/onboarding')
+  const isTermsPage = request.nextUrl.pathname.startsWith('/terms')
+  const isPrivacyPage = request.nextUrl.pathname.startsWith('/privacy')
   const isAdmin = !!user?.email && user.email === process.env.ADMIN_EMAIL
   
   // 1. 비로그인 사용자 처리
   if (!user) {
-    // 루트(/), 로그인(/login), 콜백 경로, 결제(/payment) 및 정적 미디어 파일들은 무인증 통과 허용
+    // 루트(/), 로그인(/login), 약관(/terms), 개인정보(/privacy), 콜백 경로, 결제(/payment) 및 정적 미디어 파일들은 무인증 통과 허용
     const isStaticAsset = request.nextUrl.pathname.match(/\.(png|jpg|jpeg|gif|webp|svg|mp4|ico|txt)$/)
     const isPaymentPage = request.nextUrl.pathname.startsWith('/payment')
-    if (!isRootPage && !isAuthPage && !isStaticAsset && !isPaymentPage && !request.nextUrl.pathname.startsWith('/auth/callback')) {
+    if (!isRootPage && !isAuthPage && !isStaticAsset && !isPaymentPage && !isTermsPage && !isPrivacyPage && !request.nextUrl.pathname.startsWith('/auth/callback')) {
       const url = request.nextUrl.clone()
       url.pathname = '/login'
       return NextResponse.redirect(url)
@@ -78,9 +80,9 @@ export async function updateSession(request: NextRequest) {
       .eq('owner_id', user.id)
       .single()
 
-    // 2-A. 스토어가 없는 사용자 -> 온보딩으로 강제 유도 (단, 관리자는 스킵)
+    // 2-A. 스토어가 없는 사용자 -> 온보딩으로 강제 유도 (단, 관리자는 스킵, 루트/약관/개인정보는 허용)
     if (!store && !isAdmin) {
-      if (!isOnboardingPage && !request.nextUrl.pathname.startsWith('/auth/callback') && !request.nextUrl.pathname.startsWith('/api/')) {
+      if (!isRootPage && !isTermsPage && !isPrivacyPage && !isOnboardingPage && !request.nextUrl.pathname.startsWith('/auth/callback') && !request.nextUrl.pathname.startsWith('/api/')) {
         const url = request.nextUrl.clone()
         url.pathname = '/onboarding'
         return NextResponse.redirect(url)
@@ -92,7 +94,9 @@ export async function updateSession(request: NextRequest) {
       const isPaymentPage = request.nextUrl.pathname.startsWith('/payment')
       const isExemptPath =
         request.nextUrl.pathname.startsWith('/auth/callback') ||
-        request.nextUrl.pathname.startsWith('/api/')
+        request.nextUrl.pathname.startsWith('/api/') ||
+        isTermsPage ||
+        isPrivacyPage
 
       // subscriptions 조회 자체가 실패하더라도(테이블/RLS 미비 등) 미들웨어가
       // 통째로 죽지 않도록 방어한다. 조회 실패 시 "구독 없음"으로 간주해
@@ -116,23 +120,23 @@ export async function updateSession(request: NextRequest) {
       }
 
       if (!subscription) {
-        // 2-B-1. 구독이 없는 사용자 -> 결제 페이지로 강제 유도
-        if (!isPaymentPage && !isExemptPath) {
+        // 2-B-1. 구독이 없는 사용자 -> 결제 페이지로 강제 유도 (루트/약관/개인정보는 허용)
+        if (!isRootPage && !isPaymentPage && !isExemptPath) {
           const url = request.nextUrl.clone()
           url.pathname = '/payment'
           return NextResponse.redirect(url)
         }
       } else {
-        // 2-B-2. 구독이 있는 사용자 -> 루트, 로그인, 온보딩, 결제 접속 시 대시보드로 리디렉션
-        if (isRootPage || isAuthPage || isOnboardingPage || isPaymentPage) {
+        // 2-B-2. 구독이 있는 사용자 -> 로그인, 온보딩, 결제 접속 시 대시보드로 리디렉션 (루트/약관/개인정보는 허용)
+        if (isAuthPage || isOnboardingPage || isPaymentPage) {
           const url = request.nextUrl.clone()
           url.pathname = '/dashboard'
           return NextResponse.redirect(url)
         }
       }
     } else {
-      // 2-C. 관리자(isAdmin) 계정 -> 루트, 로그인, 온보딩, 결제 접속 시 바로 대시보드로 리디렉션
-      if (isRootPage || isAuthPage || isOnboardingPage || request.nextUrl.pathname.startsWith('/payment')) {
+      // 2-C. 관리자(isAdmin) 계정 -> 로그인, 온보딩, 결제 접속 시 바로 대시보드로 리디렉션 (루트/약관/개인정보는 허용)
+      if (isAuthPage || isOnboardingPage || request.nextUrl.pathname.startsWith('/payment')) {
         const url = request.nextUrl.clone()
         url.pathname = '/dashboard'
         return NextResponse.redirect(url)
