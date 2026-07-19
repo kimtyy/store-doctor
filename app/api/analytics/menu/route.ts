@@ -39,6 +39,7 @@ export async function GET(request: Request) {
   const fromParam = searchParams.get('from');
   const toParam = searchParams.get('to');
   const period = searchParams.get('period') ?? '30';
+  const includeEvent = searchParams.get('includeEvent') === 'true';
 
   try {
     let query = supabase
@@ -53,6 +54,10 @@ export async function GET(request: Request) {
       const from = new Date();
       from.setDate(from.getDate() - days);
       query = query.gte('date', from.toISOString().split('T')[0]);
+    }
+
+    if (!includeEvent) {
+      query = query.eq('is_event', false);
     }
 
     const { data, error } = await query.order('date', { ascending: false });

@@ -218,22 +218,24 @@ export default function DashboardPage() {
     const eventRevenue = eventMonth.reduce((s, d) => s + d.netRevenue, 0);
 
     let baseCost = 0;
-    let hasAnyReal = false;
-    for (const d of baseMonth) {
-      const real = purchaseByDate[d.date];
-      if (real !== undefined) {
-        baseCost += real;
-        hasAnyReal = true;
-      } else {
-        baseCost += d.netRevenue * 0.4;
+    for (const [date, amount] of Object.entries(purchaseByDate)) {
+      if (date.startsWith(ym)) {
+        baseCost += amount;
       }
     }
 
-    // 행사 매입
+    let missingCostDays = 0;
+    for (const d of baseMonth) {
+      if (purchaseByDate[d.date] === undefined) {
+        missingCostDays++;
+      }
+    }
+
     let eventCost = 0;
-    for (const d of eventMonth) {
-      const evc = eventPurchaseByDate[d.date];
-      if (evc !== undefined) eventCost += evc;
+    for (const [date, amount] of Object.entries(eventPurchaseByDate)) {
+      if (date.startsWith(ym)) {
+        eventCost += amount;
+      }
     }
 
     const totalRevenue = includeEvent ? baseRevenue + eventRevenue : baseRevenue;
@@ -260,19 +262,23 @@ export default function DashboardPage() {
     const prevEventRev = prevEventMonth.reduce((s, d) => s + d.netRevenue, 0);
 
     let prevBaseCost = 0;
-    for (const d of prevBaseMonth) {
-      const real = purchaseByDate[d.date];
-      if (real !== undefined) {
-        prevBaseCost += real;
-      } else {
-        prevBaseCost += d.netRevenue * 0.4;
+    for (const [date, amount] of Object.entries(purchaseByDate)) {
+      if (date.startsWith(prevYm)) {
+        const day = parseInt(date.split('-')[2], 10);
+        if (day <= prevDayLimit) {
+          prevBaseCost += amount;
+        }
       }
     }
 
     let prevEventCost = 0;
-    for (const d of prevEventMonth) {
-      const evc = eventPurchaseByDate[d.date];
-      if (evc !== undefined) prevEventCost += evc;
+    for (const [date, amount] of Object.entries(eventPurchaseByDate)) {
+      if (date.startsWith(prevYm)) {
+        const day = parseInt(date.split('-')[2], 10);
+        if (day <= prevDayLimit) {
+          prevEventCost += amount;
+        }
+      }
     }
 
     const prevTotalRevenue = includeEvent ? prevBaseRev + prevEventRev : prevBaseRev;
@@ -285,13 +291,14 @@ export default function DashboardPage() {
       days: baseMonth.length,
       totalRevenue,
       totalCost,
-      hasAnyReal,
+      hasAnyReal: true,
       eventRevenue,
       eventCost,
       revenueChangePct,
       costChangePct,
       prevTotalRevenue,
       prevTotalCost,
+      missingCostDays,
     };
   }, [nonEventSalesData, salesData, purchaseByDate, eventPurchaseByDate, includeEvent]);
 
@@ -401,7 +408,11 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-slate-100">이번달 현황</h3>
                     <div className="flex items-center gap-2">
-                      {!monthSummary.hasAnyReal && <span className="text-xs text-slate-500">원가 추정</span>}
+                      {monthSummary.missingCostDays > 0 && (
+                        <span className="rounded bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5 text-[10px] text-amber-300 font-semibold">
+                          매입 미입력 {monthSummary.missingCostDays}일
+                        </span>
+                      )}
                       {/* 행사 포함 토글 */}
                       <button
                         type="button"

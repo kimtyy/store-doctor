@@ -32,6 +32,7 @@ export async function GET(request: Request) {
   const fromParam = searchParams.get('from');
   const toParam = searchParams.get('to');
   const period = searchParams.get('period') ?? '30';
+  const includeEvent = searchParams.get('includeEvent') === 'true';
 
   try {
     let fromStr: string | null = null;
@@ -85,10 +86,15 @@ export async function GET(request: Request) {
 
     let salesQuery = supabase
       .from('daily_sales')
-      .select('date, total_revenue')
+      .select('date, net_revenue')
       .eq('store_id', STORE_ID);
     if (fromStr) salesQuery = salesQuery.gte('date', fromStr);
     if (toStr) salesQuery = salesQuery.lte('date', toStr);
+
+    if (!includeEvent) {
+      purchaseQuery = purchaseQuery.eq('is_event', false);
+      salesQuery = salesQuery.eq('is_event', false);
+    }
 
     const [{ data: purchaseData, error: purchaseError }, { data: salesData, error: salesError }] =
       await Promise.all([purchaseQuery, salesQuery]);
@@ -100,7 +106,7 @@ export async function GET(request: Request) {
 
     // ── Summary ────────────────────────────────────────────────────────────────
     const totalPurchase = records.reduce((s, r) => s + (r.total_amount ?? 0), 0);
-    const totalRevenue = (salesData ?? []).reduce((s, r) => s + (r.total_revenue ?? 0), 0);
+    const totalRevenue = (salesData ?? []).reduce((s, r) => s + (r.net_revenue ?? 0), 0);
     const costRatioPercent = totalRevenue > 0 ? (totalPurchase / totalRevenue) * 100 : 0;
 
     // ── Category stats ─────────────────────────────────────────────────────────

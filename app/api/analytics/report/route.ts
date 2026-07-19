@@ -42,6 +42,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const yearStr = searchParams.get('year');
   const monthStr = searchParams.get('month');
+  const includeEvent = searchParams.get('includeEvent') === 'true';
 
   if (!yearStr || !monthStr) {
     return NextResponse.json({ error: 'Missing year or month' }, { status: 400 });
@@ -103,6 +104,38 @@ export async function GET(request: Request) {
   const nextMonthLastYearToStr = `${nextMonthYear - 1}-${String(nextMonth).padStart(2, '0')}-${String(nextMonthLastYearLastDay).padStart(2, '0')}`;
 
   try {
+    let salesQuery = supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr);
+    let prevSalesQuery = supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr);
+    let prevPurchaseQuery = supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr);
+    let lastYearSalesQuery = supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr);
+    let lastYearPurchaseQuery = supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr);
+    let purchaseQuery = supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr);
+    let past6MonthSalesQuery = supabase.from('daily_sales').select('date, net_revenue').eq('store_id', STORE_ID).gte('date', past6MonthFromStr).lte('date', toStr);
+    let nextMonthLastYearSalesQuery = supabase.from('daily_sales').select('net_revenue').eq('store_id', STORE_ID).gte('date', nextMonthLastYearFromStr).lte('date', nextMonthLastYearToStr);
+
+    if (!includeEvent) {
+      salesQuery = salesQuery.eq('is_event', false);
+      prevSalesQuery = prevSalesQuery.eq('is_event', false);
+      prevPurchaseQuery = prevPurchaseQuery.eq('is_event', false);
+      lastYearSalesQuery = lastYearSalesQuery.eq('is_event', false);
+      lastYearPurchaseQuery = lastYearPurchaseQuery.eq('is_event', false);
+      purchaseQuery = purchaseQuery.eq('is_event', false);
+      past6MonthSalesQuery = past6MonthSalesQuery.eq('is_event', false);
+      nextMonthLastYearSalesQuery = nextMonthLastYearSalesQuery.eq('is_event', false);
+    }
+
+    // Fetch menus properly with inner join via PostgREST
+    let menuJoinQuery = supabase
+      .from('sales_menu_items')
+      .select(`name, amount, daily_sales!inner(date, store_id, is_event)`)
+      .eq('daily_sales.store_id', STORE_ID)
+      .gte('daily_sales.date', fromStr)
+      .lte('daily_sales.date', toStr);
+
+    if (!includeEvent) {
+      menuJoinQuery = menuJoinQuery.eq('daily_sales.is_event', false);
+    }
+
     const [
       { data: storeData },
       { data: salesData },
@@ -112,26 +145,20 @@ export async function GET(request: Request) {
       { data: lastYearPurchaseData },
       { data: purchaseData },
       { data: past6MonthSalesData },
-      { data: nextMonthLastYearSalesData }
+      { data: nextMonthLastYearSalesData },
+      { data: menuDataJoin }
     ] = await Promise.all([
       supabase.from('stores').select('owner_salary, loan_repayment').eq('id', STORE_ID).single(),
-      supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr),
-      supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr),
-      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', prevFromStr).lte('date', prevToStr),
-      supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr),
-      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', lastYearFromStr).lte('date', lastYearToStr),
-      supabase.from('purchase_records').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr),
-      supabase.from('daily_sales').select('date, total_revenue').eq('store_id', STORE_ID).gte('date', past6MonthFromStr).lte('date', toStr),
-      supabase.from('daily_sales').select('total_revenue').eq('store_id', STORE_ID).gte('date', nextMonthLastYearFromStr).lte('date', nextMonthLastYearToStr)
+      salesQuery,
+      prevSalesQuery,
+      prevPurchaseQuery,
+      lastYearSalesQuery,
+      lastYearPurchaseQuery,
+      purchaseQuery,
+      past6MonthSalesQuery,
+      nextMonthLastYearSalesQuery,
+      menuJoinQuery
     ]);
-
-    // Fetch menus properly with inner join via PostgREST
-    const { data: menuDataJoin } = await supabase
-      .from('sales_menu_items')
-      .select(`name, amount, daily_sales!inner(date, store_id)`)
-      .eq('daily_sales.store_id', STORE_ID)
-      .gte('daily_sales.date', fromStr)
-      .lte('daily_sales.date', toStr);
 
     const sales = salesData ?? [];
     const prevSales = prevSalesData ?? [];
@@ -146,7 +173,7 @@ export async function GET(request: Request) {
     const nonOperatingExpenses = ownerSalary + loanRepayment;
 
     function calcStats(s: any[], p: any[]) {
-      const totalRev = s.reduce((sum, item) => sum + (item.total_revenue || 0), 0);
+      const totalRev = s.reduce((sum, item) => sum + (item.net_revenue || 0), 0);
       const totalPur = p.reduce((sum, item) => sum + (item.total_amount || 0), 0);
       const opProfit = totalRev - totalPur;
       const cRatio = totalRev > 0 ? (totalPur / totalRev) * 100 : 0;
@@ -178,7 +205,7 @@ export async function GET(request: Request) {
     const dowMap: Record<number, { sum: number, count: number }> = { 0: {sum:0,count:0}, 1: {sum:0,count:0}, 2: {sum:0,count:0}, 3: {sum:0,count:0}, 4: {sum:0,count:0}, 5: {sum:0,count:0}, 6: {sum:0,count:0} };
     for (const s of sales) {
       const dow = new Date(s.date).getDay();
-      dowMap[dow].sum += s.total_revenue || 0;
+      dowMap[dow].sum += s.net_revenue || 0;
       dowMap[dow].count += 1;
     }
     const dowAverages = [0, 1, 2, 3, 4, 5, 6].map(dow => {
@@ -220,7 +247,7 @@ export async function GET(request: Request) {
         if (!weatherMap[s.weather_condition]) {
           weatherMap[s.weather_condition] = {sum:0,count:0};
         }
-        weatherMap[s.weather_condition].sum += s.total_revenue || 0;
+        weatherMap[s.weather_condition].sum += s.net_revenue || 0;
         weatherMap[s.weather_condition].count += 1;
       }
     }
@@ -251,12 +278,12 @@ export async function GET(request: Request) {
 
     let basePrediction = 0;
     let predictionBasis = '';
-    const nextMonthLastYearTotal = (nextMonthLastYearSalesData || []).reduce((sum, s) => sum + (s.total_revenue || 0), 0);
+    const nextMonthLastYearTotal = (nextMonthLastYearSalesData || []).reduce((sum, s) => sum + (s.net_revenue || 0), 0);
     
     // Calculate 3-month growth rate approx
     const recent3MonthsRev = past6MonthsSales
       .filter(s => new Date(s.date) >= new Date(year, month - 3, 1))
-      .reduce((sum, s) => sum + (s.total_revenue || 0), 0);
+      .reduce((sum, s) => sum + (s.net_revenue || 0), 0);
     const avgRecentRev = recent3MonthsRev / 3;
     const growthRate = avgRecentRev > 0 ? (totalRevenue - avgRecentRev) / avgRecentRev : 0;
 
@@ -334,7 +361,8 @@ export async function GET(request: Request) {
         avgDailySales,
         momChangePct,
         cashAmount,
-        cardAmount
+        cardAmount,
+        totalRevenueVatIncluded: sales.reduce((sum, s) => sum + (s.total_revenue || 0), 0)
       },
       purchases: {
         totalPurchase,

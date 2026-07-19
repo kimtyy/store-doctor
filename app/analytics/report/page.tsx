@@ -51,11 +51,13 @@ function MonthlyReportContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const includeEvent = searchParams.get('includeEvent') === 'true';
+
   useEffect(() => {
     if (!year || !month) return;
     
     setLoading(true);
-    fetch(`/api/analytics/report?year=${year}&month=${month}`)
+    fetch(`/api/analytics/report?year=${year}&month=${month}&includeEvent=${includeEvent}`)
       .then(r => r.json())
       .then(d => {
         if (d.error) throw new Error(d.error);
@@ -63,7 +65,7 @@ function MonthlyReportContent() {
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [year, month]);
+  }, [year, month, includeEvent]);
 
   if (!year || !month) return <div className="p-8 text-center text-slate-100">잘못된 접근입니다.</div>;
   if (loading) return <div className="p-8 text-center text-slate-400 animate-pulse">보고서 생성 중...</div>;
@@ -83,7 +85,7 @@ function MonthlyReportContent() {
     
     csv += `[매출 요약]\n`;
     csv += `총매출,${data.sales.totalRevenue}\n`;
-    csv += `순매출,${data.sales.netRevenue}\n`;
+    csv += `부가세 포함 매출,${data.sales.totalRevenueVatIncluded ?? 0}\n`;
     csv += `영업일수,${data.sales.openDays}\n`;
     csv += `평균일매출,${data.sales.avgDailySales}\n`;
     csv += `현금결제,${data.sales.cashAmount}\n`;
@@ -203,8 +205,8 @@ function MonthlyReportContent() {
               </p>
             </div>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <p className="text-sm text-slate-500 mb-1">순매출 (세금 제외)</p>
-              <p className="text-2xl font-bold text-slate-900">{fmt(data.sales.netRevenue)}원</p>
+              <p className="text-sm text-slate-500 mb-1">부가세 포함 매출</p>
+              <p className="text-2xl font-bold text-slate-900">{fmt(data.sales.totalRevenueVatIncluded ?? 0)}원</p>
               <p className="text-xs text-slate-500 mt-1">
                 서비스 금액: {fmt(data.sales.serviceAmount)}원
               </p>
@@ -216,8 +218,8 @@ function MonthlyReportContent() {
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <p className="text-sm text-slate-500 mb-1">결제 비율 (현금 : 카드)</p>
               <p className="text-xl font-bold text-slate-900">
-                {data.sales.totalRevenue > 0 ? Math.round((data.sales.cashAmount / data.sales.totalRevenue) * 100) : 0}% : 
-                {data.sales.totalRevenue > 0 ? Math.round((data.sales.cardAmount / data.sales.totalRevenue) * 100) : 0}%
+                {data.sales.totalRevenueVatIncluded > 0 ? Math.round((data.sales.cashAmount / data.sales.totalRevenueVatIncluded) * 100) : 0}% : 
+                {data.sales.totalRevenueVatIncluded > 0 ? Math.round((data.sales.cardAmount / data.sales.totalRevenueVatIncluded) * 100) : 0}%
               </p>
             </div>
           </div>

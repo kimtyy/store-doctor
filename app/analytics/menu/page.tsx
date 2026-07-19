@@ -136,15 +136,18 @@ function shiftMonth(m: MonthSelection, delta: number): MonthSelection {
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
-function buildApiQuery(p: Period, month: MonthSelection): string {
+function buildApiQuery(p: Period, month: MonthSelection, includeEvent: boolean): string {
+  let base = '';
   if (p === 'monthly') {
     const { year, month: m } = month;
     const from = `${year}-${String(m).padStart(2, '0')}-01`;
     const lastDay = new Date(year, m, 0).getDate();
     const to = `${year}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    return `from=${from}&to=${to}`;
+    base = `from=${from}&to=${to}`;
+  } else {
+    base = `period=${p}`;
   }
-  return `period=${p}`;
+  return base + `&includeEvent=${includeEvent}`;
 }
 
 function monthKey(m: MonthSelection) { return `${m.year}-${m.month}`; }
@@ -200,6 +203,7 @@ export default function AnalyticsPage() {
   const [menuData, setMenuData] = useState<MenuAnalyticsData | null>(null);
   const [menuLoading, setMenuLoading] = useState(true);
   const [menuError, setMenuError] = useState<string | null>(null);
+  const [includeEvent, setIncludeEvent] = useState(false);
 
   // purchase analytics state
   const [purchaseData, setPurchaseData] = useState<PurchaseAnalyticsData | null>(null);
@@ -231,7 +235,7 @@ export default function AnalyticsPage() {
     setMenuLoading(true);
     setMenuError(null);
     try {
-      const res = await fetch(`/api/analytics/menu?${buildApiQuery(p, month)}`);
+      const res = await fetch(`/api/analytics/menu?${buildApiQuery(p, month, includeEvent)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
       setMenuData(json);
@@ -240,13 +244,13 @@ export default function AnalyticsPage() {
     } finally {
       setMenuLoading(false);
     }
-  }, []);
+  }, [includeEvent]);
 
   const fetchPurchaseData = useCallback(async (p: Period, month: MonthSelection) => {
     setPurchaseLoading(true);
     setPurchaseError(null);
     try {
-      const res = await fetch(`/api/analytics/purchases?${buildApiQuery(p, month)}`);
+      const res = await fetch(`/api/analytics/purchases?${buildApiQuery(p, month, includeEvent)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
       setPurchaseData(json);
@@ -255,7 +259,7 @@ export default function AnalyticsPage() {
     } finally {
       setPurchaseLoading(false);
     }
-  }, []);
+  }, [includeEvent]);
 
   useEffect(() => {
     setMenuAmountExpanded(false);
@@ -298,13 +302,13 @@ export default function AnalyticsPage() {
       .catch(() => {});
 
     const prev = shiftMonth(selectedMonth, -1);
-    const prevQ = buildApiQuery('monthly', prev);
+    const prevQ = buildApiQuery('monthly', prev, includeEvent);
     fetch(`/api/analytics/purchases?${prevQ}`)
       .then(r => r.json())
       .then(data => setPrevPurchaseData(data))
       .catch(() => setPrevPurchaseData(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, selectedMonth]);
+  }, [period, selectedMonth, includeEvent]);
 
   async function handleCategorySelect(category: MenuCategory | null) {
     if (!editingMenu || updatingCategory) return;
@@ -439,7 +443,29 @@ export default function AnalyticsPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-24">
       <div className="mx-auto max-w-2xl px-4 pt-8">
-        <h1 className="text-xl font-bold text-slate-100 mb-5">분석</h1>
+        <div className="flex items-center justify-between mb-5">
+          <h1 className="text-xl font-bold text-slate-100">분석</h1>
+          {/* 행사 포함 토글 */}
+          <button
+            type="button"
+            onClick={() => setIncludeEvent((v) => !v)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition ${
+              includeEvent
+                ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300'
+                : 'bg-slate-800 border border-slate-700 text-slate-400'
+            }`}
+          >
+            <span>🎪</span>
+            <span>행사 포함</span>
+            <span className={`w-7 h-3.5 rounded-full relative inline-block ml-1 ${
+              includeEvent ? 'bg-purple-500' : 'bg-slate-700'
+            }`}>
+              <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-all ${
+                includeEvent ? 'left-3.5' : 'left-0.5'
+              }`} />
+            </span>
+          </button>
+        </div>
 
         {/* Section tabs */}
         <div className="flex gap-1 rounded-2xl bg-slate-900/80 p-1.5 mb-4">
@@ -496,7 +522,7 @@ export default function AnalyticsPage() {
 
         {period === 'monthly' && (
           <div className="mb-6">
-            <a href={`/analytics/report?year=${selectedMonth.year}&month=${selectedMonth.month}`} className="block w-full rounded-2xl bg-sky-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-sky-500">
+            <a href={`/analytics/report?year=${selectedMonth.year}&month=${selectedMonth.month}&includeEvent=${includeEvent}`} className="block w-full rounded-2xl bg-sky-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-sky-500">
               📊 보고서 생성
             </a>
           </div>
