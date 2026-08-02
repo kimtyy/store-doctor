@@ -543,7 +543,7 @@ export default function SalesInputPage() {
     finally { setSaving(false); }
   }
 
-  const btnBase = 'flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition text-center cursor-pointer';
+  const btnBase = 'flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 hover:border-slate-600 active:scale-[0.98] transition flex items-center justify-center gap-2 text-center cursor-pointer';
 
   return (
     <>
@@ -614,8 +614,20 @@ export default function SalesInputPage() {
                         {!receiptSaved && (
                           <>
                             <div className="flex gap-3">
-                              <button type="button" onClick={() => setReceiptCameraOpen(true)} className={btnBase}>📷 사진 찍기</button>
-                              <label htmlFor="receipt-gallery-input" className={btnBase}>🖼️ 갤러리에서 선택</label>
+                              <button type="button" onClick={() => setReceiptCameraOpen(true)} className={btnBase}>
+                                <span>📷</span>
+                                <span>사진 촬영</span>
+                              </button>
+                              <label htmlFor="receipt-gallery-input" className={btnBase}>
+                                <span>🖼️</span>
+                                <span>갤러리에서 선택</span>
+                              </label>
+                            </div>
+                            <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-400 leading-relaxed flex items-start gap-2">
+                              <span className="shrink-0 text-slate-400">💡</span>
+                              <span>
+                                📄 긴 영수증은 폰 카메라의 <strong className="font-medium text-slate-300">&apos;문서 스캔&apos;</strong> 기능으로 저장해서 올리면 인식률이 크게 높아집니다.
+                              </span>
                             </div>
                             {receiptFile && <p className="text-xs text-slate-400 truncate">선택됨: {receiptFile.name}</p>}
                             <button type="button" onClick={handleReceiptParse} disabled={loadingReceipt || !receiptFile}
@@ -691,8 +703,20 @@ export default function SalesInputPage() {
                         {!menuSaved && (
                           <>
                             <div className="flex gap-3">
-                              <button type="button" onClick={() => setMenuCameraOpen(true)} className={btnBase}>📷 사진 찍기</button>
-                              <label htmlFor="menu-gallery-input" className={btnBase}>🖼️ 갤러리에서 선택</label>
+                              <button type="button" onClick={() => setMenuCameraOpen(true)} className={btnBase}>
+                                <span>📷</span>
+                                <span>사진 촬영</span>
+                              </button>
+                              <label htmlFor="menu-gallery-input" className={btnBase}>
+                                <span>🖼️</span>
+                                <span>갤러리에서 선택</span>
+                              </label>
+                            </div>
+                            <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-400 leading-relaxed flex items-start gap-2">
+                              <span className="shrink-0 text-slate-400">💡</span>
+                              <span>
+                                📄 긴 영수증은 폰 카메라의 <strong className="font-medium text-slate-300">&apos;문서 스캔&apos;</strong> 기능으로 저장해서 올리면 인식률이 크게 높아집니다.
+                              </span>
                             </div>
                             {menuFile && <p className="text-xs text-slate-400 truncate">선택됨: {menuFile.name}</p>}
                             <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile}
@@ -729,8 +753,20 @@ export default function SalesInputPage() {
                     <p className="mt-1 text-xs text-slate-400">정산서 없이 메뉴 내역 사진만으로 입력합니다</p>
                   </div>
                   <div className="flex gap-3">
-                    <button type="button" onClick={() => setMenuCameraOpen(true)} className={btnBase}>📷 사진 찍기</button>
-                    <label htmlFor="menu-gallery-input" className={btnBase}>🖼️ 갤러리에서 선택</label>
+                    <button type="button" onClick={() => setMenuCameraOpen(true)} className={btnBase}>
+                      <span>📷</span>
+                      <span>사진 촬영</span>
+                    </button>
+                    <label htmlFor="menu-gallery-input" className={btnBase}>
+                      <span>🖼️</span>
+                      <span>갤러리에서 선택</span>
+                    </label>
+                  </div>
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-400 leading-relaxed flex items-start gap-2">
+                    <span className="shrink-0 text-slate-400">💡</span>
+                    <span>
+                      📄 긴 영수증은 폰 카메라의 <strong className="font-medium text-slate-300">&apos;문서 스캔&apos;</strong> 기능으로 저장해서 올리면 인식률이 크게 높아집니다.
+                    </span>
                   </div>
                   {menuFile && <p className="text-xs text-slate-400 truncate">선택됨: {menuFile.name}</p>}
                   <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile}

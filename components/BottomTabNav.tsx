@@ -7,7 +7,7 @@ export default function BottomTabNav() {
   const pathname = usePathname();
 
   const tabs = [
-    { href: '/', label: '진단', icon: '📊', active: pathname === '/' },
+    { href: '/dashboard', label: '홈', icon: '📊', active: pathname === '/dashboard' },
     { href: '/sales', label: '매출', icon: '📈', active: pathname === '/sales' },
     { href: '/purchases', label: '매입', icon: '📦', active: pathname === '/purchases' },
     { href: '/analytics/menu', label: '분석', icon: '🍽️', active: pathname.startsWith('/analytics') },

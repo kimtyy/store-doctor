@@ -841,16 +841,25 @@ export default function PurchasesInputPage() {
                 <button
                   type="button"
                   onClick={() => setPurchaseCameraOpen(true)}
-                  className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition"
+                  className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 hover:border-slate-600 active:scale-[0.98] transition flex items-center justify-center gap-2 text-center cursor-pointer"
                 >
-                  📷 사진 찍기
+                  <span>📷</span>
+                  <span>사진 촬영</span>
                 </button>
                 <label
                   htmlFor="purchase-gallery-input"
-                  className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 transition text-center cursor-pointer"
+                  className="flex-1 rounded-2xl border border-slate-700 bg-slate-950/80 py-4 text-sm font-medium text-slate-100 hover:bg-slate-900 hover:border-slate-600 active:scale-[0.98] transition flex items-center justify-center gap-2 text-center cursor-pointer"
                 >
-                  🖼️ 갤러리에서 선택
+                  <span>🖼️</span>
+                  <span>갤러리에서 선택</span>
                 </label>
+              </div>
+
+              <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3 text-xs text-slate-400 leading-relaxed flex items-start gap-2">
+                <span className="shrink-0 text-slate-400">💡</span>
+                <span>
+                  짧은 영수증은 바로 촬영해도 됩니다. 영수증이 길거나 구겨졌다면 폰의 <strong className="font-medium text-slate-300">&apos;문서 스캔&apos;</strong>을 권장합니다.
+                </span>
               </div>
 
               {receiptFile ? (
