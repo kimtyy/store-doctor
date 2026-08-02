@@ -41,16 +41,17 @@ export async function GET(request: Request) {
       fromStr = fromParam;
       toStr = toParam;
 
-      // 한국 표준시 기준 오늘 구하기
-      const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-      const todayYear = today.getFullYear();
-      const todayMonth = today.getMonth() + 1;
-      const todayDay = today.getDate();
+      if (period === 'monthly') {
+        // 한국 표준시 기준 오늘 구하기
+        const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+        const todayYear = today.getFullYear();
+        const todayMonth = today.getMonth() + 1;
+        const todayDay = today.getDate();
 
-      const fromParts = fromParam.split('-');
-      if (fromParts.length >= 2) {
-        const targetYear = parseInt(fromParts[0], 10);
-        const targetMonth = parseInt(fromParts[1], 10);
+        const fromParts = fromParam.split('-');
+        if (fromParts.length >= 2) {
+          const targetYear = parseInt(fromParts[0], 10);
+          const targetMonth = parseInt(fromParts[1], 10);
 
         // 1) 당월인 경우 (예: 2026-07)
         if (targetYear === todayYear && targetMonth === todayMonth) {
@@ -70,7 +71,8 @@ export async function GET(request: Request) {
           toStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(limitDay).padStart(2, '0')}`;
         }
       }
-    } else if (period !== 'all') {
+    }
+  } else if (period !== 'all') {
       const days = parseInt(period, 10);
       const from = new Date();
       from.setDate(from.getDate() - days);

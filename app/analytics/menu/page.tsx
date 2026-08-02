@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import BottomTabNav from '../../../components/BottomTabNav';
+import PeriodSelector, { PeriodValue } from '../../../components/PeriodSelector';
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -136,16 +137,18 @@ function shiftMonth(m: MonthSelection, delta: number): MonthSelection {
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
-function buildApiQuery(p: Period, month: MonthSelection, includeEvent: boolean): string {
+function buildApiQuery(pv: PeriodValue, includeEvent: boolean): string {
   let base = '';
-  if (p === 'monthly') {
-    const { year, month: m } = month;
+  if (pv.type === 'monthly' && pv.selectedMonth) {
+    const { year, month: m } = pv.selectedMonth;
     const from = `${year}-${String(m).padStart(2, '0')}-01`;
     const lastDay = new Date(year, m, 0).getDate();
     const to = `${year}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    base = `from=${from}&to=${to}`;
+    base = `from=${from}&to=${to}&period=monthly`;
+  } else if (pv.type === 'custom' && pv.customRange) {
+    base = `from=${pv.customRange.startDate}&to=${pv.customRange.endDate}&period=custom`;
   } else {
-    base = `period=${p}`;
+    base = `period=${pv.type}`;
   }
   return base + `&includeEvent=${includeEvent}`;
 }
@@ -199,11 +202,13 @@ function ShowMoreButton({ expanded, total, onToggle }: { expanded: boolean; tota
 
 export default function AnalyticsPage() {
   const [section, setSection] = useState<Section>('menu');
-  const [period, setPeriod] = useState<Period>('30');
-  const [selectedMonth, setSelectedMonth] = useState<MonthSelection>(() => {
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() + 1 };
-  });
+  const [periodValue, setPeriodValue] = useState<PeriodValue>(() => ({
+    type: '30',
+    selectedMonth: {
+      year: new Date().getFullYear(),
+      month: new Date().getMonth() + 1,
+    },
+  }));
   const [availableMonths, setAvailableMonths] = useState<MonthSelection[]>([]);
 
   // menu analytics state
@@ -238,11 +243,11 @@ export default function AnalyticsPage() {
   const [vendorRenameSaving, setVendorRenameSaving] = useState(false);
   const [vendorRenameMsg, setVendorRenameMsg] = useState<string | null>(null);
 
-  const fetchMenuData = useCallback(async (p: Period, month: MonthSelection) => {
+  const fetchMenuData = useCallback(async (pv: PeriodValue) => {
     setMenuLoading(true);
     setMenuError(null);
     try {
-      const res = await fetch(`/api/analytics/menu?${buildApiQuery(p, month, includeEvent)}`);
+      const res = await fetch(`/api/analytics/menu?${buildApiQuery(pv, includeEvent)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
       setMenuData(json);
@@ -253,11 +258,11 @@ export default function AnalyticsPage() {
     }
   }, [includeEvent]);
 
-  const fetchPurchaseData = useCallback(async (p: Period, month: MonthSelection) => {
+  const fetchPurchaseData = useCallback(async (pv: PeriodValue) => {
     setPurchaseLoading(true);
     setPurchaseError(null);
     try {
-      const res = await fetch(`/api/analytics/purchases?${buildApiQuery(p, month, includeEvent)}`);
+      const res = await fetch(`/api/analytics/purchases?${buildApiQuery(pv, includeEvent)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
       setPurchaseData(json);
@@ -274,19 +279,19 @@ export default function AnalyticsPage() {
     setPurchaseItemsAmtExpanded(false);
     setPurchaseItemsCntExpanded(false);
     setPurchaseVendorExpanded(false);
-  }, [period, selectedMonth, section]);
+  }, [periodValue, section]);
 
-  useEffect(() => { fetchMenuData(period, selectedMonth); }, [period, selectedMonth, fetchMenuData]);
+  useEffect(() => { fetchMenuData(periodValue); }, [periodValue, fetchMenuData]);
 
   useEffect(() => {
-    if (section === 'purchase' || period === 'monthly') {
-      fetchPurchaseData(period, selectedMonth);
+    if (section === 'purchase' || periodValue.type === 'monthly') {
+      fetchPurchaseData(periodValue);
     }
-  }, [section, period, selectedMonth, fetchPurchaseData]);
+  }, [section, periodValue, fetchPurchaseData]);
 
   // Fetch available months + previous month data when in monthly mode
   useEffect(() => {
-    if (period !== 'monthly') {
+    if (periodValue.type !== 'monthly' || !periodValue.selectedMonth) {
       setAvailableMonths([]);
       setPrevPurchaseData(null);
       return;
@@ -296,26 +301,30 @@ export default function AnalyticsPage() {
       .then(data => {
         const months: MonthSelection[] = data.months ?? [];
         setAvailableMonths(months);
-        // Auto-navigate to latest available month if current month has no data
-        if (months.length > 0) {
+        if (months.length > 0 && periodValue.selectedMonth) {
           const isCurrentAvailable = months.some(
-            m => m.year === selectedMonth.year && m.month === selectedMonth.month
+            m => m.year === periodValue.selectedMonth!.year && m.month === periodValue.selectedMonth!.month
           );
           if (!isCurrentAvailable) {
-            setSelectedMonth(months[months.length - 1]);
+            setPeriodValue(pv => ({
+              ...pv,
+              selectedMonth: months[months.length - 1],
+            }));
           }
         }
       })
       .catch(() => {});
 
-    const prev = shiftMonth(selectedMonth, -1);
-    const prevQ = buildApiQuery('monthly', prev, includeEvent);
-    fetch(`/api/analytics/purchases?${prevQ}`)
-      .then(r => r.json())
-      .then(data => setPrevPurchaseData(data))
-      .catch(() => setPrevPurchaseData(null));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, selectedMonth, includeEvent]);
+    if (periodValue.selectedMonth) {
+      const prev = shiftMonth(periodValue.selectedMonth, -1);
+      const prevPV: PeriodValue = { type: 'monthly', selectedMonth: prev };
+      const prevQ = buildApiQuery(prevPV, includeEvent);
+      fetch(`/api/analytics/purchases?${prevQ}`)
+        .then(r => r.json())
+        .then(data => setPrevPurchaseData(data))
+        .catch(() => setPrevPurchaseData(null));
+    }
+  }, [periodValue.type, periodValue.selectedMonth, includeEvent]);
 
   async function handleCategorySelect(category: MenuCategory | null) {
     if (!editingMenu || updatingCategory) return;
@@ -347,7 +356,7 @@ export default function AnalyticsPage() {
       const json = await salesRes.json();
       if (!salesRes.ok) throw new Error(json.error ?? '업데이트 실패');
       setEditingMenu(null);
-      await fetchMenuData(period, selectedMonth);
+      await fetchMenuData(periodValue);
     } catch (e) {
       alert(e instanceof Error ? e.message : '오류가 발생했습니다.');
     } finally {
@@ -386,7 +395,7 @@ export default function AnalyticsPage() {
       // Refresh vendor master cache
       setVendorMasterData(null);
       // Refresh purchase data to reflect renamed vendors
-      await fetchPurchaseData(period, selectedMonth);
+      await fetchPurchaseData(periodValue);
       setTimeout(() => {
         setEditingVendor(null);
         setVendorRenameMsg(null);
@@ -397,19 +406,6 @@ export default function AnalyticsPage() {
       setVendorRenameSaving(false);
     }
   }
-
-  const canGoPrev = useMemo(() => {
-    if (availableMonths.length === 0) return false;
-    const minMonth = availableMonths[0]; // sorted ascending from API
-    return selectedMonth.year > minMonth.year ||
-      (selectedMonth.year === minMonth.year && selectedMonth.month > minMonth.month);
-  }, [availableMonths, selectedMonth]);
-
-  const canGoNext = useMemo(() => {
-    const now = new Date();
-    return selectedMonth.year < now.getFullYear() ||
-      (selectedMonth.year === now.getFullYear() && selectedMonth.month < now.getMonth() + 1);
-  }, [selectedMonth]);
 
   // menu chart data
   const allByAmount = menuData?.byAmount ?? [];
@@ -494,53 +490,29 @@ export default function AnalyticsPage() {
           </button>
         </div>
 
-        {/* Period tabs */}
-        <div className="flex gap-2 mb-4 flex-wrap">
-          {PERIODS.map((tab) => (
-            <button key={tab} onClick={() => setPeriod(tab)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition ${period === tab ? 'bg-sky-500 text-slate-950' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
-              {PERIOD_LABELS[tab]}
-            </button>
-          ))}
+      {/* Period Selector Component */}
+        <div className="mb-4">
+          <PeriodSelector
+            value={periodValue}
+            onChange={setPeriodValue}
+            availableMonths={availableMonths}
+          />
         </div>
 
-        {/* Month navigator */}
-        {period === 'monthly' && (
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <button
-              onClick={() => setSelectedMonth(shiftMonth(selectedMonth, -1))}
-              disabled={!canGoPrev}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 transition text-base"
-            >
-              ←
-            </button>
-            <span className="text-sm font-semibold text-slate-200 min-w-[110px] text-center">
-              {selectedMonth.year}년 {selectedMonth.month}월
-            </span>
-            <button
-              onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
-              disabled={!canGoNext}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 transition text-base"
-            >
-              →
-            </button>
-          </div>
-        )}
-
-        {period === 'monthly' && (
+        {periodValue.type === 'monthly' && periodValue.selectedMonth && (
           <div className="mb-6">
-            <a href={`/analytics/report?year=${selectedMonth.year}&month=${selectedMonth.month}&includeEvent=${includeEvent}`} className="block w-full rounded-2xl bg-sky-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-sky-500">
+            <a href={`/analytics/report?year=${periodValue.selectedMonth.year}&month=${periodValue.selectedMonth.month}&includeEvent=${includeEvent}`} className="block w-full rounded-2xl bg-sky-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-sky-500">
               📊 보고서 생성
             </a>
           </div>
         )}
 
         {/* Monthly summary card */}
-        {period === 'monthly' && (
+        {periodValue.type === 'monthly' && periodValue.selectedMonth && (
           purchaseData ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 mb-6">
               <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
-                {selectedMonth.year}년 {selectedMonth.month}월 손익 요약
+                {periodValue.selectedMonth.year}년 {periodValue.selectedMonth.month}월 손익 요약
               </h2>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div>
@@ -758,7 +730,7 @@ export default function AnalyticsPage() {
             {!purchaseLoading && !purchaseError && purchaseData && (
               <>
                 {/* Summary cards — only in non-monthly mode (monthly has global summary card above) */}
-                {period !== 'monthly' && (
+                {periodValue.type !== 'monthly' && (
                   <section className="mb-6">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
