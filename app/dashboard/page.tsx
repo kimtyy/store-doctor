@@ -551,23 +551,28 @@ export default function DashboardPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1">영업일</p>
-                      <p className="text-xl font-bold text-slate-100">
-                        {monthSummary.days}
-                        <span className="text-sm font-normal text-slate-400">일</span>
-                      </p>
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                    <div className="rounded-2xl bg-slate-950/80 px-2 py-3.5 text-center flex flex-col justify-between">
+                      <p className="text-xs text-slate-400 mb-1 whitespace-nowrap">영업일</p>
+                      <div>
+                        <p className="text-lg sm:text-xl font-bold text-slate-100">
+                          {monthSummary.days}
+                          <span className="text-xs sm:text-sm font-normal text-slate-400 ml-0.5">일</span>
+                        </p>
+                      </div>
+                      <div className="h-3.5" />
                     </div>
-                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1 flex items-center justify-center">
-                        총 매출 <TermTooltip term="총매출" />
+
+                    <div className="rounded-2xl bg-slate-950/80 px-2 py-3.5 text-center flex flex-col justify-between">
+                      <p className="text-xs text-slate-400 mb-1 flex items-center justify-center whitespace-nowrap">
+                        <span>총매출</span>
+                        <TermTooltip term="총매출" />
                       </p>
-                      <p className="text-lg font-bold text-slate-100">
+                      <p className="text-lg sm:text-xl font-bold text-slate-100">
                         {Math.round(monthSummary.totalRevenue / 10000)}만
                       </p>
-                      {monthSummary.prevTotalRevenue > 0 && (
-                        <p className={`text-[10px] font-bold mt-1.5 ${
+                      {monthSummary.prevTotalRevenue > 0 ? (
+                        <p className={`text-[10px] font-bold ${
                           monthSummary.revenueChangePct > 0 
                             ? 'text-emerald-400' 
                             : monthSummary.revenueChangePct < 0 
@@ -576,17 +581,21 @@ export default function DashboardPage() {
                         }`}>
                           {monthSummary.revenueChangePct > 0 ? '↑' : monthSummary.revenueChangePct < 0 ? '↓' : '-'} {Math.abs(monthSummary.revenueChangePct).toFixed(1)}%
                         </p>
+                      ) : (
+                        <div className="h-3.5" />
                       )}
                     </div>
-                    <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1 flex items-center justify-center">
-                        총 매입 <TermTooltip term="총매입" />
+
+                    <div className="rounded-2xl bg-slate-950/80 px-2 py-3.5 text-center flex flex-col justify-between">
+                      <p className="text-xs text-slate-400 mb-1 flex items-center justify-center whitespace-nowrap">
+                        <span>총매입</span>
+                        <TermTooltip term="총매입" />
                       </p>
-                      <p className="text-lg font-bold text-amber-400">
+                      <p className="text-lg sm:text-xl font-bold text-amber-400">
                         {Math.round(monthSummary.totalCost / 10000)}만
                       </p>
-                      {monthSummary.prevTotalCost > 0 && (
-                        <p className={`text-[10px] font-bold mt-1.5 ${
+                      {monthSummary.prevTotalCost > 0 ? (
+                        <p className={`text-[10px] font-bold ${
                           monthSummary.costChangePct > 0 
                             ? 'text-rose-400' 
                             : monthSummary.costChangePct < 0 
@@ -595,6 +604,8 @@ export default function DashboardPage() {
                         }`}>
                           {monthSummary.costChangePct > 0 ? '↑' : monthSummary.costChangePct < 0 ? '↓' : '-'} {Math.abs(monthSummary.costChangePct).toFixed(1)}%
                         </p>
+                      ) : (
+                        <div className="h-3.5" />
                       )}
                     </div>
                   </div>
