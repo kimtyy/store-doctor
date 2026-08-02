@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { DailySales, SalesMenuItem } from '../../types/sales';
 import { correctMenuName, MenuMasterEntry } from '../../lib/menuCorrection';
 import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
+import PeriodSelector, { PeriodValue, MonthSelection } from '../../components/PeriodSelector';
 
 type Tab = 'input' | 'history';
 type ParseMode = 'full' | 'menu_only' | 'manual';
@@ -220,6 +221,56 @@ export default function SalesInputPage() {
   const [drafts, setDrafts] = useState<Record<string, HistoryDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [historyMsg, setHistoryMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [historyPeriodValue, setHistoryPeriodValue] = useState<PeriodValue>(() => ({
+    type: '30',
+    selectedMonth: {
+      year: new Date().getFullYear(),
+      month: new Date().getMonth() + 1,
+    },
+  }));
+  const [availableMonths, setAvailableMonths] = useState<MonthSelection[]>([]);
+
+  useEffect(() => {
+    if (tab === 'history') {
+      fetch('/api/analytics/months')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.months) setAvailableMonths(d.months);
+        })
+        .catch(() => {});
+    }
+  }, [tab]);
+
+  const filteredSalesHistory = useMemo(() => {
+    let list = historyData.filter((r) => !r.isEvent);
+
+    if (historyPeriodValue.type === '7') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+      list = list.filter((r) => r.date >= cutoffStr);
+    } else if (historyPeriodValue.type === '30') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+      list = list.filter((r) => r.date >= cutoffStr);
+    } else if (historyPeriodValue.type === 'monthly' && historyPeriodValue.selectedMonth) {
+      const { year, month } = historyPeriodValue.selectedMonth;
+      const ym = `${year}-${String(month).padStart(2, '0')}`;
+      list = list.filter((r) => r.date.startsWith(ym));
+    } else if (historyPeriodValue.type === 'custom' && historyPeriodValue.customRange) {
+      const { startDate, endDate } = historyPeriodValue.customRange;
+      list = list.filter((r) => r.date >= startDate && r.date <= endDate);
+    }
+
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [historyData, historyPeriodValue]);
+
+  const historySumRevenue = useMemo(
+    () => filteredSalesHistory.reduce((s, r) => s + (r.netRevenue ?? r.totalRevenue), 0),
+    [filteredSalesHistory]
+  );
 
   // ── history ──────────────────────────────────────────────────────────────────
 
@@ -898,21 +949,37 @@ export default function SalesInputPage() {
 
           {/* ── HISTORY TAB ───────────────────────────────────────────────────── */}
           {tab === 'history' && (
-            <>
+            <div className="space-y-4">
               {historyMsg && (
                 <div className={`rounded-2xl border p-4 text-sm ${historyMsg.type === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-200'}`}>
                   {historyMsg.text}
                 </div>
               )}
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">매출 내역</h2>
+                <span className="text-xs font-semibold text-sky-400 bg-sky-950/60 border border-sky-800/50 rounded-full px-3 py-1 self-start sm:self-auto">
+                  {filteredSalesHistory.length}건 · 합계 {(historySumRevenue / 10000).toFixed(1)}만원
+                </span>
+              </div>
+
+              <PeriodSelector
+                value={historyPeriodValue}
+                onChange={setHistoryPeriodValue}
+                availableMonths={availableMonths}
+              />
+
               {historyLoading ? (
                 <div className="py-20 text-center text-slate-400 text-sm animate-pulse">불러오는 중...</div>
               ) : historyError ? (
                 <div className="rounded-2xl border border-rose-800 bg-rose-950/40 p-4 text-rose-400 text-sm">{historyError}</div>
-              ) : historyData.length === 0 ? (
-                <div className="py-20 text-center text-slate-500 text-sm">저장된 매출 내역이 없습니다.</div>
+              ) : filteredSalesHistory.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-2xl">
+                  선택한 기간에 등록된 매출 내역이 없습니다.
+                </div>
               ) : (
                 <div className="space-y-3">
-                  {historyData.map((record) => {
+                  {filteredSalesHistory.map((record) => {
                     const isExpanded = expandedId === record.id!;
                     const draft = drafts[record.id!];
                     const menuCount = record.menuItems?.length ?? 0;
@@ -1007,7 +1074,7 @@ export default function SalesInputPage() {
                   })}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </main>

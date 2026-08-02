@@ -5,6 +5,7 @@ import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purc
 import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
+import PeriodSelector, { PeriodValue, MonthSelection } from '../../components/PeriodSelector';
 
 function NumericTextInput({
   value,
@@ -173,6 +174,56 @@ export default function PurchasesInputPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const [historyPeriodValue, setHistoryPeriodValue] = useState<PeriodValue>(() => ({
+    type: '30',
+    selectedMonth: {
+      year: new Date().getFullYear(),
+      month: new Date().getMonth() + 1,
+    },
+  }));
+  const [availableMonths, setAvailableMonths] = useState<MonthSelection[]>([]);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetch('/api/analytics/months')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.months) setAvailableMonths(d.months);
+        })
+        .catch(() => {});
+    }
+  }, [activeTab]);
+
+  const filteredPurchaseHistory = useMemo(() => {
+    let list = historyList.filter((r) => !(r as any).is_event);
+
+    if (historyPeriodValue.type === '7') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+      list = list.filter((r) => r.date >= cutoffStr);
+    } else if (historyPeriodValue.type === '30') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+      list = list.filter((r) => r.date >= cutoffStr);
+    } else if (historyPeriodValue.type === 'monthly' && historyPeriodValue.selectedMonth) {
+      const { year, month } = historyPeriodValue.selectedMonth;
+      const ym = `${year}-${String(month).padStart(2, '0')}`;
+      list = list.filter((r) => r.date.startsWith(ym));
+    } else if (historyPeriodValue.type === 'custom' && historyPeriodValue.customRange) {
+      const { startDate, endDate } = historyPeriodValue.customRange;
+      list = list.filter((r) => r.date >= startDate && r.date <= endDate);
+    }
+
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [historyList, historyPeriodValue]);
+
+  const historySumAmount = useMemo(
+    () => filteredPurchaseHistory.reduce((s, r) => s + r.total_amount, 0),
+    [filteredPurchaseHistory]
+  );
 
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -635,17 +686,28 @@ export default function PurchasesInputPage() {
 
           {activeTab === 'history' ? (
             <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <h2 className="text-lg font-semibold">매입 내역</h2>
-                <button
-                  type="button"
-                  onClick={fetchHistory}
-                  disabled={historyLoading}
-                  className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40"
-                >
-                  새로고침
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800/50 rounded-full px-3 py-1">
+                    {filteredPurchaseHistory.length}건 · 합계 {(historySumAmount / 10000).toFixed(1)}만원
+                  </span>
+                  <button
+                    type="button"
+                    onClick={fetchHistory}
+                    disabled={historyLoading}
+                    className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40"
+                  >
+                    새로고침
+                  </button>
+                </div>
               </div>
+
+              <PeriodSelector
+                value={historyPeriodValue}
+                onChange={setHistoryPeriodValue}
+                availableMonths={availableMonths}
+              />
 
               {historyLoading && (
                 <p className="text-sm text-slate-400 animate-pulse text-center py-6">불러오는 중...</p>
@@ -657,13 +719,15 @@ export default function PurchasesInputPage() {
                 </div>
               )}
 
-              {!historyLoading && !historyError && historyList.length === 0 && (
-                <p className="text-sm text-slate-500 text-center py-8">저장된 매입 내역이 없습니다.</p>
+              {!historyLoading && !historyError && filteredPurchaseHistory.length === 0 && (
+                <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-2xl">
+                  선택한 기간에 등록된 매입 내역이 없습니다.
+                </div>
               )}
 
-              {!historyLoading && !historyError && historyList.length > 0 && (
+              {!historyLoading && !historyError && filteredPurchaseHistory.length > 0 && (
                 <div className="space-y-2">
-                  {historyList.map((record) => {
+                  {filteredPurchaseHistory.map((record) => {
                     const isExpanded = expandedId === record.id;
                     const draft = draftItems[record.id] ?? record.items;
                     const itemCount = record.items?.length ?? 0;
