@@ -63,8 +63,6 @@ export default function TermTooltip({ term, text, className = '' }: TermTooltipP
   const displayTerm = matched?.term ?? term ?? '용어 설명';
   const explanation = text ?? matched?.explanation;
 
-  if (!explanation) return null;
-
   useEffect(() => {
     if (!open) return;
     function handleClickOutside(e: MouseEvent | TouchEvent) {
@@ -79,6 +77,8 @@ export default function TermTooltip({ term, text, className = '' }: TermTooltipP
       document.removeEventListener('touchstart', handleClickOutside);
     };
   }, [open]);
+
+  if (!explanation) return null;
 
   return (
     <span ref={containerRef} className={`relative inline-flex items-center align-middle ${className}`}>
