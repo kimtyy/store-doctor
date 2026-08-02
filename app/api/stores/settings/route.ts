@@ -13,13 +13,13 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from('stores')
-      .select('owner_salary, loan_repayment')
+      .select('owner_salary, loan_repayment, onboarding_guide_seen')
       .eq('id', storeId)
       .single();
 
     if (error) {
       if (error.code === 'PGRST116') {
-        return NextResponse.json({ data: { owner_salary: 0, loan_repayment: 0 } });
+        return NextResponse.json({ data: { owner_salary: 0, loan_repayment: 0, onboarding_guide_seen: false } });
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -38,15 +38,18 @@ export async function PATCH(request: Request) {
   const supabase = createClient();
   try {
     const body = await request.json();
-    const { owner_salary, loan_repayment } = body;
+    const { owner_salary, loan_repayment, onboarding_guide_seen } = body;
+
+    const payload: Record<string, unknown> = {
+      updated_at: new Date().toISOString()
+    };
+    if (owner_salary !== undefined) payload.owner_salary = owner_salary;
+    if (loan_repayment !== undefined) payload.loan_repayment = loan_repayment;
+    if (onboarding_guide_seen !== undefined) payload.onboarding_guide_seen = onboarding_guide_seen;
 
     const { error } = await supabase
       .from('stores')
-      .update({
-        owner_salary: owner_salary || 0,
-        loan_repayment: loan_repayment || 0,
-        updated_at: new Date().toISOString()
-      })
+      .update(payload)
       .eq('id', storeId);
 
     if (error) {

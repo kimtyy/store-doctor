@@ -720,8 +720,10 @@ export default function PurchasesInputPage() {
               )}
 
               {!historyLoading && !historyError && filteredPurchaseHistory.length === 0 && (
-                <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-2xl">
-                  선택한 기간에 등록된 매입 내역이 없습니다.
+                <div className="py-12 text-center text-slate-400 text-sm border border-dashed border-slate-800 rounded-2xl space-y-2">
+                  <p className="text-3xl">🧾</p>
+                  <p className="font-medium text-slate-300">영수증을 올리거나 직접 입력해보세요</p>
+                  <p className="text-xs text-slate-500">사진을 찍거나 수동으로 매입 내역을 등록할 수 있습니다</p>
                 </div>
               )}
 

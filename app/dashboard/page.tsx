@@ -5,6 +5,7 @@ import { calculateMovingAverage } from '@/lib/analytics/movingAverage';
 import MAChart from '@/components/charts/MAChart';
 import BottomTabNav from '@/components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '@/components/PeriodSelector';
+import OnboardingGuideModal from '@/components/OnboardingGuideModal';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 
@@ -78,6 +79,29 @@ export default function DashboardPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
+  const [showGuideModal, setShowGuideModal] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/stores/settings')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.data && d.data.onboarding_guide_seen === false) {
+          setShowGuideModal(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleCloseGuideModal() {
+    setShowGuideModal(false);
+    try {
+      await fetch('/api/stores/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onboarding_guide_seen: true }),
+      });
+    } catch {}
+  }
 
   // Bottom sales section independent period state & server fetch
   const [recentPeriodValue, setRecentPeriodValue] = useState<PeriodValue>(() => ({
@@ -636,6 +660,11 @@ export default function DashboardPage() {
       </main>
 
       <BottomTabNav />
+
+      <OnboardingGuideModal
+        isOpen={showGuideModal}
+        onClose={handleCloseGuideModal}
+      />
     </>
   );
 }

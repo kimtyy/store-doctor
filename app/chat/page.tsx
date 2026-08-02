@@ -215,7 +215,7 @@ export default function ChatPage() {
       {/* Header */}
       <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 px-4 py-3">
         <h1 className="text-base font-semibold text-white">🤖 AI 상담</h1>
-        <p className="text-xs text-slate-400 mt-0.5">매장 데이터를 분석해 드립니다</p>
+        <p className="text-xs text-slate-400 mt-0.5">데이터가 쌓일수록 상담이 정확해집니다</p>
       </div>
 
       {/* Messages */}
@@ -227,7 +227,7 @@ export default function ChatPage() {
               <div className="w-8 h-8 rounded-full bg-sky-600 flex items-center justify-center text-sm flex-shrink-0">AI</div>
               <div className="bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs">
                 <p className="text-sm text-slate-200 leading-relaxed">
-                  안녕하세요, 사장님! 우리 매장의 똑똑한 AI 경영 컨설턴트입니다.{'\n\n'}매출, 매입, 메뉴 분석 등 궁금한 점을 물어보세요. 이번달·지난달 데이터를 바탕으로 답변드릴게요.
+                  안녕하세요, 사장님! 우리 매장의 똑똑한 AI 경영 컨설턴트입니다.{'\n\n'}데이터가 쌓일수록 상담이 더욱 정확해집니다. 매출, 매입, 메뉴 분석 등 궁금한 점을 편하게 질문해 보세요!
                 </p>
               </div>
             </div>

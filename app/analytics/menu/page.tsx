@@ -582,7 +582,17 @@ export default function AnalyticsPage() {
                 <section className="mb-8">
                   <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">매출 랭킹</h2>
                   {allByAmount.length === 0 ? (
-                    <p className="text-slate-500 text-sm">데이터가 없습니다.</p>
+                    <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-8 text-center space-y-3 my-4">
+                      <p className="text-4xl">📊</p>
+                      <p className="text-slate-200 font-semibold text-base">매출 데이터가 3일 이상 쌓이면 분석이 시작됩니다</p>
+                      <p className="text-slate-400 text-xs">매출 탭에서 POS 정산서를 입력해 보세요</p>
+                      <a
+                        href="/sales"
+                        className="mt-2 inline-block rounded-2xl bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-400 transition"
+                      >
+                        매출 입력하기
+                      </a>
+                    </div>
                   ) : (
                     <>
                       <div className="space-y-2">

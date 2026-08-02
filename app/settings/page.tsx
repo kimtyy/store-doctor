@@ -123,6 +123,20 @@ export default function SettingsPage() {
             </div>
           ) : null}
 
+          {/* 사용 가이드 */}
+          <a
+            href="/guide"
+            className="block rounded-3xl border border-sky-800/40 bg-sky-950/20 p-6 hover:border-sky-700/60 transition"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-sky-200">📘 사용 가이드</h2>
+                <p className="mt-1 text-xs text-sky-400/80">앱 주요 기능 및 영수증 촬영·스캔 꿀팁 다시보기</p>
+              </div>
+              <span className="text-sky-400 text-lg">→</span>
+            </div>
+          </a>
+
           {/* 고정비 관리 */}
           <a
             href="/settings/fixed-costs"
