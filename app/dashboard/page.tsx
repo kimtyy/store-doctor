@@ -116,6 +116,23 @@ export default function DashboardPage() {
   const [recentSalesData, setRecentSalesData] = useState<DailySales[]>([]);
   const [recentSectionLoading, setRecentSectionLoading] = useState<boolean>(false);
 
+  // KST Date formatting helpers for section titles
+  const dateFormattedInfo = useMemo(() => {
+    const now = new Date();
+    const kstString = now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' });
+    const kstDate = new Date(kstString);
+
+    const month = kstDate.getMonth() + 1;
+    const date = kstDate.getDate();
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    const dow = weekdays[kstDate.getDay()];
+
+    return {
+      todayFormatted: `${month}월 ${date}일 (${dow})`,
+      monthRangeFormatted: `${month}월 1일 ~ ${month}월 ${date}일`,
+    };
+  }, []);
+
   useEffect(() => {
     fetch('/api/analytics/months')
       .then((r) => r.json())
@@ -447,7 +464,10 @@ export default function DashboardPage() {
             <>
               {/* ── 오늘 영업 참고 ─────────────────────────────────────── */}
               <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-                <h2 className="text-lg font-semibold text-slate-100 mb-4">오늘 영업 참고</h2>
+                <h2 className="text-lg font-semibold text-slate-100 mb-4 flex items-baseline gap-2 flex-wrap">
+                  <span>오늘 영업 참고</span>
+                  <span className="text-xs font-normal text-slate-400">({dateFormattedInfo.todayFormatted})</span>
+                </h2>
 
                 {/* Weather */}
                 {weather ? (
@@ -506,8 +526,11 @@ export default function DashboardPage() {
               {/* ── 이번달 현황 ────────────────────────────────────────── */}
               {monthSummary && (
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-slate-100">이번달 현황</h3>
+                  <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <h3 className="text-lg font-semibold text-slate-100 flex items-baseline gap-2 flex-wrap">
+                      <span>이번달 현황</span>
+                      <span className="text-xs font-normal text-slate-400">({dateFormattedInfo.monthRangeFormatted})</span>
+                    </h3>
                     <div className="flex items-center gap-2">
                       {/* 행사 포함 토글 */}
                       <button
