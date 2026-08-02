@@ -47,6 +47,27 @@ function fmt만(n: number): string {
   return `${(n / 10000).toFixed(1)}만`;
 }
 
+function buildSalesApiUrl(pv: PeriodValue): string {
+  if (pv.type === '7') {
+    return '/api/sales?days=7&simple=true';
+  }
+  if (pv.type === '30') {
+    return '/api/sales?days=30&simple=true';
+  }
+  if (pv.type === 'monthly' && pv.selectedMonth) {
+    const { year, month } = pv.selectedMonth;
+    const lastDay = new Date(year, month, 0).getDate();
+    const from = `${year}-${String(month).padStart(2, '0')}-01`;
+    const to = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    return `/api/sales?simple=true&from=${from}&to=${to}`;
+  }
+  if (pv.type === 'custom' && pv.customRange) {
+    const { startDate, endDate } = pv.customRange;
+    return `/api/sales?simple=true&from=${startDate}&to=${endDate}`;
+  }
+  return '/api/sales?simple=true';
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -58,7 +79,7 @@ export default function DashboardPage() {
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
 
-  // Bottom sales section independent period state
+  // Bottom sales section independent period state & server fetch
   const [recentPeriodValue, setRecentPeriodValue] = useState<PeriodValue>(() => ({
     type: '7',
     selectedMonth: {
@@ -67,6 +88,8 @@ export default function DashboardPage() {
     },
   }));
   const [availableMonths, setAvailableMonths] = useState<MonthSelection[]>([]);
+  const [recentSalesData, setRecentSalesData] = useState<DailySales[]>([]);
+  const [recentSectionLoading, setRecentSectionLoading] = useState<boolean>(false);
 
   useEffect(() => {
     fetch('/api/analytics/months')
@@ -76,6 +99,29 @@ export default function DashboardPage() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    async function fetchRecentSection() {
+      setRecentSectionLoading(true);
+      try {
+        const url = buildSalesApiUrl(recentPeriodValue);
+        const res = await fetch(url);
+        const json = await res.json().catch(() => null);
+        if (!ignore && res.ok && json?.data) {
+          setRecentSalesData(json.data);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (!ignore) setRecentSectionLoading(false);
+      }
+    }
+    fetchRecentSection();
+    return () => {
+      ignore = true;
+    };
+  }, [recentPeriodValue]);
 
   useEffect(() => {
     fetch(
@@ -313,31 +359,11 @@ export default function DashboardPage() {
     };
   }, [nonEventSalesData, salesData, purchaseByDate, eventPurchaseByDate, includeEvent]);
 
-  // Filtered sales data for bottom section based on recentPeriodValue
+  // Filtered sales data for bottom section based on recentSalesData (server-fetched)
   const filteredRecentDays = useMemo(() => {
-    let list = [...nonEventSalesData];
-
-    if (recentPeriodValue.type === '7') {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 7);
-      const cutoffStr = localDateStr(cutoff);
-      list = list.filter((d) => d.date >= cutoffStr);
-    } else if (recentPeriodValue.type === '30') {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      const cutoffStr = localDateStr(cutoff);
-      list = list.filter((d) => d.date >= cutoffStr);
-    } else if (recentPeriodValue.type === 'monthly' && recentPeriodValue.selectedMonth) {
-      const { year, month } = recentPeriodValue.selectedMonth;
-      const ym = `${year}-${String(month).padStart(2, '0')}`;
-      list = list.filter((d) => d.date.startsWith(ym));
-    } else if (recentPeriodValue.type === 'custom' && recentPeriodValue.customRange) {
-      const { startDate, endDate } = recentPeriodValue.customRange;
-      list = list.filter((d) => d.date >= startDate && d.date <= endDate);
-    }
-
+    const list = recentSalesData.filter((d) => !d.isEvent);
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [nonEventSalesData, recentPeriodValue]);
+  }, [recentSalesData]);
 
   const sectionTotalRevenue = useMemo(
     () => filteredRecentDays.reduce((s, d) => s + d.netRevenue, 0),
@@ -570,7 +596,11 @@ export default function DashboardPage() {
                 />
 
                 <div className="mt-4 space-y-3">
-                  {filteredRecentDays.length === 0 ? (
+                  {recentSectionLoading ? (
+                    <div className="py-8 text-center text-slate-400 text-sm animate-pulse">
+                      데이터 불러오는 중...
+                    </div>
+                  ) : filteredRecentDays.length === 0 ? (
                     <div className="py-8 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-2xl">
                       해당 기간에 등록된 매출 데이터가 없습니다.
                     </div>

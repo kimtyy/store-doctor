@@ -268,7 +268,7 @@ export default function SalesInputPage() {
   }, [historyData, historyPeriodValue]);
 
   const historySumRevenue = useMemo(
-    () => filteredSalesHistory.reduce((s, r) => s + (r.netRevenue ?? r.totalRevenue), 0),
+    () => filteredSalesHistory.reduce((s, r) => s + r.netRevenue, 0),
     [filteredSalesHistory]
   );
 

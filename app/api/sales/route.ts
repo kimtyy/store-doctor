@@ -17,7 +17,7 @@ function mapRow(row: Record<string, unknown>) {
     serviceAmount: row.service_amount ?? row.service_charge ?? 0,
     actualSales: row.actual_sales ?? row.total_revenue ?? 0,
     tax: row.tax ?? 0,
-    netRevenue: row.net_revenue,
+    netRevenue: row.net_revenue ?? 0,
     cashCount: row.cash_count ?? 0,
     cashAmount: row.cash_amount ?? 0,
     cardCount: row.card_count ?? 0,
@@ -153,6 +153,8 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
+    const fromParam = searchParams.get('from');
+    const toParam = searchParams.get('to');
     const days = parseInt(searchParams.get('days') ?? '0', 10);
 
     const simple = searchParams.get('simple') === 'true';
@@ -164,10 +166,16 @@ export async function GET(request: Request) {
       .eq('store_id', STORE_ID)
       .order('date', { ascending: true });
 
-    if (days > 0) {
+    if (fromParam) {
+      query = query.gte('date', fromParam);
+    } else if (days > 0) {
       const since = new Date();
       since.setDate(since.getDate() - days);
       query = query.gte('date', since.toISOString().split('T')[0]);
+    }
+
+    if (toParam) {
+      query = query.lte('date', toParam);
     }
 
     const { data, error } = await query;

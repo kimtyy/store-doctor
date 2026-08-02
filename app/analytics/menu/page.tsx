@@ -61,15 +61,7 @@ interface VendorMasterRow {
 
 // ── constants ────────────────────────────────────────────────────────────────
 
-type Period = '7' | '30' | 'monthly' | 'all';
 type Section = 'menu' | 'purchase';
-
-const PERIOD_LABELS: Record<Period, string> = {
-  '7': '최근 7일',
-  '30': '최근 30일',
-  monthly: '월별',
-  all: '전체',
-};
 
 const MENU_CATEGORIES = ['주류', '음료', '안주', '식사', '세트'] as const;
 type MenuCategory = (typeof MENU_CATEGORIES)[number];
@@ -183,7 +175,6 @@ function MoMBadge({ current, prev, invertColor = false }: { current: number; pre
   );
 }
 
-const PERIODS: Period[] = ['7', '30', 'monthly', 'all'];
 const TOP_N = 10;
 
 function ShowMoreButton({ expanded, total, onToggle }: { expanded: boolean; total: number; onToggle: () => void }) {

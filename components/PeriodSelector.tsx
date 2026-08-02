@@ -86,7 +86,7 @@ export default function PeriodSelector({
   };
 
   const canGoPrev = useMemo(() => {
-    if (availableMonths.length === 0) return true;
+    if (availableMonths.length === 0) return false;
     const minMonth = availableMonths[0]; // sorted ascending
     return (
       currentMonthYear > minMonth.year ||
