@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import TermTooltip from '@/components/ui/TermTooltip';
 
 const WEATHER_EMOJI: Record<string, string> = {
   '맑음': '☀️',
@@ -202,7 +203,9 @@ function MonthlyReportContent() {
           <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">매출 요약</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <p className="text-sm text-slate-500 mb-1">총매출</p>
+              <p className="text-sm text-slate-500 mb-1 flex items-center">
+                총매출 <TermTooltip term="총매출" />
+              </p>
               <p className="text-2xl font-bold text-slate-900">{fmt(data.sales.totalRevenue)}원</p>
               <p className="text-xs text-slate-500 mt-1">
                 전월 대비: <span className={data.sales.momChangePct >= 0 ? 'text-sky-600' : 'text-rose-600'}>
@@ -236,11 +239,15 @@ function MonthlyReportContent() {
           <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">매입 요약 (원가)</h2>
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 flex justify-between items-center">
             <div>
-              <p className="text-sm text-slate-500 mb-1">총매입(원가)</p>
+              <p className="text-sm text-slate-500 mb-1 flex items-center">
+                총매입(원가) <TermTooltip term="총매입" />
+              </p>
               <p className="text-2xl font-bold text-rose-600">{fmt(data.purchases.totalPurchase)}원</p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-slate-500 mb-1">매출 대비 원가율</p>
+              <p className="text-sm text-slate-500 mb-1 flex items-center justify-end">
+                매출 대비 원가율 <TermTooltip term="원가율" />
+              </p>
               <p className="text-2xl font-bold text-slate-900">{data.purchases.costRatio.toFixed(1)}%</p>
             </div>
           </div>
@@ -292,7 +299,9 @@ function MonthlyReportContent() {
             <div className="pt-4 border-t-2 border-slate-600 mt-2">
               <div className="flex justify-between items-center">
                 <div>
-                  <p className="text-base font-bold text-white">실질 순이익</p>
+                  <p className="text-base font-bold text-white flex items-center">
+                    실질 순이익 <TermTooltip term="순이익" />
+                  </p>
                   <p className="text-xs text-slate-400 mt-0.5">실제 내 손에 남는 돈 (총비용률 {data.profit.totalCostRatio.toFixed(1)}%)</p>
                 </div>
                 <span className={`text-2xl font-black ${data.profit.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -321,19 +330,25 @@ function MonthlyReportContent() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     <tr>
-                      <td className="p-3 text-left font-semibold text-slate-700">총매출</td>
+                      <td className="p-3 text-left font-semibold text-slate-700">
+                        총매출 <TermTooltip term="총매출" />
+                      </td>
                       <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.totalRevenue)}원</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.totalRevenue} base={data.comparison.prev.totalRevenue} /></td>
                       <td className="p-3"><ComparisonCell current={data.comparison.current.totalRevenue} base={data.comparison.lastYear.totalRevenue} /></td>
                     </tr>
                     <tr>
-                      <td className="p-3 text-left font-semibold text-slate-700">원가율</td>
+                      <td className="p-3 text-left font-semibold text-slate-700">
+                        원가율 <TermTooltip term="원가율" />
+                      </td>
                       <td className="p-3 font-bold text-slate-900">{data.comparison.current.costRatio.toFixed(1)}%</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.prev.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" invertColor /></td>
                       <td className="p-3"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.lastYear.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" invertColor /></td>
                     </tr>
                     <tr>
-                      <td className="p-3 text-left font-semibold text-slate-700">영업이익</td>
+                      <td className="p-3 text-left font-semibold text-slate-700">
+                        영업이익 <TermTooltip term="순이익" />
+                      </td>
                       <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.operatingProfit)}원</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.operatingProfit} base={data.comparison.prev.operatingProfit} /></td>
                       <td className="p-3"><ComparisonCell current={data.comparison.current.operatingProfit} base={data.comparison.lastYear.operatingProfit} /></td>
@@ -345,7 +360,9 @@ function MonthlyReportContent() {
                       <td className="p-3"><ComparisonCell current={data.comparison.current.avgDailySales} base={data.comparison.lastYear.avgDailySales} /></td>
                     </tr>
                     <tr>
-                      <td className="p-3 text-left font-semibold text-slate-700">객단가</td>
+                      <td className="p-3 text-left font-semibold text-slate-700">
+                        객단가 <TermTooltip term="객단가" />
+                      </td>
                       <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.avgSpend)}원</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.prev.avgSpend} /></td>
                       <td className="p-3"><ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.lastYear.avgSpend} /></td>
@@ -376,9 +393,21 @@ function MonthlyReportContent() {
               <span className="font-semibold text-slate-800">{(data.bep.variableCostRatio * 100).toFixed(1)}%</span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
-              <span className="font-bold text-slate-900">손익분기점 (BEP)</span>
+              <span className="font-bold text-slate-900 flex items-center">
+                손익분기점 (BEP) <TermTooltip term="BEP(손익분기점)" />
+              </span>
               <span className="font-bold text-slate-900">{fmt(data.bep.bep)}원</span>
             </div>
+            {data.bep.bep > 0 && data.bep.currentRevenue > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500 flex items-center">
+                  안전마진율 <TermTooltip term="안전마진율" />
+                </span>
+                <span className="font-semibold text-slate-800">
+                  {(((data.bep.currentRevenue - data.bep.bep) / data.bep.currentRevenue) * 100).toFixed(1)}%
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-sm mt-4">
               <span className="text-slate-500">현재 월매출</span>
               <span className="font-semibold text-slate-800">{fmt(data.bep.currentRevenue)}원</span>

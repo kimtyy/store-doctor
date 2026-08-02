@@ -6,6 +6,7 @@ import MAChart from '@/components/charts/MAChart';
 import BottomTabNav from '@/components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '@/components/PeriodSelector';
 import OnboardingGuideModal from '@/components/OnboardingGuideModal';
+import TermTooltip from '@/components/ui/TermTooltip';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 
@@ -539,7 +540,9 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1">총 매출</p>
+                      <p className="text-xs text-slate-400 mb-1 flex items-center justify-center">
+                        총 매출 <TermTooltip term="총매출" />
+                      </p>
                       <p className="text-lg font-bold text-slate-100">
                         {Math.round(monthSummary.totalRevenue / 10000)}만
                       </p>
@@ -556,7 +559,9 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className="rounded-2xl bg-slate-950/80 p-4 text-center">
-                      <p className="text-xs text-slate-400 mb-1">총 매입</p>
+                      <p className="text-xs text-slate-400 mb-1 flex items-center justify-center">
+                        총 매입 <TermTooltip term="총매입" />
+                      </p>
                       <p className="text-lg font-bold text-amber-400">
                         {Math.round(monthSummary.totalCost / 10000)}만
                       </p>
@@ -595,7 +600,9 @@ export default function DashboardPage() {
               {/* ── 이동평균선 차트 ────────────────────────────────────── */}
               {chartData.length >= 2 && (
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
-                  <h3 className="text-lg font-semibold text-slate-100">이동평균선</h3>
+                  <h3 className="text-lg font-semibold text-slate-100 flex items-center">
+                    이동평균선 <TermTooltip term="이동평균선" />
+                  </h3>
                   <div className="mt-4">
                     <MAChart data={chartData} availability={dataAvailability} />
                   </div>

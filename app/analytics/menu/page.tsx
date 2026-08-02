@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import BottomTabNav from '../../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue } from '../../../components/PeriodSelector';
+import TermTooltip from '@/components/ui/TermTooltip';
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -507,21 +508,27 @@ export default function AnalyticsPage() {
               </h2>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div>
-                  <p className="text-xs text-slate-500 mb-1">총매출</p>
+                  <p className="text-xs text-slate-500 mb-1 flex items-center justify-center">
+                    총매출 <TermTooltip term="총매출" />
+                  </p>
                   <p className="text-base font-bold text-slate-100">{formatAmount(purchaseData.totalRevenue)}원</p>
                   {prevPurchaseData && (
                     <MoMBadge current={purchaseData.totalRevenue} prev={prevPurchaseData.totalRevenue} />
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500 mb-1">총매입</p>
+                  <p className="text-xs text-slate-500 mb-1 flex items-center justify-center">
+                    총매입 <TermTooltip term="총매입" />
+                  </p>
                   <p className="text-base font-bold text-rose-400">{formatAmount(purchaseData.totalPurchase)}원</p>
                   {prevPurchaseData && (
                     <MoMBadge current={purchaseData.totalPurchase} prev={prevPurchaseData.totalPurchase} invertColor />
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500 mb-1">순이익</p>
+                  <p className="text-xs text-slate-500 mb-1 flex items-center justify-center">
+                    순이익 <TermTooltip term="순이익" />
+                  </p>
                   {(() => {
                     const profit = purchaseData.totalRevenue - purchaseData.totalPurchase;
                     const prevProfit = prevPurchaseData
@@ -543,7 +550,9 @@ export default function AnalyticsPage() {
               {purchaseData.totalRevenue > 0 && (
                 <div className="mt-4">
                   <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                    <span>원가율</span>
+                    <span className="flex items-center">
+                      원가율 <TermTooltip term="원가율" />
+                    </span>
                     <span className={costRatioColor}>{costRatio.toFixed(1)}%</span>
                   </div>
                   <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
