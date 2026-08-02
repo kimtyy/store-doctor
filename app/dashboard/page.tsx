@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { calculateMovingAverage } from '@/lib/analytics/movingAverage';
 import MAChart from '@/components/charts/MAChart';
 import BottomTabNav from '@/components/BottomTabNav';
+import PeriodSelector, { PeriodValue, MonthSelection } from '@/components/PeriodSelector';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 
@@ -56,6 +57,25 @@ export default function DashboardPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
+
+  // Bottom sales section independent period state
+  const [recentPeriodValue, setRecentPeriodValue] = useState<PeriodValue>(() => ({
+    type: '7',
+    selectedMonth: {
+      year: new Date().getFullYear(),
+      month: new Date().getMonth() + 1,
+    },
+  }));
+  const [availableMonths, setAvailableMonths] = useState<MonthSelection[]>([]);
+
+  useEffect(() => {
+    fetch('/api/analytics/months')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.months) setAvailableMonths(data.months);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch(
@@ -293,10 +313,49 @@ export default function DashboardPage() {
     };
   }, [nonEventSalesData, salesData, purchaseByDate, eventPurchaseByDate, includeEvent]);
 
-  const recentDays = useMemo(
-    () => [...nonEventSalesData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 7),
-    [nonEventSalesData]
+  // Filtered sales data for bottom section based on recentPeriodValue
+  const filteredRecentDays = useMemo(() => {
+    let list = [...nonEventSalesData];
+
+    if (recentPeriodValue.type === '7') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      const cutoffStr = localDateStr(cutoff);
+      list = list.filter((d) => d.date >= cutoffStr);
+    } else if (recentPeriodValue.type === '30') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      const cutoffStr = localDateStr(cutoff);
+      list = list.filter((d) => d.date >= cutoffStr);
+    } else if (recentPeriodValue.type === 'monthly' && recentPeriodValue.selectedMonth) {
+      const { year, month } = recentPeriodValue.selectedMonth;
+      const ym = `${year}-${String(month).padStart(2, '0')}`;
+      list = list.filter((d) => d.date.startsWith(ym));
+    } else if (recentPeriodValue.type === 'custom' && recentPeriodValue.customRange) {
+      const { startDate, endDate } = recentPeriodValue.customRange;
+      list = list.filter((d) => d.date >= startDate && d.date <= endDate);
+    }
+
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [nonEventSalesData, recentPeriodValue]);
+
+  const sectionTotalRevenue = useMemo(
+    () => filteredRecentDays.reduce((s, d) => s + d.netRevenue, 0),
+    [filteredRecentDays]
   );
+
+  const sectionTitle = useMemo(() => {
+    if (recentPeriodValue.type === '7') return '최근 7일 매출';
+    if (recentPeriodValue.type === '30') return '최근 30일 매출';
+    if (recentPeriodValue.type === 'all') return '전체 기간 매출';
+    if (recentPeriodValue.type === 'monthly' && recentPeriodValue.selectedMonth) {
+      return `${recentPeriodValue.selectedMonth.year}년 ${recentPeriodValue.selectedMonth.month}월 매출`;
+    }
+    if (recentPeriodValue.type === 'custom' && recentPeriodValue.customRange) {
+      return '선택 기간 매출';
+    }
+    return '매출 내역';
+  }, [recentPeriodValue]);
 
   return (
     <>
@@ -493,32 +552,52 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {/* ── 최근 7일 ───────────────────────────────────────────── */}
-              <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
-                <h3 className="text-lg font-semibold text-slate-100">최근 7일</h3>
+              {/* ── 기간별 매출 내역 ───────────────────────────────────── */}
+              <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h3 className="text-lg font-semibold text-slate-100">{sectionTitle}</h3>
+                  {filteredRecentDays.length > 0 && (
+                    <span className="text-xs font-semibold text-sky-400 bg-sky-950/60 border border-sky-800/50 rounded-full px-3 py-1 self-start sm:self-auto">
+                      합계: {(sectionTotalRevenue / 10000).toFixed(1)}만원 ({filteredRecentDays.length}일)
+                    </span>
+                  )}
+                </div>
+
+                <PeriodSelector
+                  value={recentPeriodValue}
+                  onChange={setRecentPeriodValue}
+                  availableMonths={availableMonths}
+                />
+
                 <div className="mt-4 space-y-3">
-                  {recentDays.map((day, idx) => (
-                    <div key={`${day.date}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-slate-100">
-                            {new Date(day.date + 'T00:00:00').toLocaleDateString('ko-KR', {
-                              month: 'short', day: 'numeric', weekday: 'short',
-                            })}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-400">
-                            테이블 {day.tablesUsed}개
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-slate-100">
-                            {(day.netRevenue / 10000).toFixed(1)}만원
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">순매출</p>
+                  {filteredRecentDays.length === 0 ? (
+                    <div className="py-8 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-2xl">
+                      해당 기간에 등록된 매출 데이터가 없습니다.
+                    </div>
+                  ) : (
+                    filteredRecentDays.map((day, idx) => (
+                      <div key={`${day.date}-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 hover:border-slate-700 transition">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-slate-100">
+                              {new Date(day.date + 'T00:00:00').toLocaleDateString('ko-KR', {
+                                month: 'short', day: 'numeric', weekday: 'short',
+                              })}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-400">
+                              테이블 {day.tablesUsed}개
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-slate-100">
+                              {(day.netRevenue / 10000).toFixed(1)}만원
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">순매출</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             </>
