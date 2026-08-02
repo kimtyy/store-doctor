@@ -430,9 +430,6 @@ export default function DashboardPage() {
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
         <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-sky-400">📊 매장닥터</h1>
-          <p className="text-xs text-slate-400">
-            {new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' })}
-          </p>
         </div>
       </header>
 

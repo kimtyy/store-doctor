@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 
 export const TERMS_DICT: Record<string, { term: string; explanation: string }> = {
   원가율: {
@@ -41,11 +41,11 @@ export const TERMS_DICT: Record<string, { term: string; explanation: string }> =
   },
   총매출: {
     term: '총매출',
-    explanation: '손님이 결제한 부가세/할인 포함 또는 제외 전 거래 총액.',
+    explanation: '가게에서 거래된 전체 매출 금액.',
   },
   총매입: {
     term: '총매입',
-    explanation: '식자재, 주류, 음료 및 수동 지출 등 매장에서 구매한 전체 물품 금액.',
+    explanation: '재료·주류·물품 구입을 포함해 나간 전체 매입 금액.',
   },
 };
 
@@ -57,61 +57,62 @@ interface TermTooltipProps {
 
 export default function TermTooltip({ term, text, className = '' }: TermTooltipProps) {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLSpanElement>(null);
 
   const matched = term ? TERMS_DICT[term] : undefined;
   const displayTerm = matched?.term ?? term ?? '용어 설명';
   const explanation = text ?? matched?.explanation;
 
-  useEffect(() => {
-    if (!open) return;
-    function handleClickOutside(e: MouseEvent | TouchEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('touchstart', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-    };
-  }, [open]);
-
   if (!explanation) return null;
 
   return (
-    <span ref={containerRef} className={`relative inline-flex items-center align-middle ${className}`}>
+    <span className={`inline-flex items-center align-middle ${className}`}>
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((v) => !v);
+          setOpen(true);
         }}
         aria-label={`${displayTerm} 설명 보기`}
-        className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-800/80 border border-slate-700/80 text-[9px] font-bold text-slate-400 hover:text-sky-300 hover:border-sky-500/50 transition shrink-0 print:hidden"
+        className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-400 hover:text-sky-300 hover:border-sky-500/50 transition shrink-0 print:hidden"
       >
         ⓘ
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 z-50 rounded-2xl bg-slate-900 border border-slate-700 p-3 text-xs text-slate-200 shadow-2xl backdrop-blur-md animate-in fade-in duration-150 print:hidden">
-          <div className="flex items-center justify-between mb-1.5 border-b border-slate-800 pb-1">
-            <span className="font-bold text-sky-400 text-[11px]">💡 {displayTerm}</span>
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-150 print:hidden"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-2xl space-y-4 animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <span className="font-bold text-sky-400 text-base flex items-center gap-2">
+                <span>💡</span> {displayTerm}
+              </span>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-200 text-sm font-bold transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-200 leading-relaxed py-1">{explanation}</p>
+
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(false);
-              }}
-              className="text-slate-500 hover:text-slate-300 text-xs px-1"
+              onClick={() => setOpen(false)}
+              className="w-full rounded-2xl bg-sky-500 hover:bg-sky-400 py-3 text-sm font-bold text-slate-950 transition shadow-lg shadow-sky-500/20"
             >
-              ✕
+              확인
             </button>
           </div>
-          <p className="leading-relaxed text-[11px] text-slate-300">{explanation}</p>
-          {/* Arrow pointing down */}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-slate-700" />
         </div>
       )}
     </span>
