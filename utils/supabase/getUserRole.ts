@@ -13,24 +13,34 @@ export async function getUserRole(): Promise<UserRole | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+  
+  console.log('[getUserRole] User from auth.getUser():', user ? { id: user.id, email: user.email } : null)
   if (!user) return null
 
   // 1. 해당 사용자의 store 조회 (owner_id 기준)
-  const { data: store } = await supabase
+  const { data: store, error: storeError } = await supabase
     .from('stores')
     .select('id')
     .eq('owner_id', user.id)
     .single()
 
+  console.log('[getUserRole] Store query result:', { store, error: storeError })
   if (!store) return null
 
   // 2. store_members에서 role 조회
-  const { data: member } = await supabase
+  const { data: member, error: memberError } = await supabase
     .from('store_members')
     .select('role')
     .eq('store_id', store.id)
     .eq('user_id', user.id)
     .single()
+
+  console.log('[getUserRole] store_members query result:', { 
+    store_id: store.id, 
+    user_id: user.id, 
+    member, 
+    error: memberError 
+  })
 
   return (member?.role as UserRole) ?? null
 }
