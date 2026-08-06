@@ -136,6 +136,18 @@ export async function GET(request: Request) {
       menuJoinQuery = menuJoinQuery.eq('daily_sales.is_event', false);
     }
 
+    const storeQuery = supabase
+      .from('stores')
+      .select('owner_salary, loan_repayment')
+      .eq('id', STORE_ID)
+      .single()
+      .then(({ data, error }) => {
+        if (error && error.code === '42703') {
+          return { data: { owner_salary: 0, loan_repayment: 0 } };
+        }
+        return { data, error };
+      });
+
     const [
       { data: storeData },
       { data: salesData },
@@ -148,7 +160,7 @@ export async function GET(request: Request) {
       { data: nextMonthLastYearSalesData },
       { data: menuDataJoin }
     ] = await Promise.all([
-      supabase.from('stores').select('owner_salary, loan_repayment').eq('id', STORE_ID).single(),
+      storeQuery,
       salesQuery,
       prevSalesQuery,
       prevPurchaseQuery,

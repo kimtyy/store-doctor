@@ -11,13 +11,35 @@ export async function GET() {
 
   const supabase = createClient();
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('stores')
       .select('owner_salary, loan_repayment, onboarding_guide_seen')
       .eq('id', storeId)
       .single();
 
     if (error) {
+      if (error.code === '42703') {
+        const { data: retryData, error: retryError } = await supabase
+          .from('stores')
+          .select('onboarding_guide_seen')
+          .eq('id', storeId)
+          .single();
+
+        if (retryError) {
+          if (retryError.code === 'PGRST116') {
+            return NextResponse.json({ data: { owner_salary: 0, loan_repayment: 0, onboarding_guide_seen: false } });
+          }
+          return NextResponse.json({ error: retryError.message }, { status: 500 });
+        }
+        return NextResponse.json({
+          data: {
+            owner_salary: 0,
+            loan_repayment: 0,
+            onboarding_guide_seen: retryData?.onboarding_guide_seen ?? false
+          }
+        });
+      }
+
       if (error.code === 'PGRST116') {
         return NextResponse.json({ data: { owner_salary: 0, loan_repayment: 0, onboarding_guide_seen: false } });
       }
@@ -53,6 +75,23 @@ export async function PATCH(request: Request) {
       .eq('id', storeId);
 
     if (error) {
+      if (error.code === '42703') {
+        // If columns do not exist, try updating only onboarding_guide_seen if it was requested
+        const cleanPayload: Record<string, unknown> = {
+          updated_at: new Date().toISOString()
+        };
+        if (onboarding_guide_seen !== undefined) {
+          cleanPayload.onboarding_guide_seen = onboarding_guide_seen;
+          const { error: retryError } = await supabase
+            .from('stores')
+            .update(cleanPayload)
+            .eq('id', storeId);
+          if (retryError) {
+            return NextResponse.json({ error: retryError.message }, { status: 500 });
+          }
+        }
+        return NextResponse.json({ message: 'Saved successfully (non-operating expenses skipped as columns do not exist)' });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
