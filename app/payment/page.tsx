@@ -32,6 +32,16 @@ function PaymentContent() {
   const [widgetInstanceKey, setWidgetInstanceKey] = useState(0);
   const [widgetError, setWidgetError] = useState<string | null>(null);
 
+  // role 체크: owner만 결제 페이지 접근 가능
+  const [role, setRole] = useState<string | null | 'loading'>('loading');
+
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((r) => r.json())
+      .then((d) => setRole(d.role ?? null))
+      .catch(() => setRole(null));
+  }, []);
+
   const errorParam = searchParams.get('error');
   const errorMessage = searchParams.get('message');
 
@@ -142,7 +152,7 @@ function PaymentContent() {
     }
   };
 
-  if (loading) {
+  if (loading || role === 'loading') {
     return (
       <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white">
         <div className="flex flex-col items-center gap-4">
@@ -152,6 +162,31 @@ function PaymentContent() {
       </div>
     );
   }
+
+  // owner가 아닌 경우 접근 차단
+  if (role !== 'owner') {
+    return (
+      <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white px-4">
+        <div className="max-w-sm w-full bg-[#0a0a0f] border border-[#1a1a24] rounded-2xl p-8 text-center space-y-4">
+          <div className="text-4xl">🔒</div>
+          <h2 className="text-lg font-bold text-white">접근 제한</h2>
+          <p className="text-sm text-gray-400">
+            결제 및 구독 관리는{' '}
+            <span className="text-emerald-400 font-semibold">대표 계정</span>만
+            접근 가능합니다.
+          </p>
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-bold rounded-xl transition hover:opacity-90"
+          >
+            대시보드로 돌아가기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+
 
   return (
     <div className="min-h-screen bg-[#010103] text-white py-12 px-4 sm:px-6 lg:px-8">

@@ -82,6 +82,21 @@ export default function DashboardPage() {
   const [includeEvent, setIncludeEvent] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
 
+  // role 체크: owner/manager는 분석 섹션 표시, staff는 숨김
+  // 'loading' 상태 동안 분석 섹션을 스켈레톤으로 표시해 깜빡임 방지
+  const [role, setRole] = useState<string | 'loading'>('loading');
+
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((r) => r.json())
+      .then((d) => setRole(d.role ?? 'staff')) // role 없으면 가장 제한적인 staff로 처리
+      .catch(() => setRole('staff'));
+  }, []);
+
+  // 분석 섹션 표시 여부: owner 또는 manager만 볼 수 있음
+  const canViewAnalytics = role === 'owner' || role === 'manager';
+  const isRoleLoading = role === 'loading';
+
   useEffect(() => {
     fetch('/api/stores/settings')
       .then((r) => r.json())
@@ -521,7 +536,20 @@ export default function DashboardPage() {
               </div>
 
               {/* ── 이번달 현황 ────────────────────────────────────────── */}
-              {monthSummary && (
+              {/* role 로딩 중 → 스켈레톤 / staff → 숨김 / owner·manager → 표시 */}
+              {isRoleLoading ? (
+                <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
+                  <div className="h-5 w-28 rounded-lg bg-slate-800 animate-pulse mb-4" />
+                  <div className="grid grid-cols-3 gap-3">
+                    {[0,1,2].map((i) => (
+                      <div key={i} className="rounded-2xl bg-slate-950/80 px-2 py-3.5 space-y-2">
+                        <div className="h-3 w-10 rounded bg-slate-800 animate-pulse mx-auto" />
+                        <div className="h-6 w-16 rounded bg-slate-800 animate-pulse mx-auto" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : canViewAnalytics && monthSummary && (
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6">
                   <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                     <h3 className="text-lg font-semibold text-slate-100 flex items-baseline gap-2 flex-wrap">
@@ -629,7 +657,13 @@ export default function DashboardPage() {
               )}
 
               {/* ── 이동평균선 차트 ────────────────────────────────────── */}
-              {chartData.length >= 2 && (
+              {/* role 로딩 중 → 스켈레톤 / staff → 숨김 / owner·manager → 표시 */}
+              {isRoleLoading ? (
+                <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
+                  <div className="h-5 w-28 rounded-lg bg-slate-800 animate-pulse mb-4" />
+                  <div className="h-48 rounded-2xl bg-slate-800/50 animate-pulse" />
+                </div>
+              ) : canViewAnalytics && chartData.length >= 2 && (
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
                   <h3 className="text-lg font-semibold text-slate-100 flex items-center">
                     이동평균선 <TermTooltip term="이동평균선" />

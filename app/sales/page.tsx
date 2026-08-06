@@ -181,6 +181,16 @@ export default function SalesInputPage() {
   const [tab, setTab] = useState<Tab>('input');
   const [parseMode, setParseMode] = useState<ParseMode>('full');
 
+  // role 체크: staff는 수정/삭제 버튼 숨김
+  const [role, setRole] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((r) => r.json())
+      .then((d) => setRole(d.role ?? null))
+      .catch(() => setRole(null));
+  }, []);
+  const canEdit = role !== 'staff';
+
   // input state
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [menuFile, setMenuFile] = useState<File | null>(null);
@@ -1009,7 +1019,7 @@ export default function SalesInputPage() {
                           </div>
                         </button>
 
-                        {isExpanded && draft && (
+                        {isExpanded && draft && canEdit && (
                           <div className="border-t border-slate-800 p-4 space-y-4">
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수정</p>
                             <div><label className="text-xs text-slate-400">날짜</label><input type="date" value={draft.date} onChange={(e) => patchDraft(record.id!, { date: e.target.value })} className={iClsDark} /></div>

@@ -162,6 +162,16 @@ interface PurchaseHistoryRecord {
 export default function PurchasesInputPage() {
   const [activeTab, setActiveTab] = useState<'photo' | 'manual' | 'history'>('photo');
 
+  // role 체크: staff는 수정/삭제 버튼 숨김
+  const [role, setRole] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((r) => r.json())
+      .then((d) => setRole(d.role ?? null))
+      .catch(() => setRole(null));
+  }, []);
+  const canEdit = role !== 'staff';
+
   const [historyList, setHistoryList] = useState<PurchaseHistoryRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -764,7 +774,8 @@ export default function PurchasesInputPage() {
                               <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
                             ) : null}
                           </button>
-                          {/* 삭제 버튼 */}
+                          {/* 삭제 버튼 — staff에게 숨김 */}
+                          {canEdit && (
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(record.id); }}
@@ -772,6 +783,7 @@ export default function PurchasesInputPage() {
                           >
                             🗑
                           </button>
+                          )}
                         </div>
 
                         {/* Expanded — item list */}
@@ -883,6 +895,8 @@ export default function PurchasesInputPage() {
                               + 품목 추가
                             </button>
 
+                            {/* 저장 버튼 — staff에게 숨김 */}
+                            {canEdit && (
                             <button
                               type="button"
                               onClick={() => saveDraftItems(record)}
@@ -891,6 +905,7 @@ export default function PurchasesInputPage() {
                             >
                               {savingId === record.id ? '저장 중...' : '저장하기'}
                             </button>
+                            )}
                           </div>
                         )}
                       </div>

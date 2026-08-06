@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerSupabase } from '@/utils/supabase/server';
 import { createClient as createAdminSupabase } from '@supabase/supabase-js';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,13 @@ export async function GET(request: Request) {
     const failUrl = new URL('/login', request.url);
     failUrl.searchParams.set('redirect', `/payment?plan=${plan}`);
     return NextResponse.redirect(failUrl);
+  }
+
+  // 2-A. 역할 체크: owner만 결제 승인 가능
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    const redirectUrl = new URL('/dashboard', request.url);
+    return NextResponse.redirect(redirectUrl);
   }
 
   // 3. 토스페이먼츠 결제 승인 API 호출
