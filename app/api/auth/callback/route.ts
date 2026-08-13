@@ -7,50 +7,94 @@ export async function GET(request: Request) {
   const code = requestUrl.searchParams.get('code')
   const next = requestUrl.searchParams.get('next') ?? '/'
 
+  console.log(`[API Auth Callback] GET request received. Code present: ${!!code}, Next redirect: ${next}`)
+
   if (code) {
     const supabase = createClient()
-    await supabase.auth.exchangeCodeForSession(code)
+    try {
+      console.log('[API Auth Callback] Exchanging code for session...')
+      await supabase.auth.exchangeCodeForSession(code)
+      console.log('[API Auth Callback] Code exchange completed successfully.')
+    } catch (err) {
+      console.error('[API Auth Callback] Code exchange failed:', err)
+    }
 
     // Check and process invitation auto-matching
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (user && user.email) {
+      console.log('[API Auth Callback] Retrieved user from getUser():', user ? { id: user.id, email: user.email } : 'NULL')
+
+      let emailToMatch = user?.email
+      let userIdToMatch = user?.id
+
+      if (!user) {
+        console.log('[API Auth Callback] user is null, checking getSession() fallback...')
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          console.log('[API Auth Callback] User retrieved from session fallback:', { id: session.user.id, email: session.user.email })
+          emailToMatch = session.user.email
+          userIdToMatch = session.user.id
+        } else {
+          console.log('[API Auth Callback] Session is also null or has no user.')
+        }
+      }
+
+      if (emailToMatch && userIdToMatch) {
+        const trimmedEmail = emailToMatch.trim().toLowerCase()
+        console.log(`[API Auth Callback] Attempting to find pending invite. Query email (trimmed/lowercase): "${trimmedEmail}"`)
+
         const adminSupabase = createAdminClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
           { auth: { autoRefreshToken: false, persistSession: false } }
         )
 
+        const { data: allPendingInvites } = await adminSupabase
+          .from('store_invites')
+          .select('id, email, role, accepted')
+          .eq('accepted', false)
+        console.log('[API Auth Callback] Current database pending invites:', allPendingInvites)
+
         const { data: invite, error: inviteErr } = await adminSupabase
           .from('store_invites')
           .select('*')
-          .eq('email', user.email)
+          .eq('email', trimmedEmail)
           .eq('accepted', false)
           .maybeSingle()
 
+        console.log('[API Auth Callback] store_invites query result:', { invite, error: inviteErr })
+
         if (invite && !inviteErr) {
+          console.log(`[API Auth Callback] Matching invite found! Store: ${invite.store_id}, Role: ${invite.role}. Inserting into store_members...`)
           const { error: insertErr } = await adminSupabase
             .from('store_members')
             .insert({
               store_id: invite.store_id,
-              user_id: user.id,
+              user_id: userIdToMatch,
               role: invite.role,
               invited_by: invite.invited_by
             })
 
           if (!insertErr) {
-            await adminSupabase
+            console.log(`[API Auth Callback] Successfully inserted member: ${userIdToMatch}. Updating invite accepted = true...`)
+            const { error: updateErr } = await adminSupabase
               .from('store_invites')
               .update({ accepted: true })
               .eq('id', invite.id)
-            console.log(`[api auth callback] Automatically mapped invited user: ${user.email} to store: ${invite.store_id}`)
+            if (updateErr) {
+              console.error('[API Auth Callback] Failed to update invite accepted state:', updateErr.message)
+            } else {
+              console.log(`[API Auth Callback] Auto matching completed successfully for: ${trimmedEmail}`)
+            }
           } else {
-            console.error('[api auth callback] store_members insert failed:', insertErr.message)
+            console.error('[API Auth Callback] store_members insert failed:', insertErr.message)
           }
+        } else {
+          console.log('[API Auth Callback] No matching pending invite found in DB.')
         }
       }
     } catch (err) {
-      console.error('[api auth callback] Invite auto matching failed:', err)
+      console.error('[API Auth Callback] Invite auto matching failed:', err)
     }
   }
 
