@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClient } from '../../utils/supabase/client';
 import BottomTabNav from '../../components/BottomTabNav';
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [deleteDate, setDeleteDate] = useState('');
   const [deletingDay, setDeletingDay] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -97,6 +100,17 @@ export default function SettingsPage() {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '초기화 실패' });
     } finally {
       setResetting(false);
+    }
+  }
+
+  async function handleSignOut() {
+    if (!confirm('로그아웃 하시겠습니까?')) return;
+    const supabase = createClient();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      alert('로그아웃 실패: ' + error.message);
+    } else {
+      router.push('/login');
     }
   }
 
@@ -318,6 +332,16 @@ export default function SettingsPage() {
             )}
           </div>
 
+          {/* 로그아웃 */}
+          <div className="rounded-3xl border border-rose-500/30 bg-rose-500/5 p-6 hover:bg-rose-950/20 transition">
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full text-center text-base font-semibold text-rose-400 hover:text-rose-300 transition"
+            >
+              로그아웃
+            </button>
+          </div>
         </div>
       </main>
 
