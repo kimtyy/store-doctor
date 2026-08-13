@@ -126,6 +126,9 @@ export async function updateSession(request: NextRequest) {
           .maybeSingle()
         if (storeInfo?.owner_id) {
           targetUserIdForSub = storeInfo.owner_id
+          console.log(`[Middleware] Staff/Manager login. Target subscription owner_id: ${targetUserIdForSub}`)
+        } else {
+          console.warn(`[Middleware] Staff/Manager login but failed to find owner_id for store: ${memberStore.store_id}`)
         }
       }
 
@@ -134,7 +137,7 @@ export async function updateSession(request: NextRequest) {
       // 결제 페이지로 보내되, 전체 요청이 500으로 죽는 것은 막는다.
       let subscription: { id: string } | null = null
       try {
-        const { data, error } = await supabase
+        const { data, error } = await adminClient
           .from('subscriptions')
           .select('id')
           .eq('user_id', targetUserIdForSub)
@@ -144,6 +147,8 @@ export async function updateSession(request: NextRequest) {
 
         if (error) {
           console.error('subscriptions 조회 실패:', error.message)
+        } else {
+          console.log(`[Middleware] Subscription check for user ${targetUserIdForSub}: ${data ? 'ACTIVE' : 'INACTIVE'}`)
         }
         subscription = data
       } catch (err) {
