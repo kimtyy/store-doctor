@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { DailySales, SalesMenuItem } from '../../types/sales';
 import { correctMenuName, MenuMasterEntry } from '../../lib/menuCorrection';
 import CameraModal from '../../components/ui/CameraModal';
@@ -178,6 +179,7 @@ function MenuItemsEditor({ items, onUpdate, onDelete, onAdd }: MenuItemsEditorPr
 }
 
 export default function SalesInputPage() {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>('input');
   const [parseMode, setParseMode] = useState<ParseMode>('full');
 
@@ -222,6 +224,33 @@ export default function SalesInputPage() {
   const [receiptSaved, setReceiptSaved] = useState(false);
   const [menuSaved, setMenuSaved] = useState(false);
   const [isEventSales, setIsEventSales] = useState(false);
+
+  // instant save feedback states
+  const [showReceiptSaveSuccess, setShowReceiptSaveSuccess] = useState(false);
+  const [showMenuSaveSuccess, setShowMenuSaveSuccess] = useState(false);
+  const [showOnlyMenuSaveSuccess, setShowOnlyMenuSaveSuccess] = useState(false);
+
+  const handleReceiptFileChange = (file: File | null) => {
+    setReceiptFile(file);
+    setEditableReceipt(null);
+  };
+
+  const handleMenuFileChange = (file: File | null) => {
+    setMenuFile(file);
+    setMenuParsed(false);
+    setEditableMenuItems([]);
+  };
+
+  const handleNextDayInput = () => {
+    if (!editableReceipt?.date) return;
+    const currentDate = new Date(editableReceipt.date);
+    currentDate.setDate(currentDate.getDate() + 1);
+    const nextDateStr = currentDate.toISOString().split('T')[0];
+
+    resetInput();
+    setManualRecord((prev) => ({ ...prev, date: nextDateStr }));
+    setMenuDate(nextDateStr);
+  };
 
   // history state
   const [historyData, setHistoryData] = useState<DailySales[]>([]);
@@ -516,6 +545,8 @@ export default function SalesInputPage() {
       if (!res.ok) throw new Error(body?.error || body?.details || `서버 오류 (${res.status})`);
       setSavedSalesId(body.data?.salesId ?? null);
       setReceiptSaved(true);
+      setShowReceiptSaveSuccess(true);
+      setTimeout(() => setShowReceiptSaveSuccess(false), 2000);
       setSaveSuccess('✅ 정산서 저장 완료');
     } catch (err) { setError(err instanceof Error ? err.message : '저장 실패'); }
     finally { setSavingReceipt(false); }
@@ -534,6 +565,8 @@ export default function SalesInputPage() {
       if (!res.ok) throw new Error(body?.error || `서버 오류 (${res.status})`);
       await saveCorrectionsAsAliases(editableMenuItems);
       setMenuSaved(true);
+      setShowMenuSaveSuccess(true);
+      setTimeout(() => setShowMenuSaveSuccess(false), 2000);
       setSaveSuccess('✅ 오늘 입력 완료!');
     } catch (err) { setError(err instanceof Error ? err.message : '저장 실패'); }
     finally { setSavingMenuItems(false); }
@@ -563,7 +596,11 @@ export default function SalesInputPage() {
       if (body.success) {
         await saveCorrectionsAsAliases(editableMenuItems);
         setSaveSuccess(successMessage ?? body.message ?? '✅ 저장 완료!');
-        resetInput();
+        setShowOnlyMenuSaveSuccess(true);
+        setTimeout(() => {
+          setShowOnlyMenuSaveSuccess(false);
+          resetInput();
+        }, 1500);
       } else throw new Error('저장 결과를 확인할 수 없습니다.');
     } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
     finally { setSaving(false); }
@@ -609,10 +646,10 @@ export default function SalesInputPage() {
   return (
     <>
       <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-6 pb-32">
-        <CameraModal isOpen={receiptCameraOpen} onCapture={(file) => setReceiptFile(file)} onClose={() => setReceiptCameraOpen(false)} galleryInputId="receipt-gallery-input" />
-        <CameraModal isOpen={menuCameraOpen} onCapture={(file) => setMenuFile(file)} onClose={() => setMenuCameraOpen(false)} galleryInputId="menu-gallery-input" />
-        <input id="receipt-gallery-input" type="file" accept="image/*" className="hidden" onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
-        <input id="menu-gallery-input" type="file" accept="image/*" className="hidden" onChange={(e) => setMenuFile(e.target.files?.[0] ?? null)} />
+        <CameraModal isOpen={receiptCameraOpen} onCapture={handleReceiptFileChange} onClose={() => setReceiptCameraOpen(false)} galleryInputId="receipt-gallery-input" />
+        <CameraModal isOpen={menuCameraOpen} onCapture={handleMenuFileChange} onClose={() => setMenuCameraOpen(false)} galleryInputId="menu-gallery-input" />
+        <input id="receipt-gallery-input" type="file" accept="image/*" className="hidden" onChange={(e) => handleReceiptFileChange(e.target.files?.[0] ?? null)} />
+        <input id="menu-gallery-input" type="file" accept="image/*" className="hidden" onChange={(e) => handleMenuFileChange(e.target.files?.[0] ?? null)} />
 
         <div className="max-w-2xl space-y-6">
           <h1 className="text-3xl font-bold">매출</h1>
@@ -655,10 +692,16 @@ export default function SalesInputPage() {
                       <p className="text-sm text-slate-400">
                         {editableReceipt?.date} 매출 · 메뉴 {editableMenuItems.length}개
                       </p>
-                      <button type="button" onClick={resetInput}
-                        className="mt-2 rounded-2xl bg-slate-700 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-600">
-                        새로 입력
-                      </button>
+                      <div className="flex gap-3 justify-center mt-4">
+                        <button type="button" onClick={handleNextDayInput}
+                          className="flex-1 rounded-2xl bg-emerald-500 px-6 py-3.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 active:scale-[0.98] transition">
+                          다음 날짜 입력
+                        </button>
+                        <button type="button" onClick={() => router.push('/dashboard')}
+                          className="flex-1 rounded-2xl border border-slate-700 bg-slate-900 px-6 py-3.5 text-sm font-semibold text-slate-100 hover:bg-slate-800 active:scale-[0.98] transition">
+                          완료
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -691,9 +734,13 @@ export default function SalesInputPage() {
                               </span>
                             </div>
                             {receiptFile && <p className="text-xs text-slate-400 truncate">선택됨: {receiptFile.name}</p>}
-                            <button type="button" onClick={handleReceiptParse} disabled={loadingReceipt || !receiptFile}
-                              className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
-                              {loadingReceipt ? '파싱 중...' : '정산서 파싱'}
+                            <button type="button" onClick={handleReceiptParse} disabled={loadingReceipt || !receiptFile || !!editableReceipt}
+                              className={`w-full rounded-2xl px-6 py-4 text-base font-semibold transition disabled:cursor-not-allowed ${
+                                editableReceipt
+                                  ? 'bg-slate-700 text-slate-400 opacity-80'
+                                  : 'bg-sky-500 text-slate-950 hover:bg-sky-400 disabled:opacity-50'
+                              }`}>
+                              {loadingReceipt ? '파싱 중...' : editableReceipt ? '✓ 파싱 완료' : '정산서 파싱 (누르세요)'}
                             </button>
                           </>
                         )}
@@ -741,7 +788,10 @@ export default function SalesInputPage() {
                                     }`} />
                                   </span>
                                 </button>
-                                <button type="button" onClick={handleSaveReceipt} disabled={savingReceipt}
+                                {showReceiptSaveSuccess && (
+                                   <div className="text-center text-sm font-semibold text-emerald-400 animate-pulse mb-2">저장 완료 ✓</div>
+                                 )}
+                                 <button type="button" onClick={handleSaveReceipt} disabled={savingReceipt}
                                   className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
                                   {savingReceipt ? '저장 중...' : '정산서 저장'}
                                 </button>
@@ -780,9 +830,13 @@ export default function SalesInputPage() {
                               </span>
                             </div>
                             {menuFile && <p className="text-xs text-slate-400 truncate">선택됨: {menuFile.name}</p>}
-                            <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile}
-                              className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
-                              {loadingMenu ? '파싱 중...' : '메뉴 매출 파싱'}
+                            <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile || menuParsed}
+                              className={`w-full rounded-2xl px-6 py-4 text-base font-semibold transition disabled:cursor-not-allowed ${
+                                menuParsed
+                                  ? 'bg-slate-700 text-slate-400 opacity-80'
+                                  : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50'
+                              }`}>
+                              {loadingMenu ? '파싱 중...' : menuParsed ? '✓ 파싱 완료' : '메뉴 매출 파싱 (누르세요)'}
                             </button>
                           </>
                         )}
@@ -793,10 +847,15 @@ export default function SalesInputPage() {
                             {!receiptSaved ? (
                               <p className="text-center text-xs text-amber-400">먼저 ① 정산서를 저장해주세요</p>
                             ) : (
-                              <button type="button" onClick={handleSaveMenuItems} disabled={savingMenuItems}
-                                className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
-                                {savingMenuItems ? '저장 중...' : `메뉴 저장 (${editableMenuItems.length}개)`}
-                              </button>
+                              <>
+                                {showMenuSaveSuccess && (
+                                  <div className="text-center text-sm font-semibold text-emerald-400 animate-pulse mb-2">저장 완료 ✓</div>
+                                )}
+                                <button type="button" onClick={handleSaveMenuItems} disabled={savingMenuItems}
+                                  className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
+                                  {savingMenuItems ? '저장 중...' : `메뉴 저장 (${editableMenuItems.length}개)`}
+                                </button>
+                              </>
                             )}
                           </>
                         )}
@@ -830,9 +889,13 @@ export default function SalesInputPage() {
                     </span>
                   </div>
                   {menuFile && <p className="text-xs text-slate-400 truncate">선택됨: {menuFile.name}</p>}
-                  <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile}
-                    className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
-                    {loadingMenu ? '파싱 중...' : '메뉴 파싱'}
+                  <button type="button" onClick={handleMenuParse} disabled={loadingMenu || !menuFile || menuParsed}
+                    className={`w-full rounded-2xl px-6 py-4 text-base font-semibold transition disabled:cursor-not-allowed ${
+                      menuParsed
+                        ? 'bg-slate-700 text-slate-400 opacity-80'
+                        : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50'
+                    }`}>
+                    {loadingMenu ? '파싱 중...' : menuParsed ? '✓ 파싱 완료' : '메뉴 파싱 (누르세요)'}
                   </button>
 
                   {menuParsed && editableReceipt && (
@@ -876,6 +939,9 @@ export default function SalesInputPage() {
                         </span>
                       </button>
 
+                      {showOnlyMenuSaveSuccess && (
+                        <div className="text-center text-sm font-semibold text-emerald-400 animate-pulse mb-2">저장 완료 ✓</div>
+                      )}
                       <button type="button" onClick={() => handleSave()} disabled={saving}
                         className="w-full rounded-2xl bg-sky-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
                         {saving ? '저장 중...' : `저장하기 (메뉴 ${editableMenuItems.length}개)`}
