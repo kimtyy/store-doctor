@@ -179,6 +179,20 @@ export default function SettingsPage() {
             </div>
           </a>
 
+          {/* 멤버 관리 */}
+          <a
+            href="/members"
+            className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">👥 멤버 관리</h2>
+                <p className="mt-1 text-xs text-slate-400">매장 직원 초대 및 권한 설정</p>
+              </div>
+              <span className="text-slate-500 text-lg">→</span>
+            </div>
+          </a>
+
           {/* 영업외 지출 설정 */}
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
             <div>

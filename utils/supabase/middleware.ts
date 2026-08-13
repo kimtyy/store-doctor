@@ -1,4 +1,5 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
@@ -73,15 +74,32 @@ export async function updateSession(request: NextRequest) {
 
   // 2. 로그인 사용자 처리
   if (user) {
-    // Check if store exists (using owner_id only as the single unified criteria)
-    const { data: store } = await supabase
+    // 1) 본인이 소유한 스토어 조회
+    const { data: ownedStore } = await supabase
       .from('stores')
       .select('id')
       .eq('owner_id', user.id)
-      .single()
+      .maybeSingle()
+
+    // 2) 본인이 멤버로 소속된 스토어 조회 (RLS 우회를 위한 adminClient 활용)
+    const adminClient = (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+      ? createAdminClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL,
+          process.env.SUPABASE_SERVICE_ROLE_KEY,
+          { auth: { autoRefreshToken: false, persistSession: false } }
+        )
+      : supabase
+
+    const { data: memberStore } = await adminClient
+      .from('store_members')
+      .select('store_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    const hasStore = !!ownedStore || !!memberStore
 
     // 2-A. 스토어가 없는 사용자 -> 온보딩으로 강제 유도 (단, 관리자는 스킵, 루트/약관/개인정보는 허용)
-    if (!store && !isAdmin) {
+    if (!hasStore && !isAdmin) {
       if (!isRootPage && !isTermsPage && !isPrivacyPage && !isOnboardingPage && !request.nextUrl.pathname.startsWith('/auth/callback') && !request.nextUrl.pathname.startsWith('/api/')) {
         const url = request.nextUrl.clone()
         url.pathname = '/onboarding'
@@ -98,6 +116,19 @@ export async function updateSession(request: NextRequest) {
         isTermsPage ||
         isPrivacyPage
 
+      // 구독을 조회할 타겟 user_id (본인이 스태프인 경우 스토어 Owner의 user_id로 조회)
+      let targetUserIdForSub = user.id
+      if (!ownedStore && memberStore) {
+        const { data: storeInfo } = await adminClient
+          .from('stores')
+          .select('owner_id')
+          .eq('id', memberStore.store_id)
+          .maybeSingle()
+        if (storeInfo?.owner_id) {
+          targetUserIdForSub = storeInfo.owner_id
+        }
+      }
+
       // subscriptions 조회 자체가 실패하더라도(테이블/RLS 미비 등) 미들웨어가
       // 통째로 죽지 않도록 방어한다. 조회 실패 시 "구독 없음"으로 간주해
       // 결제 페이지로 보내되, 전체 요청이 500으로 죽는 것은 막는다.
@@ -106,7 +137,7 @@ export async function updateSession(request: NextRequest) {
         const { data, error } = await supabase
           .from('subscriptions')
           .select('id')
-          .eq('user_id', user.id)
+          .eq('user_id', targetUserIdForSub)
           .eq('status', 'active')
           .gt('expires_at', new Date().toISOString())
           .maybeSingle()
