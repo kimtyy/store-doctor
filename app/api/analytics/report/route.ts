@@ -140,13 +140,7 @@ export async function GET(request: Request) {
       .from('stores')
       .select('owner_salary, loan_repayment')
       .eq('id', STORE_ID)
-      .single()
-      .then(({ data, error }) => {
-        if (error && error.code === '42703') {
-          return { data: { owner_salary: 0, loan_repayment: 0 } };
-        }
-        return { data, error };
-      });
+      .single();
 
     const [
       { data: storeData },
