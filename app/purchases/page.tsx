@@ -157,20 +157,27 @@ interface PurchaseHistoryRecord {
   note: string | null;
   memo: string | null;
   items: PurchaseHistoryItem[];
+  created_by?: string;
 }
 
 export default function PurchasesInputPage() {
   const [activeTab, setActiveTab] = useState<'photo' | 'manual' | 'history'>('photo');
 
-  // role 체크: staff는 수정/삭제 버튼 숨김
+  // role 체크: staff는 본인 글만 수정/삭제 버튼 노출
   const [role, setRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   useEffect(() => {
     fetch('/api/me/role')
       .then((r) => r.json())
-      .then((d) => setRole(d.role ?? null))
-      .catch(() => setRole(null));
+      .then((d) => {
+        setRole(d.role ?? null);
+        setCurrentUserId(d.userId ?? null);
+      })
+      .catch(() => {
+        setRole(null);
+        setCurrentUserId(null);
+      });
   }, []);
-  const canEdit = role !== 'staff';
 
   const [historyList, setHistoryList] = useState<PurchaseHistoryRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -774,8 +781,8 @@ export default function PurchasesInputPage() {
                               <p className="mt-1 text-xs text-slate-500 truncate">{record.note}</p>
                             ) : null}
                           </button>
-                          {/* 삭제 버튼 — staff에게 숨김 */}
-                          {canEdit && (
+                          {/* 삭제 버튼 — staff는 본인 글만 노출 */}
+                          {(role === 'owner' || role === 'manager' || record.created_by === currentUserId) && (
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(record.id); }}
@@ -895,8 +902,8 @@ export default function PurchasesInputPage() {
                               + 품목 추가
                             </button>
 
-                            {/* 저장 버튼 — staff에게 숨김 */}
-                            {canEdit && (
+                            {/* 저장 버튼 — staff는 본인 글만 노출 */}
+                            {(role === 'owner' || role === 'manager' || record.created_by === currentUserId) && (
                             <button
                               type="button"
                               onClick={() => saveDraftItems(record)}

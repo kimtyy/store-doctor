@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 
 export const dynamic = 'force-dynamic';
-
-
 
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 
     let query = supabase
       .from('purchase_records')
-      .select('id, date, vendor_name, total_amount, category, note, memo, items, is_event')
+      .select('id, date, vendor_name, total_amount, category, note, memo, items, is_event, created_by')
       .eq('store_id', STORE_ID)
       .order('date', { ascending: false });
 
@@ -79,6 +79,24 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
     }
 
+    const role = await getUserRole();
+    const normalSupabase = createServerClient();
+    const { data: { user } } = await normalSupabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    if (role === 'staff') {
+      const { data: record } = await supabase
+        .from('purchase_records')
+        .select('created_by')
+        .eq('id', id)
+        .eq('store_id', STORE_ID)
+        .maybeSingle();
+
+      if (!record || record.created_by !== user.id) {
+        return NextResponse.json({ error: '본인이 입력한 데이터만 수정/삭제할 수 있습니다.' }, { status: 403 });
+      }
+    }
+
     const updatePayload: Record<string, unknown> = { items: items ?? [], total_amount: totalAmount };
     if (date) updatePayload.date = date;
     if (vendorName !== undefined) updatePayload.vendor_name = vendorName;
@@ -116,6 +134,24 @@ export async function DELETE(request: Request) {
 
     if (!id) {
       return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
+    }
+
+    const role = await getUserRole();
+    const normalSupabase = createServerClient();
+    const { data: { user } } = await normalSupabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    if (role === 'staff') {
+      const { data: record } = await supabase
+        .from('purchase_records')
+        .select('created_by')
+        .eq('id', id)
+        .eq('store_id', STORE_ID)
+        .maybeSingle();
+
+      if (!record || record.created_by !== user.id) {
+        return NextResponse.json({ error: '본인이 입력한 데이터만 수정/삭제할 수 있습니다.' }, { status: 403 });
+      }
     }
 
     // store_id 보안 체크 — 해당 매장 소유 레코드만 삭제 가능

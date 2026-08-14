@@ -54,6 +54,7 @@ function MonthlyReportContent() {
   const year = searchParams.get('year');
   const month = searchParams.get('month');
 
+  const [role, setRole] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +62,22 @@ function MonthlyReportContent() {
   const includeEvent = searchParams.get('includeEvent') === 'true';
 
   useEffect(() => {
+    fetch('/api/me/role')
+      .then(r => r.json())
+      .then(d => {
+        if (d.role === 'staff') {
+          router.replace('/dashboard');
+        } else {
+          setRole(d.role ?? null);
+        }
+      })
+      .catch(() => {
+        router.replace('/dashboard');
+      });
+  }, [router]);
+
+  useEffect(() => {
+    if (!role) return;
     if (!year || !month) return;
     
     setLoading(true);
@@ -72,8 +89,9 @@ function MonthlyReportContent() {
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [year, month, includeEvent]);
+  }, [year, month, includeEvent, role]);
 
+  if (!role) return <div className="p-8 text-center text-slate-400 animate-pulse">보고서 준비 중...</div>;
   if (!year || !month) return <div className="p-8 text-center text-slate-100">잘못된 접근입니다.</div>;
   if (loading) return <div className="p-8 text-center text-slate-400 animate-pulse">보고서 생성 중...</div>;
   if (error) return <div className="p-8 text-center text-rose-400">오류: {error}</div>;

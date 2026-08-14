@@ -35,4 +35,5 @@ export interface DailySales {
   menuItems: SalesMenuItem[];
   isEvent?: boolean;
   createdAt?: string;
+  createdBy?: string;
 }

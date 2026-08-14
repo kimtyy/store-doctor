@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import BottomTabNav from '../../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue } from '../../../components/PeriodSelector';
@@ -193,6 +194,24 @@ function ShowMoreButton({ expanded, total, onToggle }: { expanded: boolean; tota
 // ── main component ───────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  const router = useRouter();
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then(r => r.json())
+      .then(d => {
+        if (d.role === 'staff') {
+          router.replace('/dashboard');
+        } else {
+          setRole(d.role ?? null);
+        }
+      })
+      .catch(() => {
+        router.replace('/dashboard');
+      });
+  }, [router]);
+
   const [section, setSection] = useState<Section>('menu');
   const [periodValue, setPeriodValue] = useState<PeriodValue>(() => ({
     type: '30',
@@ -434,6 +453,14 @@ export default function AnalyticsPage() {
   const costRatio = purchaseData?.costRatioPercent ?? 0;
   const costRatioColor =
     costRatio < 30 ? 'text-emerald-400' : costRatio < 55 ? 'text-amber-400' : 'text-rose-400';
+
+  if (!role) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <div className="py-20 text-center text-slate-400 text-sm animate-pulse">분석 데이터 준비 중...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-24">

@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 
 
 
 export async function POST(request: Request) {
+  const normalSupabase = createServerClient();
+  const { data: { user } } = await normalSupabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -48,6 +53,7 @@ export async function POST(request: Request) {
       .insert({
         store_id: STORE_ID,
         date,
+        created_by: user.id,
         vendor_name: vendorName,
         total_amount: totalAmount,
         tax_amount: taxAmount ?? 0,

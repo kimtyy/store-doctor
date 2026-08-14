@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +35,7 @@ function mapRow(row: Record<string, unknown>) {
     isEvent: row.is_event ?? false,
     note: row.note ?? null,
     createdAt: row.created_at,
+    createdBy: row.created_by,
     menuItems: (row.sales_menu_items as Record<string, unknown>[] ?? []).map((item) => ({
       name: item.name,
       quantity: item.quantity,
@@ -79,6 +82,24 @@ export async function PATCH(request: Request) {
     };
 
     if (!receipt) return NextResponse.json({ error: 'receipt 데이터가 필요합니다.' }, { status: 400 });
+
+    const role = await getUserRole();
+    const normalSupabase = createServerClient();
+    const { data: { user } } = await normalSupabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    if (role === 'staff') {
+      const { data: record } = await supabase
+        .from('daily_sales')
+        .select('created_by')
+        .eq('id', id)
+        .eq('store_id', STORE_ID)
+        .maybeSingle();
+
+      if (!record || record.created_by !== user.id) {
+        return NextResponse.json({ error: '본인이 입력한 데이터만 수정/삭제할 수 있습니다.' }, { status: 403 });
+      }
+    }
 
     const serviceAmount = receipt.serviceAmount ?? 0;
     const updateFields: Record<string, unknown> = {
