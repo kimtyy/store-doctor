@@ -16,6 +16,7 @@ interface RawMenuItem {
 interface RawSale {
   id: string;
   date: string;
+  net_revenue: number | null;
   sales_menu_items: RawMenuItem[];
 }
 
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
   try {
     let query = supabase
       .from('daily_sales')
-      .select('id, date, sales_menu_items(name, quantity, amount, category)')
+      .select('id, date, net_revenue, sales_menu_items(name, quantity, amount, category)')
       .eq('store_id', STORE_ID);
 
     if (fromParam && toParam) {
@@ -66,16 +67,25 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Aggregate by name — prefer non-null category
+    // 메뉴별매출내역(sales_menu_items.amount)은 부가세 포함 금액이고,
+    // 포스마감정산서의 net_revenue는 부가세 제외 금액이라 기준이 달랐다.
+    // 일별로 (net_revenue / 해당일 품목 합계) 비율을 구해 각 품목 금액에
+    // 곱해서 부가세 제외 기준으로 환산 — 카테고리/랭킹 합계가 손익 요약의
+    // 총매출(net_revenue 합)과 정확히 일치하도록 맞춘다.
     const nameMap: Record<string, { totalAmount: number; totalQuantity: number; category: string | null }> = {};
 
     for (const sale of (data ?? []) as RawSale[]) {
-      for (const item of sale.sales_menu_items ?? []) {
+      const items = sale.sales_menu_items ?? [];
+      const itemsSum = items.reduce((sum, item) => sum + (item.amount ?? 0), 0);
+      const netRevenue = sale.net_revenue ?? 0;
+      const scale = itemsSum > 0 ? netRevenue / itemsSum : 0;
+
+      for (const item of items) {
         if (!item.name) continue;
         if (!nameMap[item.name]) {
           nameMap[item.name] = { totalAmount: 0, totalQuantity: 0, category: null };
         }
-        nameMap[item.name].totalAmount += item.amount ?? 0;
+        nameMap[item.name].totalAmount += (item.amount ?? 0) * scale;
         nameMap[item.name].totalQuantity += item.quantity ?? 0;
         if (item.category && !nameMap[item.name].category) {
           nameMap[item.name].category = item.category;
@@ -85,7 +95,7 @@ export async function GET(request: Request) {
 
     const menuStats = Object.entries(nameMap).map(([name, stats]) => ({
       name,
-      totalAmount: stats.totalAmount,
+      totalAmount: Math.round(stats.totalAmount),
       totalQuantity: stats.totalQuantity,
       category: stats.category,
     }));

@@ -131,7 +131,7 @@ function shiftMonth(m: MonthSelection, delta: number): MonthSelection {
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
-function buildApiQuery(pv: PeriodValue, includeEvent: boolean): string {
+function buildApiQuery(pv: PeriodValue, includeEvent: boolean, matchElapsedDays = false): string {
   let base = '';
   if (pv.type === 'monthly' && pv.selectedMonth) {
     const { year, month: m } = pv.selectedMonth;
@@ -139,6 +139,7 @@ function buildApiQuery(pv: PeriodValue, includeEvent: boolean): string {
     const lastDay = new Date(year, m, 0).getDate();
     const to = `${year}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     base = `from=${from}&to=${to}&period=monthly`;
+    if (matchElapsedDays) base += `&matchElapsedDays=true`;
   } else if (pv.type === 'custom' && pv.customRange) {
     base = `from=${pv.customRange.startDate}&to=${pv.customRange.endDate}&period=custom`;
   } else {
@@ -329,7 +330,7 @@ export default function AnalyticsPage() {
     if (periodValue.selectedMonth) {
       const prev = shiftMonth(periodValue.selectedMonth, -1);
       const prevPV: PeriodValue = { type: 'monthly', selectedMonth: prev };
-      const prevQ = buildApiQuery(prevPV, includeEvent);
+      const prevQ = buildApiQuery(prevPV, includeEvent, true);
       fetch(`/api/analytics/purchases?${prevQ}`)
         .then(r => r.json())
         .then(data => setPrevPurchaseData(data))

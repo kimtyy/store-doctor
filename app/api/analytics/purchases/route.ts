@@ -33,6 +33,7 @@ export async function GET(request: Request) {
   const toParam = searchParams.get('to');
   const period = searchParams.get('period') ?? '30';
   const includeEvent = searchParams.get('includeEvent') === 'true';
+  const matchElapsedDays = searchParams.get('matchElapsedDays') === 'true';
 
   try {
     let fromStr: string | null = null;
@@ -41,7 +42,13 @@ export async function GET(request: Request) {
       fromStr = fromParam;
       toStr = toParam;
 
-      if (period === 'monthly') {
+      // matchElapsedDays: MoM(전월 대비) 비교용 baseline 요청에서만 오늘까지
+      // 경과한 일수만큼 잘라서 공정하게 비교한다. 사용자가 특정 월을 직접
+      // 선택해서 조회하는 주 화면(손익 요약 등) 요청에는 적용하면 안 된다 —
+      // 예: 8월에 7월을 직접 선택해서 봐도 7월은 "지난달"이라 이 로직이
+      // 무조건 걸려서 7월 전체가 아니라 오늘 날짜(예: 21일)까지만 잘려
+      // 카테고리 비율 등 다른 화면의 전체 월 합계와 불일치가 발생했었다.
+      if (period === 'monthly' && matchElapsedDays) {
         // 한국 표준시 기준 오늘 구하기
         const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
         const todayYear = today.getFullYear();
