@@ -34,7 +34,16 @@ export async function getUserRole(): Promise<UserRole | null> {
     return null
   }
 
-  // store_members에서 직접 user_id로 조회하여 RLS와 무관하게 정확한 권한 확인
+  // 1) stores.owner_id 기준으로 실제 소유주인지 먼저 확인
+  const { data: ownedStore } = await adminSupabase
+    .from('stores')
+    .select('id')
+    .eq('owner_id', user.id)
+    .maybeSingle()
+
+  if (ownedStore) return 'owner'
+
+  // 2) store_members에서 user_id로 조회 (manager/staff)
   const { data: member, error: memberError } = await adminSupabase
     .from('store_members')
     .select('role')
