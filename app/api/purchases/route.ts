@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { getUserRole } from '@/utils/supabase/getUserRole';
+import { applyFixedCostsForStore } from '@/lib/fixedCosts';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,13 @@ function makeClient() {
 export async function GET(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // 온디맨드로 누락된 활성 고정비 자동 적용/백필
+  try {
+    await applyFixedCostsForStore(STORE_ID, 'on_demand');
+  } catch (err) {
+    console.error('Failed to apply fixed costs on demand:', err);
+  }
 
   const supabase = makeClient();
   if (!supabase) {

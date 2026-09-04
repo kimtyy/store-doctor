@@ -180,11 +180,32 @@ export default function FixedCostsPage() {
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
 
   const flash = (msg: string) => {
     setSuccess(msg);
-    setTimeout(() => setSuccess(null), 3000);
+    setTimeout(() => setSuccess(null), 4000);
   };
+
+  async function handleApplyNow() {
+    setApplying(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/fixed-costs/apply', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? '적용 실패');
+
+      if (json.applied > 0) {
+        flash(`✅ ${json.applied}건의 고정비가 매입 내역에 자동 적용/백필되었습니다.`);
+      } else {
+        flash('ℹ️ 이미 모든 활성화된 고정비가 매입 내역에 적용되어 있습니다.');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '오류가 발생했습니다.');
+    } finally {
+      setApplying(false);
+    }
+  }
 
   // 추가 폼 열릴 때 스크롤
   useEffect(() => {
@@ -358,15 +379,25 @@ export default function FixedCostsPage() {
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{success}</div>
           )}
 
-          {/* 추가 버튼 / 폼 */}
+          {/* 추가 버튼 / 폼 및 수동 적용 버튼 */}
           {!showAdd ? (
-            <button
-              type="button"
-              onClick={() => { setShowAdd(true); setError(null); }}
-              className="w-full rounded-2xl border border-dashed border-slate-700 py-4 text-sm font-semibold text-slate-400 hover:border-sky-600 hover:text-sky-400 transition"
-            >
-              + 고정비 추가
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowAdd(true); setError(null); }}
+                className="flex-1 rounded-2xl border border-dashed border-slate-700 py-3.5 text-sm font-semibold text-slate-400 hover:border-sky-600 hover:text-sky-400 transition"
+              >
+                + 고정비 추가
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyNow}
+                disabled={applying}
+                className="rounded-2xl border border-sky-600/40 bg-sky-950/40 px-4 py-3.5 text-sm font-semibold text-sky-400 hover:bg-sky-900/50 disabled:opacity-50 transition shrink-0 flex items-center gap-1.5"
+              >
+                {applying ? '⚡ 적용 중...' : '⚡ 수동 적용 / 백필'}
+              </button>
+            </div>
           ) : (
             <div ref={addFormRef} className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5 space-y-4">
               <h2 className="text-base font-semibold">새 고정비</h2>
