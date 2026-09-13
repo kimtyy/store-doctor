@@ -21,6 +21,16 @@ interface CategoryStat {
   totalAmount: number;
 }
 
+interface MonthlyMenuComparisonItem {
+  name: string;
+  category?: string;
+  thisMonthQty: number;
+  lastMonthQty: number;
+  diff: number;
+  rate: number | null;
+  isNew: boolean;
+}
+
 interface MenuAnalyticsData {
   byAmount: MenuStat[];
   byQuantity: MenuStat[];
@@ -246,6 +256,27 @@ export default function AnalyticsPage() {
   const [editingMenu, setEditingMenu] = useState<{ name: string; current: string | null; editedName: string } | null>(null);
   const [updatingCategory, setUpdatingCategory] = useState(false);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
+
+  // monthly comparison state
+  const [monthlyRising, setMonthlyRising] = useState<MonthlyMenuComparisonItem[]>([]);
+  const [monthlyFalling, setMonthlyFalling] = useState<MonthlyMenuComparisonItem[]>([]);
+  const [monthlyComparisonLoading, setMonthlyComparisonLoading] = useState(false);
+
+  useEffect(() => {
+    setMonthlyComparisonLoading(true);
+    fetch('/api/dashboard/monthly-menu-comparison?limit=10')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.risingGroup && Array.isArray(d.risingGroup)) {
+          setMonthlyRising(d.risingGroup);
+        }
+        if (d?.fallingGroup && Array.isArray(d.fallingGroup)) {
+          setMonthlyFalling(d.fallingGroup);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setMonthlyComparisonLoading(false));
+  }, []);
 
   // vendor rename popup state
   const [editingVendor, setEditingVendor] = useState<{ name: string } | null>(null);
@@ -744,6 +775,125 @@ export default function AnalyticsPage() {
                             </div>
                           </button>
                         ))}
+                      </div>
+                    </div>
+                  )}
+                </section>
+
+                {/* ── 월별 메뉴 비교 (전월 동기간 대비) ── */}
+                <section className="mb-8">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
+                    <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>📊</span>
+                      <span>월별 메뉴 비교</span>
+                    </h2>
+                    <span className="text-xs text-slate-500">전월 동기간(1일~현재) 대비</span>
+                  </div>
+
+                  {monthlyComparisonLoading ? (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-center text-slate-500 text-xs">
+                      비교 데이터 불러오는 중...
+                    </div>
+                  ) : monthlyRising.length === 0 && monthlyFalling.length === 0 ? (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-center text-slate-500 text-xs">
+                      비교할 만한 유의미한 메뉴 판매 데이터(10개 이상)가 아직 없습니다.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* 상승 TOP 10 */}
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800/80">
+                          <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                            <span>📈</span>
+                            <span>상승 메뉴 TOP 10</span>
+                          </h3>
+                          <span className="text-[11px] text-slate-500">판매량 증가 순</span>
+                        </div>
+                        {monthlyRising.length === 0 ? (
+                          <p className="text-slate-500 text-xs py-4 text-center">상승한 메뉴가 없습니다.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {monthlyRising.map((item, idx) => (
+                              <div
+                                key={item.name}
+                                className="flex items-center justify-between rounded-xl px-3 py-2 bg-emerald-500/5 border border-emerald-500/10 hover:border-emerald-500/30 transition"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                  <span className="w-4 text-xs font-bold text-emerald-400 text-center shrink-0">
+                                    {idx + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-sm font-medium text-slate-200 truncate">{item.name}</span>
+                                      {item.category && <CategoryBadge category={item.category} />}
+                                    </div>
+                                    <p className="text-xs text-slate-400 mt-0.5">
+                                      {item.lastMonthQty}개 → <span className="text-slate-200 font-semibold">{item.thisMonthQty}개</span>
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className="inline-flex items-center rounded-lg bg-emerald-500/20 px-2 py-0.5 text-xs font-bold text-emerald-300">
+                                    +{item.diff}개
+                                  </span>
+                                  {item.rate !== null && (
+                                    <p className="text-[11px] font-semibold text-emerald-400 mt-0.5">
+                                      +{item.rate}%
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 하락 TOP 10 */}
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800/80">
+                          <h3 className="text-sm font-bold text-rose-400 flex items-center gap-1.5">
+                            <span>📉</span>
+                            <span>하락 메뉴 TOP 10</span>
+                          </h3>
+                          <span className="text-[11px] text-slate-500">판매량 감소 순</span>
+                        </div>
+                        {monthlyFalling.length === 0 ? (
+                          <p className="text-slate-500 text-xs py-4 text-center">하락한 메뉴가 없습니다.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {monthlyFalling.map((item, idx) => (
+                              <div
+                                key={item.name}
+                                className="flex items-center justify-between rounded-xl px-3 py-2 bg-rose-500/5 border border-rose-500/10 hover:border-rose-500/30 transition"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                  <span className="w-4 text-xs font-bold text-rose-400 text-center shrink-0">
+                                    {idx + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-sm font-medium text-slate-200 truncate">{item.name}</span>
+                                      {item.category && <CategoryBadge category={item.category} />}
+                                    </div>
+                                    <p className="text-xs text-slate-400 mt-0.5">
+                                      {item.lastMonthQty}개 → <span className="text-slate-200 font-semibold">{item.thisMonthQty}개</span>
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className="inline-flex items-center rounded-lg bg-rose-500/20 px-2 py-0.5 text-xs font-bold text-rose-300">
+                                    {item.diff}개
+                                  </span>
+                                  {item.rate !== null && (
+                                    <p className="text-[11px] font-semibold text-rose-400 mt-0.5">
+                                      {item.rate}%
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
