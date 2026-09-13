@@ -16,6 +16,13 @@ export interface TrendingMenuItem {
   message: string;
 }
 
+export interface TrendingMenuResponse {
+  targetDate: string;
+  drinkGroup: TrendingMenuItem[];
+  foodGroup: TrendingMenuItem[];
+  data: TrendingMenuItem[];
+}
+
 function getKstDateStr(): string {
   const now = new Date();
   const kstString = now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' });
@@ -132,7 +139,8 @@ export async function GET(request: Request) {
       }
     }
 
-    const trending: TrendingMenuItem[] = [];
+    const drinkList: TrendingMenuItem[] = [];
+    const foodList: TrendingMenuItem[] = [];
 
     for (const [name, todayQty] of Object.entries(todayMenuQty)) {
       const qty30 = past30MenuQty[name] || 0;
@@ -159,7 +167,7 @@ export async function GET(request: Request) {
 
       const increaseRate = Math.round(((todayQty - baseline) / baseline) * 100);
 
-      trending.push({
+      const itemObj: TrendingMenuItem = {
         name,
         category: category || undefined,
         todayQty,
@@ -168,16 +176,27 @@ export async function GET(request: Request) {
         baseline: Number(baseline.toFixed(2)),
         increaseRate,
         message: `🔥 ${name}, 평소보다 ${increaseRate}% 더 팔렸어요`,
-      });
+      };
+
+      if (isDrinkOrBeverage) {
+        drinkList.push(itemObj);
+      } else {
+        foodList.push(itemObj);
+      }
     }
 
-    // 5. 오늘 판매수량(todayQty) 높은 순, 동일 시 증가율 높은 순 정렬 및 상위 5개 추출
-    trending.sort((a, b) => b.todayQty - a.todayQty || b.increaseRate - a.increaseRate);
-    const topTrending = trending.slice(0, 5);
+    // 5. 각 그룹별 오늘 판매수량(todayQty) 높은 순, 동일 시 증가율 높은 순 정렬 및 상위 5개 추출
+    drinkList.sort((a, b) => b.todayQty - a.todayQty || b.increaseRate - a.increaseRate);
+    foodList.sort((a, b) => b.todayQty - a.todayQty || b.increaseRate - a.increaseRate);
+
+    const drinkGroup = drinkList.slice(0, 5);
+    const foodGroup = foodList.slice(0, 5);
 
     return NextResponse.json({
       targetDate: targetDateStr,
-      data: topTrending,
+      drinkGroup,
+      foodGroup,
+      data: [...drinkGroup, ...foodGroup],
     });
   } catch (err) {
     console.error('Error calculating trending menus:', err);
