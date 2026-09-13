@@ -114,17 +114,20 @@ export async function GET(request: Request) {
       const qty30 = past30MenuQty[name] || 0;
       const qty7 = past7MenuQty[name] || 0;
 
-      // 1. 최근 30일간 총 판매량이 5개 이상
+      // 1. 오늘 최소 3개 이상 판매 (단발성 소량 판매로 인한 % 왜곡 방지)
+      if (todayQty < 3) continue;
+
+      // 2. 최근 30일간 총 판매량이 5개 이상
       if (qty30 < 5) continue;
 
       const avg7 = qty7 / 7;
       const avg30 = qty30 / 30;
       const baseline = (avg7 + avg30) / 2;
 
-      // 2. 0 나누기 방지
+      // 3. 0 나누기 방지
       if (baseline <= 0) continue;
 
-      // 3. 평소 기준선 대비 20% 이상 증가
+      // 4. 평소 기준선 대비 20% 이상 증가
       if (todayQty < baseline * 1.2) continue;
 
       const increaseRate = Math.round(((todayQty - baseline) / baseline) * 100);
