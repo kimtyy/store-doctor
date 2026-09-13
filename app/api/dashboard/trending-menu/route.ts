@@ -143,8 +143,8 @@ export async function GET(request: Request) {
       });
     }
 
-    // 4. 증가율 높은 순, 동일 시 판매량 높은 순 정렬 및 상위 5개 추출
-    trending.sort((a, b) => b.increaseRate - a.increaseRate || b.todayQty - a.todayQty);
+    // 4. 오늘 판매수량(todayQty) 높은 순, 동일 시 증가율 높은 순 정렬 및 상위 5개 추출
+    trending.sort((a, b) => b.todayQty - a.todayQty || b.increaseRate - a.increaseRate);
     const topTrending = trending.slice(0, 5);
 
     return NextResponse.json({
