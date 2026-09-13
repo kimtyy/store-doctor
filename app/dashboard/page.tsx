@@ -121,7 +121,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/dashboard/monthly-menu-comparison')
+    fetch('/api/dashboard/period-menu-comparison?periodType=monthly')
       .then((r) => r.json())
       .then((d) => {
         if (d?.risingGroup && Array.isArray(d.risingGroup)) {
@@ -560,18 +560,18 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* 월별 메뉴 비교 (상승/하락 TOP5) */}
+                {/* 기간별 메뉴 비교 (최근 30일 vs 직전 30일 TOP5) */}
                 {(monthlyRising.length > 0 || monthlyFalling.length > 0) && (
                   <div className="mt-5 border-t border-slate-800/80 pt-4 space-y-4">
-                    {/* 📈 이번달 상승 메뉴 TOP5 */}
+                    {/* 📈 최근 30일 상승 메뉴 TOP5 */}
                     {monthlyRising.length > 0 && (
                       <div>
                         <div className="flex items-center justify-between mb-2.5">
                           <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                             <span>📈</span>
-                            <span>이번달 상승 메뉴 TOP5</span>
+                            <span>최근 30일 상승 메뉴 TOP5</span>
                           </p>
-                          <span className="text-[11px] text-slate-500">전월 동기간 대비</span>
+                          <span className="text-[11px] text-slate-500">직전 30일 대비</span>
                         </div>
                         <div className="space-y-2">
                           {monthlyRising.map((item) => (
@@ -603,15 +603,15 @@ export default function DashboardPage() {
                       </div>
                     )}
 
-                    {/* 📉 이번달 하락 메뉴 TOP5 */}
+                    {/* 📉 최근 30일 하락 메뉴 TOP5 */}
                     {monthlyFalling.length > 0 && (
                       <div>
                         <div className="flex items-center justify-between mb-2.5">
                           <p className="text-xs font-semibold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
                             <span>📉</span>
-                            <span>이번달 하락 메뉴 TOP5</span>
+                            <span>최근 30일 하락 메뉴 TOP5</span>
                           </p>
-                          <span className="text-[11px] text-slate-500">전월 동기간 대비</span>
+                          <span className="text-[11px] text-slate-500">직전 30일 대비</span>
                         </div>
                         <div className="space-y-2">
                           {monthlyFalling.map((item) => (

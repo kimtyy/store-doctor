@@ -24,11 +24,18 @@ interface CategoryStat {
 interface MonthlyMenuComparisonItem {
   name: string;
   category?: string;
+  thisPeriodQty: number;
+  lastPeriodQty: number;
   thisMonthQty: number;
   lastMonthQty: number;
   diff: number;
   rate: number | null;
   isNew: boolean;
+}
+
+interface PeriodComparisonPeriods {
+  current: { from: string; to: string; days: number };
+  previous: { from: string; to: string; days: number };
 }
 
 interface MenuAnalyticsData {
@@ -257,26 +264,40 @@ export default function AnalyticsPage() {
   const [updatingCategory, setUpdatingCategory] = useState(false);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
-  // monthly comparison state
-  const [monthlyRising, setMonthlyRising] = useState<MonthlyMenuComparisonItem[]>([]);
-  const [monthlyFalling, setMonthlyFalling] = useState<MonthlyMenuComparisonItem[]>([]);
-  const [monthlyComparisonLoading, setMonthlyComparisonLoading] = useState(false);
+  // period comparison state (종료일자 및 월간/주간 선택)
+  const [comparisonEndDate, setComparisonEndDate] = useState<string>(() => {
+    const now = new Date();
+    const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const y = kst.getFullYear();
+    const m = String(kst.getMonth() + 1).padStart(2, '0');
+    const d = String(kst.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  });
+  const [comparisonPeriodType, setComparisonPeriodType] = useState<'monthly' | 'weekly'>('monthly');
+  const [comparisonPeriods, setComparisonPeriods] = useState<PeriodComparisonPeriods | null>(null);
+  const [periodRising, setPeriodRising] = useState<MonthlyMenuComparisonItem[]>([]);
+  const [periodFalling, setPeriodFalling] = useState<MonthlyMenuComparisonItem[]>([]);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
 
   useEffect(() => {
-    setMonthlyComparisonLoading(true);
-    fetch('/api/dashboard/monthly-menu-comparison?limit=10')
+    if (!comparisonEndDate) return;
+    setComparisonLoading(true);
+    fetch(`/api/dashboard/period-menu-comparison?endDate=${comparisonEndDate}&periodType=${comparisonPeriodType}&limit=10`)
       .then((r) => r.json())
       .then((d) => {
+        if (d?.periods) {
+          setComparisonPeriods(d.periods);
+        }
         if (d?.risingGroup && Array.isArray(d.risingGroup)) {
-          setMonthlyRising(d.risingGroup);
+          setPeriodRising(d.risingGroup);
         }
         if (d?.fallingGroup && Array.isArray(d.fallingGroup)) {
-          setMonthlyFalling(d.fallingGroup);
+          setPeriodFalling(d.fallingGroup);
         }
       })
       .catch(() => {})
-      .finally(() => setMonthlyComparisonLoading(false));
-  }, []);
+      .finally(() => setComparisonLoading(false));
+  }, [comparisonEndDate, comparisonPeriodType]);
 
   // vendor rename popup state
   const [editingVendor, setEditingVendor] = useState<{ name: string } | null>(null);
@@ -780,23 +801,71 @@ export default function AnalyticsPage() {
                   )}
                 </section>
 
-                {/* ── 월별 메뉴 비교 (전월 동기간 대비) ── */}
+                {/* ── 기간별 메뉴 비교 (월간/주간, 종료일자 선택) ── */}
                 <section className="mb-8">
-                  <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
-                    <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <span>📊</span>
-                      <span>월별 메뉴 비교</span>
-                    </h2>
-                    <span className="text-xs text-slate-500">전월 동기간(1일~현재) 대비</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3">
+                    <div>
+                      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>📊</span>
+                        <span>기간별 메뉴 비교</span>
+                      </h2>
+                      {comparisonPeriods && (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          이번 기간({comparisonPeriods.current.from} ~ {comparisonPeriods.current.to}, {comparisonPeriods.current.days}일) vs 직전 기간({comparisonPeriods.previous.from} ~ {comparisonPeriods.previous.to})
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Controls: 기간유형 토글 & 종료일자 선택 */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* 월간 / 주간 세그먼트 토글 */}
+                      <div className="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setComparisonPeriodType('monthly')}
+                          className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                            comparisonPeriodType === 'monthly'
+                              ? 'bg-sky-500 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          월간 (31일)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setComparisonPeriodType('weekly')}
+                          className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                            comparisonPeriodType === 'weekly'
+                              ? 'bg-sky-500 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          주간 (7일)
+                        </button>
+                      </div>
+
+                      {/* 종료일자 선택 (Date Picker) */}
+                      <div className="flex items-center gap-1.5 rounded-xl bg-slate-900 border border-slate-800 px-2.5 py-1">
+                        <span className="text-xs text-slate-400">종료일:</span>
+                        <input
+                          type="date"
+                          value={comparisonEndDate}
+                          onChange={(e) => {
+                            if (e.target.value) setComparisonEndDate(e.target.value);
+                          }}
+                          className="bg-transparent text-xs text-slate-200 font-medium focus:outline-none cursor-pointer [color-scheme:dark]"
+                        />
+                      </div>
+                    </div>
                   </div>
 
-                  {monthlyComparisonLoading ? (
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-center text-slate-500 text-xs">
-                      비교 데이터 불러오는 중...
+                  {comparisonLoading ? (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center text-slate-400 text-xs animate-pulse">
+                      비교 데이터를 불러오는 중...
                     </div>
-                  ) : monthlyRising.length === 0 && monthlyFalling.length === 0 ? (
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-center text-slate-500 text-xs">
-                      비교할 만한 유의미한 메뉴 판매 데이터(10개 이상)가 아직 없습니다.
+                  ) : periodRising.length === 0 && periodFalling.length === 0 ? (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center text-slate-500 text-xs">
+                      선택한 기간에 비교할 만한 메뉴 판매 데이터(10개 이상)가 없습니다.
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -809,11 +878,11 @@ export default function AnalyticsPage() {
                           </h3>
                           <span className="text-[11px] text-slate-500">판매량 증가 순</span>
                         </div>
-                        {monthlyRising.length === 0 ? (
+                        {periodRising.length === 0 ? (
                           <p className="text-slate-500 text-xs py-4 text-center">상승한 메뉴가 없습니다.</p>
                         ) : (
                           <div className="space-y-2">
-                            {monthlyRising.map((item, idx) => (
+                            {periodRising.map((item, idx) => (
                               <div
                                 key={item.name}
                                 className="flex items-center justify-between rounded-xl px-3 py-2 bg-emerald-500/5 border border-emerald-500/10 hover:border-emerald-500/30 transition"
@@ -828,7 +897,7 @@ export default function AnalyticsPage() {
                                       {item.category && <CategoryBadge category={item.category} />}
                                     </div>
                                     <p className="text-xs text-slate-400 mt-0.5">
-                                      {item.lastMonthQty}개 → <span className="text-slate-200 font-semibold">{item.thisMonthQty}개</span>
+                                      {item.lastPeriodQty}개 → <span className="text-slate-200 font-semibold">{item.thisPeriodQty}개</span>
                                     </p>
                                   </div>
                                 </div>
@@ -857,11 +926,11 @@ export default function AnalyticsPage() {
                           </h3>
                           <span className="text-[11px] text-slate-500">판매량 감소 순</span>
                         </div>
-                        {monthlyFalling.length === 0 ? (
+                        {periodFalling.length === 0 ? (
                           <p className="text-slate-500 text-xs py-4 text-center">하락한 메뉴가 없습니다.</p>
                         ) : (
                           <div className="space-y-2">
-                            {monthlyFalling.map((item, idx) => (
+                            {periodFalling.map((item, idx) => (
                               <div
                                 key={item.name}
                                 className="flex items-center justify-between rounded-xl px-3 py-2 bg-rose-500/5 border border-rose-500/10 hover:border-rose-500/30 transition"
@@ -876,7 +945,7 @@ export default function AnalyticsPage() {
                                       {item.category && <CategoryBadge category={item.category} />}
                                     </div>
                                     <p className="text-xs text-slate-400 mt-0.5">
-                                      {item.lastMonthQty}개 → <span className="text-slate-200 font-semibold">{item.thisMonthQty}개</span>
+                                      {item.lastPeriodQty}개 → <span className="text-slate-200 font-semibold">{item.thisPeriodQty}개</span>
                                     </p>
                                   </div>
                                 </div>
