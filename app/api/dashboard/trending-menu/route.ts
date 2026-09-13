@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export interface TrendingMenuItem {
   name: string;
+  category?: string;
   todayQty: number;
   qty7: number;
   qty30: number;
@@ -69,9 +70,26 @@ export async function GET(request: Request) {
   const toPastStr = addDays(targetDateStr, -1);
 
   try {
+    // 1. menu_master 카테고리 매핑 로드 (fallback 지원)
+    const { data: masterRows } = await supabase
+      .from('menu_master')
+      .select('menu_name, category, aliases')
+      .eq('store_id', STORE_ID);
+
+    const masterCategoryMap: Record<string, string> = {};
+    for (const m of masterRows || []) {
+      if (m.category) {
+        masterCategoryMap[m.menu_name.trim()] = m.category.trim();
+        for (const alias of m.aliases || []) {
+          masterCategoryMap[alias.trim()] = m.category.trim();
+        }
+      }
+    }
+
+    // 2. 최근 30일 및 당일의 daily_sales + sales_menu_items 조회
     const { data: sales, error: salesError } = await supabase
       .from('daily_sales')
-      .select('id, date, is_event, sales_menu_items(name, quantity, amount)')
+      .select('id, date, is_event, sales_menu_items(name, category, quantity, amount)')
       .eq('store_id', STORE_ID)
       .gte('date', from30Str)
       .lte('date', targetDateStr);
@@ -84,6 +102,7 @@ export async function GET(request: Request) {
     const past7MenuQty: Record<string, number> = {};
     const past30MenuQty: Record<string, number> = {};
     const todayMenuQty: Record<string, number> = {};
+    const menuCategories: Record<string, string> = {};
 
     for (const s of sales || []) {
       const isToday = s.date === targetDateStr;
@@ -95,6 +114,11 @@ export async function GET(request: Request) {
         if (!name) continue;
         const qty = Number(item.quantity) || 0;
         if (qty <= 0) continue;
+
+        const cat = item.category?.trim() || masterCategoryMap[name] || '';
+        if (cat && !menuCategories[name]) {
+          menuCategories[name] = cat;
+        }
 
         if (isToday) {
           todayMenuQty[name] = (todayMenuQty[name] || 0) + qty;
@@ -113,12 +137,15 @@ export async function GET(request: Request) {
     for (const [name, todayQty] of Object.entries(todayMenuQty)) {
       const qty30 = past30MenuQty[name] || 0;
       const qty7 = past7MenuQty[name] || 0;
+      const category = menuCategories[name] || masterCategoryMap[name] || '';
 
-      // 1. 오늘 최소 3개 이상 판매 (단발성 소량 판매로 인한 % 왜곡 방지)
+      // 1. 오늘 최소 3개 이상 판매
       if (todayQty < 3) continue;
 
-      // 2. 최근 30일간 총 판매량이 5개 이상
-      if (qty30 < 5) continue;
+      // 2. 카테고리별 차등 최소 누적 판매량: 주류/음료는 30일 누적 30개 이상, 그 외는 5개 이상
+      const isDrinkOrBeverage = category === '주류' || category === '음료';
+      const minQty30 = isDrinkOrBeverage ? 30 : 5;
+      if (qty30 < minQty30) continue;
 
       const avg7 = qty7 / 7;
       const avg30 = qty30 / 30;
@@ -134,6 +161,7 @@ export async function GET(request: Request) {
 
       trending.push({
         name,
+        category: category || undefined,
         todayQty,
         qty7,
         qty30,
@@ -143,7 +171,7 @@ export async function GET(request: Request) {
       });
     }
 
-    // 4. 오늘 판매수량(todayQty) 높은 순, 동일 시 증가율 높은 순 정렬 및 상위 5개 추출
+    // 5. 오늘 판매수량(todayQty) 높은 순, 동일 시 증가율 높은 순 정렬 및 상위 5개 추출
     trending.sort((a, b) => b.todayQty - a.todayQty || b.increaseRate - a.increaseRate);
     const topTrending = trending.slice(0, 5);
 
