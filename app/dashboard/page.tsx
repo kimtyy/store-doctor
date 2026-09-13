@@ -10,6 +10,16 @@ import TermTooltip from '@/components/ui/TermTooltip';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 
+interface TrendingMenuItem {
+  name: string;
+  todayQty: number;
+  qty7: number;
+  qty30: number;
+  baseline: number;
+  increaseRate: number;
+  message: string;
+}
+
 function calcNullableMA(values: (number | null)[], period: number): (number | null)[] {
   return values.map((_, i) => {
     if (i < period - 1) return null;
@@ -81,6 +91,7 @@ export default function DashboardPage() {
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [trendingMenus, setTrendingMenus] = useState<TrendingMenuItem[]>([]);
 
   // role 체크: owner/manager는 분석 섹션 표시, staff는 숨김
   // 'loading' 상태 동안 분석 섹션을 스켈레톤으로 표시해 깜빡임 방지
@@ -103,6 +114,17 @@ export default function DashboardPage() {
       .then((d) => {
         if (d?.data && d.data.onboarding_guide_seen === false) {
           setShowGuideModal(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/dashboard/trending-menu')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.data && Array.isArray(d.data)) {
+          setTrendingMenus(d.data);
         }
       })
       .catch(() => {});
@@ -530,6 +552,44 @@ export default function DashboardPage() {
                           )}
                         </span>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Trending Menus (특이 판매 / 급상승 메뉴) */}
+                {trendingMenus.length > 0 && (
+                  <div className="mt-5 border-t border-slate-800/80 pt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>🔥</span>
+                        <span>오늘 특이 판매 메뉴</span>
+                      </p>
+                      <span className="text-[11px] text-slate-500">평소 대비 20%↑</span>
+                    </div>
+                    <div className="space-y-2">
+                      {trendingMenus.map((item) => (
+                        <div
+                          key={item.name}
+                          className="flex items-center justify-between rounded-xl px-3.5 py-2.5 bg-amber-500/10 border border-amber-500/20"
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <p className="text-sm font-semibold text-slate-100 truncate">
+                              {item.name}
+                            </p>
+                            <p className="text-xs text-amber-300/90 mt-0.5">
+                              평소보다 <span className="font-bold text-amber-400">+{item.increaseRate}%</span> 더 팔렸어요
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="inline-flex items-center rounded-lg bg-amber-500/20 px-2 py-1 text-xs font-medium text-amber-300">
+                              오늘 {item.todayQty}개
+                            </span>
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              평소 {item.baseline}개
+                            </p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
