@@ -1,19 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
-import { loadPaymentWidget, ANONYMOUS, PaymentWidgetInstance } from '@tosspayments/payment-widget-sdk';
+import { loadTossPayments } from '@tosspayments/tosspayments-sdk';
+import { BILLING_PLANS, PlanKey } from '@/lib/billing';
 
-const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || 'test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm';
-
-const PLAN_DETAILS = {
-  basic: { name: 'Basic', price: 9900, description: '1인 매장 및 기초 장부 자동화' },
-  pro: { name: 'Pro', price: 19900, description: '복수 매장 통합 및 정밀 손익 보고서' },
-  premium: { name: 'Premium', price: 29900, description: 'AI 심화 컨설팅 및 1:1 세무사 검증 연동' }
-};
-
-type PlanKey = 'basic' | 'pro' | 'premium';
+const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
 
 function PaymentContent() {
   const router = useRouter();
@@ -22,17 +15,13 @@ function PaymentContent() {
 
   const [supabase] = useState(() => createClient());
   const [user, setUser] = useState<any>(null);
-  const [selectedPlan, setSelectedPlan] = useState<PlanKey>(initialPlan);
+  const [selectedPlan, setSelectedPlan] = useState<PlanKey>(
+    BILLING_PLANS[initialPlan] ? initialPlan : 'basic'
+  );
   const [loading, setLoading] = useState(true);
-  const [paymentWidget, setPaymentWidget] = useState<PaymentWidgetInstance | null>(null);
-  const [paymentMethodsWidget, setPaymentMethodsWidget] = useState<any>(null);
-  // customerKey가 바뀔 때마다(비로그인 → 로그인) 증가시켜, 위젯 컨테이너 DOM을
-  // 완전히 새로 마운트하기 위한 key로 사용한다. (같은 DOM 노드를 여러 위젯
-  // 인스턴스가 재사용하면 토스 SDK 내부 상태가 꼬여 결제 버튼이 무반응이 됨)
-  const [widgetInstanceKey, setWidgetInstanceKey] = useState(0);
-  const [widgetError, setWidgetError] = useState<string | null>(null);
-  const [isWidgetReady, setIsWidgetReady] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [agreedToRecurring, setAgreedToRecurring] = useState(false);
+  const [errorMessageState, setErrorMessageState] = useState<string | null>(null);
 
   // role 체크: owner만 결제 페이지 접근 가능
   const [role, setRole] = useState<string | null | 'loading'>('loading');
@@ -45,12 +34,14 @@ function PaymentContent() {
   }, []);
 
   const errorParam = searchParams.get('error');
-  const errorMessage = searchParams.get('message');
+  const errorParamMessage = searchParams.get('message');
 
   // 1. 사용자 세션 체크 (비로그인 시 로그인 페이지로 리디렉션)
   useEffect(() => {
     async function checkUser() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
         setLoading(false);
@@ -62,108 +53,54 @@ function PaymentContent() {
     checkUser();
   }, [supabase, selectedPlan, router]);
 
-  // 2. 토스 결제위젯 초기화 (비로그인의 경우 ANONYMOUS 키 사용)
-  useEffect(() => {
-    if (loading) return;
-
-    async function initWidget() {
-      try {
-        setPaymentWidget(null);
-        setPaymentMethodsWidget(null);
-        setIsWidgetReady(false);
-        setWidgetError(null);
-
-        if (!TOSS_CLIENT_KEY) {
-          console.error('NEXT_PUBLIC_TOSS_CLIENT_KEY 환경변수가 설정되지 않았습니다.');
-          setWidgetError('결제 위젯 설정 오류가 발생했습니다. 관리자에게 문의해 주세요.');
-          return;
-        }
-
-        const customerKey = user ? user.id : ANONYMOUS;
-        const widget = await loadPaymentWidget(TOSS_CLIENT_KEY, customerKey);
-
-        setWidgetInstanceKey((k) => k + 1);
-        setPaymentWidget(widget);
-      } catch (err) {
-        console.error('Toss Payments widget load failed:', err);
-        setWidgetError('결제 위젯을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.');
-      }
-    }
-    initWidget();
-  }, [user, loading]);
-
-  // 3. 결제수단 및 이용약관 렌더링 (owner 권한 확인 후 실제 DOM에 마운트)
-  useEffect(() => {
-    if (!paymentWidget || role !== 'owner') return;
-
-    const methodContainer = document.getElementById('payment-method');
-    const agreementContainer = document.getElementById('agreement');
-    if (!methodContainer || !agreementContainer) return;
-
-    const amount = PLAN_DETAILS[selectedPlan].price;
-
-    // 이미 위젯이 렌더링된 상태에서 플랜만 변경된 경우 금액만 갱신
-    if (paymentMethodsWidget) {
-      try {
-        paymentMethodsWidget.updateAmount(amount);
-      } catch (err) {
-        console.error('Toss widget update amount failed:', err);
-      }
-      return;
-    }
-
-    try {
-      methodContainer.innerHTML = '';
-      agreementContainer.innerHTML = '';
-
-      const methodsWidget = paymentWidget.renderPaymentMethods(
-        '#payment-method',
-        { value: amount },
-        { variantKey: 'DEFAULT' }
-      );
-
-      paymentWidget.renderAgreement('#agreement', { variantKey: 'DEFAULT' });
-
-      setPaymentMethodsWidget(methodsWidget);
-      setIsWidgetReady(true);
-      setWidgetError(null);
-    } catch (err) {
-      console.error('Toss widget render methods failed:', err);
-      setPaymentMethodsWidget(null);
-      setIsWidgetReady(false);
-      setWidgetError('결제 수단을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.');
-    }
-  }, [paymentWidget, selectedPlan, role, widgetInstanceKey, paymentMethodsWidget]);
-
-  // 결제 요청
-  const handlePaymentRequest = async () => {
-    // 비로그인 사용자라면 로그인 페이지로 이동
+  // 2. 카드 등록 및 빌링 인증창 호출
+  const handleStartBilling = async () => {
     if (!user) {
       const redirectPath = encodeURIComponent(`/payment?plan=${selectedPlan}`);
       router.push(`/login?redirect=${redirectPath}`);
       return;
     }
 
-    if (!paymentWidget || !paymentMethodsWidget || !isWidgetReady || isSubmitting) return;
+    if (!agreedToRecurring) {
+      setErrorMessageState('정기결제 유의사항 및 매월 자동결제 동의가 필요합니다.');
+      return;
+    }
+
+    if (!TOSS_CLIENT_KEY) {
+      console.error('NEXT_PUBLIC_TOSS_CLIENT_KEY 환경변수가 설정되지 않았습니다.');
+      setErrorMessageState('결제 환경변수(NEXT_PUBLIC_TOSS_CLIENT_KEY)가 설정되지 않았습니다. 관리자에게 문의해 주세요.');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
-      setWidgetError(null);
-      const planDetail = PLAN_DETAILS[selectedPlan];
-      const orderId = `order_${user.id.slice(0, 8)}_${Date.now()}`;
+      setErrorMessageState(null);
 
-      await paymentWidget.requestPayment({
-        orderId,
-        orderName: `매장닥터 ${planDetail.name} 플랜 구독`,
-        customerEmail: user.email,
-        customerName: user.user_metadata?.name || '매장 대표님',
-        successUrl: `${window.location.origin}/api/payment/confirm?plan=${selectedPlan}`,
-        failUrl: `${window.location.origin}/payment?plan=${selectedPlan}&error=true&message=결제가+취소되었거나+실패했습니다.`,
+      // 사용자 전용 customerKey 조회 (Supabase user.id 기반 고유·난수화 키)
+      const res = await fetch('/api/payment/customer-key');
+      const data = await res.json();
+      if (!res.ok || !data.customerKey) {
+        throw new Error(data.error || '고객 식별 키 생성에 실패했습니다.');
+      }
+      const customerKey = data.customerKey;
+
+      // 토스페이먼츠 SDK v2 초기화 및 결제창 인스턴스 생성
+      const tossPayments = await loadTossPayments(TOSS_CLIENT_KEY);
+      const payment = tossPayments.payment({ customerKey });
+
+      const successUrl = `${window.location.origin}/api/payment/confirm?plan=${selectedPlan}`;
+      const failUrl = `${window.location.origin}/payment?plan=${selectedPlan}&error=true&message=카드+등록이+취소되었거나+실패했습니다.`;
+
+      // 토스 빌링 인증창 호출
+      await payment.requestBillingAuth({
+        method: 'CARD',
+        successUrl,
+        failUrl,
       });
     } catch (err: any) {
-      console.error('Payment request failed:', err);
+      console.error('Billing auth error:', err);
       if (err?.code !== 'USER_CANCEL') {
-        setWidgetError(err?.message || '결제 요청 중 오류가 발생했습니다. 다시 시도해 주세요.');
+        setErrorMessageState(err?.message || '카드 등록 요청 중 오류가 발생했습니다. 다시 시도해 주세요.');
       }
     } finally {
       setIsSubmitting(false);
@@ -181,7 +118,7 @@ function PaymentContent() {
     );
   }
 
-  // 비로그인 사용자: 로그인 페이지로 이동 중
+  // 비로그인 사용자
   if (!user) {
     return (
       <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white">
@@ -193,7 +130,7 @@ function PaymentContent() {
     );
   }
 
-  // 매장이 등록되지 않은 신규 가입자: 온보딩으로 안내
+  // 매장 미등록 신규 가입자
   if (!role) {
     return (
       <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white px-4">
@@ -214,7 +151,7 @@ function PaymentContent() {
     );
   }
 
-  // manager 또는 staff 계정: 대표 계정만 접근 가능 안내
+  // manager 또는 staff 계정 접근 제한
   if (role !== 'owner') {
     return (
       <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white px-4">
@@ -237,34 +174,54 @@ function PaymentContent() {
     );
   }
 
-
+  const currentPlan = BILLING_PLANS[selectedPlan];
 
   return (
     <div className="min-h-screen bg-[#010103] text-white py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto bg-[#0a0a0f] border border-[#1a1a24] rounded-2xl p-6 sm:p-10 shadow-2xl">
         <div className="text-center mb-10">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-            매장닥터 구독 플랜 결제
+            매장닥터 정기구독 플랜 선택
           </h1>
           <p className="mt-2 text-sm text-gray-400">
-            필요한 비즈니스 규모에 맞게 최적의 플랜을 활성화하세요.
+            원하시는 플랜을 선택하고 카드를 등록하여 매장닥터의 전문 경영 분석을 시작하세요.
           </p>
         </div>
 
         {errorParam && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
-            <i className="bi bi-exclamation-triangle-fill text-red-400 text-lg mt-0.5" />
+            <span className="text-red-400 font-bold text-lg">⚠️</span>
             <div>
-              <h4 className="text-sm font-semibold text-red-400">결제 실패</h4>
-              <p className="text-xs text-red-400/80 mt-1">{errorMessage || '알 수 없는 오류가 발생했습니다. 다시 시도해 주세요.'}</p>
+              <h4 className="text-sm font-semibold text-red-400">결제 및 카드 등록 실패</h4>
+              <p className="text-xs text-red-400/80 mt-1">{errorParamMessage || '알 수 없는 오류가 발생했습니다. 다시 시도해 주세요.'}</p>
+            </div>
+          </div>
+        )}
+
+        {errorMessageState && (
+          <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-red-400 font-bold text-lg">⚠️</span>
+            <div>
+              <h4 className="text-sm font-semibold text-red-400">알림</h4>
+              <p className="text-xs text-red-400/80 mt-1">{errorMessageState}</p>
+            </div>
+          </div>
+        )}
+
+        {!TOSS_CLIENT_KEY && (
+          <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-amber-400 font-bold text-lg">⚠️</span>
+            <div>
+              <h4 className="text-sm font-semibold text-amber-400">결제 설정 오류</h4>
+              <p className="text-xs text-amber-300/80 mt-1">NEXT_PUBLIC_TOSS_CLIENT_KEY 환경변수가 설정되지 않아 결제를 진행할 수 없습니다.</p>
             </div>
           </div>
         )}
 
         {/* ── 요금제 선택기 ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {(Object.keys(PLAN_DETAILS) as PlanKey[]).map((key) => {
-            const plan = PLAN_DETAILS[key];
+          {(Object.keys(BILLING_PLANS) as PlanKey[]).map((key) => {
+            const plan = BILLING_PLANS[key];
             const isSelected = selectedPlan === key;
             return (
               <button
@@ -279,12 +236,12 @@ function PaymentContent() {
               >
                 {isSelected && (
                   <div className="absolute top-3 right-3 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
-                    <i className="bi bi-check-lg text-black text-xs font-bold" />
+                    <span className="text-black text-xs font-bold">✓</span>
                   </div>
                 )}
                 <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider">{plan.name}</h3>
-                <p className="text-xs text-gray-500 mt-1 line-clamp-2">{plan.description}</p>
-                <div className="mt-4">
+                <p className="text-xs text-gray-400 mt-2 line-clamp-3 leading-relaxed">{plan.description}</p>
+                <div className="mt-5 pt-3 border-t border-white/5">
                   <span className="text-lg font-extrabold text-white">₩{plan.price.toLocaleString()}</span>
                   <span className="text-xs text-gray-500"> / 월</span>
                 </div>
@@ -293,44 +250,52 @@ function PaymentContent() {
           })}
         </div>
 
-        {widgetError && (
-          <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
-            <i className="bi bi-exclamation-triangle-fill text-red-400 text-lg mt-0.5" />
+        {/* ── 정기결제 안내 박스 ── */}
+        <div className="bg-[#0c0c12] rounded-xl border border-[#1a1a24] p-5 sm:p-6 mb-8 space-y-4">
+          <div className="flex items-start gap-3">
+            <span className="text-emerald-400 text-lg mt-0.5">ℹ️</span>
             <div>
-              <h4 className="text-sm font-semibold text-red-400">결제 위젯 오류</h4>
-              <p className="text-xs text-red-400/80 mt-1">{widgetError}</p>
+              <h4 className="text-sm font-bold text-white">정기구독 및 자동결제 안내</h4>
+              <p className="text-xs text-emerald-400 font-medium mt-1">
+                매월 {currentPlan.price.toLocaleString()}원이 자동 결제되며, 마이페이지에서 언제든 해지할 수 있습니다.
+              </p>
+              <ul className="text-xs text-gray-400 mt-2 space-y-1 list-disc pl-4">
+                <li>첫 결제는 카드 등록 직후 진행되며, 이후 매월 결제일에 자동으로 갱신됩니다.</li>
+                <li>언제든지 마이페이지(설정)에서 해지하실 수 있으며, 해지 시 다음 결제일부터 청구되지 않고 남은 이용 기간까지 정상 이용이 가능합니다.</li>
+              </ul>
             </div>
           </div>
-        )}
 
-        {/* ── 토스 결제위젯 영역 ──
-            key={widgetInstanceKey}: customerKey가 바뀌어(비로그인 → 로그인)
-            새 위젯 인스턴스가 생성될 때마다 컨테이너 DOM을 통째로 새로 마운트한다.
-            이전 위젯이 렌더링했던 DOM 노드를 재사용하면 토스 SDK 내부 상태가
-            꼬여 결제 수단이 렌더링되지 않고, "결제하기" 클릭이 조용히 실패한다. */}
-        <div key={widgetInstanceKey} className="bg-[#0c0c12] rounded-xl border border-[#1a1a24] p-4 sm:p-6 mb-8">
-          <div id="payment-method" className="w-full min-h-[250px]" />
-          <div className="border-t border-[#1a1a24] my-6" />
-          <div id="agreement" className="w-full" />
+          <div className="border-t border-[#1a1a24] pt-4">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={agreedToRecurring}
+                onChange={(e) => setAgreedToRecurring(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+              />
+              <span className="text-xs sm:text-sm text-gray-200 font-medium">
+                매월 자동 결제 및 정기결제 유의사항을 확인하였으며 이에 동의합니다. <span className="text-emerald-400">(필수)</span>
+              </span>
+            </label>
+          </div>
         </div>
 
-        {/* ── 결제하기 버튼 ── */}
+        {/* ── 카드 등록하고 구독 시작 버튼 ── */}
         <button
-          onClick={handlePaymentRequest}
-          disabled={!paymentWidget || !paymentMethodsWidget || !isWidgetReady || isSubmitting}
-          className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold rounded-xl transition-all shadow-[0_4px_20px_rgba(16,185,129,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-base cursor-pointer"
+          onClick={handleStartBilling}
+          disabled={!TOSS_CLIENT_KEY || !agreedToRecurring || isSubmitting}
+          className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold rounded-xl transition-all shadow-[0_4px_20px_rgba(16,185,129,0.2)] disabled:opacity-40 disabled:cursor-not-allowed text-base cursor-pointer"
         >
           {isSubmitting
-            ? '결제 요청 중...'
-            : !isWidgetReady
-            ? '결제 수단 준비 중...'
-            : `${PLAN_DETAILS[selectedPlan].price.toLocaleString()}원 결제하기`}
+            ? '카드 등록창 준비 중...'
+            : '카드 등록하고 구독 시작'}
         </button>
 
         <div className="text-center mt-6">
           <button
             onClick={() => router.push('/')}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer"
           >
             결제 취소하고 홈으로 돌아가기
           </button>
@@ -342,14 +307,16 @@ function PaymentContent() {
 
 export default function PaymentPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 font-medium">로딩 중...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-gray-400 font-medium">로딩 중...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <PaymentContent />
     </Suspense>
   );

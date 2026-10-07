@@ -151,7 +151,7 @@ export async function updateSession(request: NextRequest) {
           .from('subscriptions')
           .select('id')
           .eq('user_id', targetUserIdForSub)
-          .eq('status', 'active')
+          .in('status', ['active', 'cancelled', 'past_due'])
           .gt('expires_at', new Date().toISOString())
           .maybeSingle()
 

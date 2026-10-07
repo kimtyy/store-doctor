@@ -634,11 +634,14 @@ export default function LandingPage() {
                 className="text-white/95 text-[13px] leading-relaxed mb-8 font-medium drop-shadow-lg"
                 style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
               >
-                매장 1개, OCR 월 1,000건 + 전체 기능
+                AI 심화 경영 진단 및 맞춤 리포트 (OCR 월 1,000건)
               </p>
               <ul className="flex flex-col gap-3 mb-10 flex-1">
                 <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
                   <span className="text-[#0064FF] font-bold">✓</span> Pro의 모든 기능 제공
+                </li>
+                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                  <span className="text-[#0064FF] font-bold">✓</span> AI 심화 경영 진단 및 맞춤 리포트
                 </li>
                 <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
                   <span className="text-[#0064FF] font-bold">✓</span> 대용량 영수증 우선 파싱

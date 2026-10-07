@@ -18,6 +18,12 @@ export default function SettingsPage() {
   const [loanRepayment, setLoanRepayment] = useState<number | ''>('');
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // 구독 관리 상태
+  const [subscription, setSubscription] = useState<any>(null);
+  const [loadingSubscription, setLoadingSubscription] = useState(true);
+  const [cancellingSubscription, setCancellingSubscription] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+
   useEffect(() => {
     fetch('/api/stores/settings')
       .then(res => res.json())
@@ -28,7 +34,34 @@ export default function SettingsPage() {
         }
       })
       .catch(() => {});
+
+    fetch('/api/me/subscription')
+      .then(res => res.json())
+      .then(data => {
+        setSubscription(data.subscription || null);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingSubscription(false));
   }, []);
+
+  async function handleCancelSubscription() {
+    setCancellingSubscription(true);
+    setShowCancelModal(false);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/payment/cancel', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '해지 처리 실패');
+      setMessage({ type: 'success', text: data.message || '구독이 정상적으로 해지되었습니다.' });
+      const subRes = await fetch('/api/me/subscription');
+      const subData = await subRes.json();
+      setSubscription(subData.subscription || null);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || '구독 해지 중 오류가 발생했습니다.' });
+    } finally {
+      setCancellingSubscription(false);
+    }
+  }
 
   async function handleSaveSettings() {
     setSavingSettings(true);
@@ -136,6 +169,118 @@ export default function SettingsPage() {
               {message.text}
             </div>
           ) : null}
+
+          {/* 구독 및 정기결제 관리 */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">💳 구독 및 정기결제 관리</h2>
+                <p className="mt-1 text-xs text-slate-400">현재 이용 중인 플랜 및 자동결제·해지 관리</p>
+              </div>
+              {subscription && (
+                <span
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                    subscription.cancelled_at
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : subscription.status === 'past_due' || subscription.status === '연체'
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  }`}
+                >
+                  {subscription.cancelled_at
+                    ? '해지 예약'
+                    : subscription.status === 'past_due' || subscription.status === '연체'
+                    ? '연체 (재시도 중)'
+                    : '구독 중'}
+                </span>
+              )}
+            </div>
+
+            {loadingSubscription ? (
+              <p className="text-xs text-slate-500">구독 정보를 불러오는 중...</p>
+            ) : subscription ? (
+              <div className="space-y-3 pt-2 text-sm border-t border-slate-800/80">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">이용 중인 플랜</span>
+                  <span className="font-bold text-white uppercase">{subscription.plan} 플랜</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">
+                    {subscription.cancelled_at ? '이용 종료 예정일' : '다음 자동 결제일'}
+                  </span>
+                  <span className="text-slate-200">
+                    {subscription.cancelled_at
+                      ? new Date(subscription.expires_at).toLocaleDateString('ko-KR')
+                      : subscription.next_billing_date
+                      ? new Date(subscription.next_billing_date).toLocaleDateString('ko-KR')
+                      : new Date(subscription.expires_at).toLocaleDateString('ko-KR')}
+                  </span>
+                </div>
+
+                {subscription.cancelled_at ? (
+                  <div className="mt-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-2">
+                    <p className="leading-relaxed">
+                      자동 결제가 중단되었습니다. {new Date(subscription.expires_at).toLocaleDateString('ko-KR')}까지는 모든 프리미엄 기능을 정상적으로 이용하실 수 있습니다.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => router.push('/payment')}
+                      className="w-full py-2.5 bg-emerald-500 text-black font-bold rounded-xl hover:bg-emerald-400 transition cursor-pointer mt-1"
+                    >
+                      구독 다시 시작하기
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pt-2">
+                    {!showCancelModal ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowCancelModal(true)}
+                        disabled={cancellingSubscription}
+                        className="w-full rounded-2xl border border-slate-700 bg-slate-800/40 py-3 text-xs font-semibold text-slate-400 hover:text-rose-400 hover:border-rose-900/50 transition cursor-pointer"
+                      >
+                        {cancellingSubscription ? '처리 중...' : '구독 해지하기'}
+                      </button>
+                    ) : (
+                      <div className="p-4 rounded-2xl border border-rose-900/40 bg-rose-950/20 space-y-3">
+                        <p className="text-xs text-rose-200 font-medium leading-relaxed">
+                          정말 정기구독을 해지하시겠습니까? 해지 시 다음 결제일부터 자동 결제가 중단되며, 이미 결제하신 기간 종료일({new Date(subscription.expires_at).toLocaleDateString('ko-KR')})까지는 정상적으로 이용하실 수 있습니다.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCancelModal(false)}
+                            className="flex-1 py-2 rounded-xl border border-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            취소
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelSubscription}
+                            disabled={cancellingSubscription}
+                            className="flex-1 py-2 rounded-xl bg-rose-600 text-white text-xs font-semibold hover:bg-rose-500 transition cursor-pointer"
+                          >
+                            {cancellingSubscription ? '해지 처리 중...' : '해지 확인'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="pt-2 text-xs text-slate-400 space-y-2 border-t border-slate-800/80">
+                <p>활성화된 구독이 없습니다.</p>
+                <button
+                  type="button"
+                  onClick={() => router.push('/payment')}
+                  className="w-full py-3 bg-emerald-500 text-black font-bold rounded-2xl hover:bg-emerald-400 transition cursor-pointer"
+                >
+                  플랜 구독하러 가기
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* 사용 가이드 */}
           <a

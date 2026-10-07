@@ -9,7 +9,7 @@ export default function TermsPage() {
             <span>←</span> 홈으로 돌아가기
           </Link>
           <h1 className="text-3xl font-bold text-slate-100">매장닥터 이용약관</h1>
-          <p className="text-slate-500 text-xs mt-2">시행일: 2026년 8월 1일</p>
+          <p className="text-slate-500 text-xs mt-2">개정일: 2026년 10월 7일 (시행일: 2026년 10월 7일)</p>
         </div>
 
         <div className="space-y-6 text-sm leading-relaxed">
@@ -64,7 +64,7 @@ export default function TermsPage() {
                   <li>영수증 촬영 및 인공지능(AI) 기반 문자인식(OCR)을 통한 매출·매입 데이터 기록</li>
                   <li>매출·매입·손익 분석, 이동평균선 등 추세 분석</li>
                   <li>월간 경영 보고서, 손익분기점(BEP) 분석, 매출 예측</li>
-                  <li>AI 기반 경영 상담 및 진단</li>
+                  <li>AI 기반 경영 분석 및 진단</li>
                   <li>기타 회사가 추가로 개발하거나 제공하는 서비스</li>
                 </ul>
               </li>
@@ -87,7 +87,9 @@ export default function TermsPage() {
             <ol className="list-decimal pl-5 space-y-1">
               <li>서비스는 유료 구독 방식으로 제공되며, 구독 요금과 기간, 플랜별 제공 기능은 결제 화면에 표시된 내용에 따릅니다.</li>
               <li>결제는 회사가 지정한 전자결제대행사(토스페이먼츠)를 통해 이루어집니다.</li>
-              <li>구독 기간은 결제일로부터 결제 화면에 표시된 기간 동안 유효하며, 기간 만료 후 서비스를 계속 이용하려면 재결제가 필요합니다.</li>
+              <li>구독은 결제일로부터 1개월 단위로 운영되며, 회원이 해지하기 전까지 매월 결제일에 회원이 등록한 결제수단(신용·체크카드)으로 구독 요금이 자동 결제됩니다.</li>
+              <li>회원은 서비스 내 설정 또는 고객센터를 통해 언제든지 구독을 해지할 수 있습니다. 해지하면 다음 결제일부터 자동 결제가 중단되고, 이미 결제한 기간의 종료일까지 서비스를 이용할 수 있습니다.</li>
+              <li>결제 수단의 한도 초과, 유효기간 만료 등으로 결제가 실패한 경우 회사는 일정 기간 동안 재결제를 시도할 수 있으며, 최종 실패 시 서비스 이용이 제한될 수 있습니다.</li>
               <li>회사는 프로모션, 보상 등의 목적으로 회원의 구독 기간을 무상으로 연장할 수 있습니다.</li>
               <li>요금이 변경되는 경우 회사는 변경 적용일 30일 전까지 공지하며, 이미 결제된 구독 기간에는 변경 전 요금이 적용됩니다.</li>
             </ol>
@@ -165,7 +167,7 @@ export default function TermsPage() {
 
           <section className="border-t border-slate-800 pt-6 space-y-2">
             <h2 className="text-lg font-semibold text-slate-100">부칙</h2>
-            <p>이 약관은 2026년 8월 1일부터 시행합니다.</p>
+            <p>이 약관은 2026년 10월 7일부터 시행합니다.</p>
           </section>
 
           <section className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-6 mt-8 space-y-2 text-slate-400">
