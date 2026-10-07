@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { loadPaymentWidget, ANONYMOUS, PaymentWidgetInstance } from '@tosspayments/payment-widget-sdk';
 
-const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || 'test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm';
 
 const PLAN_DETAILS = {
   basic: { name: 'Basic', price: 9900, description: '1인 매장 및 기초 장부 자동화' },
@@ -31,6 +31,8 @@ function PaymentContent() {
   // 인스턴스가 재사용하면 토스 SDK 내부 상태가 꼬여 결제 버튼이 무반응이 됨)
   const [widgetInstanceKey, setWidgetInstanceKey] = useState(0);
   const [widgetError, setWidgetError] = useState<string | null>(null);
+  const [isWidgetReady, setIsWidgetReady] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // role 체크: owner만 결제 페이지 접근 가능
   const [role, setRole] = useState<string | null | 'loading'>('loading');
@@ -66,12 +68,9 @@ function PaymentContent() {
 
     async function initWidget() {
       try {
-        // 기존 위젯 인스턴스와 렌더 상태를 초기화하여 재마운트 시 캐시 충돌 방지.
-        // customerKey가 바뀌는 시점(비로그인 → 로그인)마다 컨테이너 DOM 자체를
-        // 새로 만들도록 key를 증가시켜, 이전 위젯 인스턴스가 점유했던 DOM 노드를
-        // 새 위젯이 재사용하지 않게 한다.
         setPaymentWidget(null);
         setPaymentMethodsWidget(null);
+        setIsWidgetReady(false);
         setWidgetError(null);
 
         if (!TOSS_CLIENT_KEY) {
@@ -93,50 +92,62 @@ function PaymentContent() {
     initWidget();
   }, [user, loading]);
 
-  // 3. 결제수단 및 이용약관 렌더링 (플랜 선택 가격 변화 및 widget 재생성 시 반영)
+  // 3. 결제수단 및 이용약관 렌더링 (owner 권한 확인 후 실제 DOM에 마운트)
   useEffect(() => {
-    if (!paymentWidget) return;
+    if (!paymentWidget || role !== 'owner') return;
+
+    const methodContainer = document.getElementById('payment-method');
+    const agreementContainer = document.getElementById('agreement');
+    if (!methodContainer || !agreementContainer) return;
 
     const amount = PLAN_DETAILS[selectedPlan].price;
 
-    // SDK 중복 렌더링 에러 방지를 위해 기존 결제 위젯 DOM 컨테이너를 강제로 비움
-    const methodContainer = document.getElementById('payment-method');
-    if (methodContainer) methodContainer.innerHTML = '';
-    const agreementContainer = document.getElementById('agreement');
-    if (agreementContainer) agreementContainer.innerHTML = '';
+    // 이미 위젯이 렌더링된 상태에서 플랜만 변경된 경우 금액만 갱신
+    if (paymentMethodsWidget) {
+      try {
+        paymentMethodsWidget.updateAmount(amount);
+      } catch (err) {
+        console.error('Toss widget update amount failed:', err);
+      }
+      return;
+    }
 
     try {
-      // 결제 수단 렌더링
+      methodContainer.innerHTML = '';
+      agreementContainer.innerHTML = '';
+
       const methodsWidget = paymentWidget.renderPaymentMethods(
         '#payment-method',
         { value: amount },
         { variantKey: 'DEFAULT' }
       );
 
-      // 이용약관 렌더링
       paymentWidget.renderAgreement('#agreement', { variantKey: 'DEFAULT' });
 
       setPaymentMethodsWidget(methodsWidget);
+      setIsWidgetReady(true);
       setWidgetError(null);
     } catch (err) {
       console.error('Toss widget render methods failed:', err);
       setPaymentMethodsWidget(null);
+      setIsWidgetReady(false);
       setWidgetError('결제 수단을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.');
     }
-  }, [paymentWidget, selectedPlan]);
+  }, [paymentWidget, selectedPlan, role, widgetInstanceKey, paymentMethodsWidget]);
 
   // 결제 요청
   const handlePaymentRequest = async () => {
-    // 비로그인 사용자라면 로그인 페이지로 이동 (리다이렉트 지점을 현재 플랜 정보와 함께 주입)
+    // 비로그인 사용자라면 로그인 페이지로 이동
     if (!user) {
       const redirectPath = encodeURIComponent(`/payment?plan=${selectedPlan}`);
       router.push(`/login?redirect=${redirectPath}`);
       return;
     }
 
-    if (!paymentWidget || !paymentMethodsWidget) return;
+    if (!paymentWidget || !paymentMethodsWidget || !isWidgetReady || isSubmitting) return;
 
     try {
+      setIsSubmitting(true);
       setWidgetError(null);
       const planDetail = PLAN_DETAILS[selectedPlan];
       const orderId = `order_${user.id.slice(0, 8)}_${Date.now()}`;
@@ -149,9 +160,13 @@ function PaymentContent() {
         successUrl: `${window.location.origin}/api/payment/confirm?plan=${selectedPlan}`,
         failUrl: `${window.location.origin}/payment?plan=${selectedPlan}&error=true&message=결제가+취소되었거나+실패했습니다.`,
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Payment request failed:', err);
-      setWidgetError('결제 요청 중 오류가 발생했습니다. 다시 시도해 주세요.');
+      if (err?.code !== 'USER_CANCEL') {
+        setWidgetError(err?.message || '결제 요청 중 오류가 발생했습니다. 다시 시도해 주세요.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -302,10 +317,14 @@ function PaymentContent() {
         {/* ── 결제하기 버튼 ── */}
         <button
           onClick={handlePaymentRequest}
-          disabled={!paymentWidget || !paymentMethodsWidget}
-          className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold rounded-xl transition-all shadow-[0_4px_20px_rgba(16,185,129,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-base"
+          disabled={!paymentWidget || !paymentMethodsWidget || !isWidgetReady || isSubmitting}
+          className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold rounded-xl transition-all shadow-[0_4px_20px_rgba(16,185,129,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-base cursor-pointer"
         >
-          {PLAN_DETAILS[selectedPlan].price.toLocaleString()}원 결제하기
+          {isSubmitting
+            ? '결제 요청 중...'
+            : !isWidgetReady
+            ? '결제 수단 준비 중...'
+            : `${PLAN_DETAILS[selectedPlan].price.toLocaleString()}원 결제하기`}
         </button>
 
         <div className="text-center mt-6">

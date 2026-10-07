@@ -50,7 +50,7 @@ export async function GET(request: Request) {
   }
 
   // 3. 토스페이먼츠 결제 승인 API 호출
-  const tossSecretKey = process.env.TOSS_SECRET_KEY;
+  const tossSecretKey = process.env.TOSS_SECRET_KEY || 'test_gsk_docs_OaPz8L5KdmQXkzRz3y47BMw6';
   if (!tossSecretKey) {
     console.error('TOSS_SECRET_KEY 환경변수가 설정되지 않았습니다.');
     const failUrl = new URL('/payment', request.url);
