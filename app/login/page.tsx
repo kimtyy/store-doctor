@@ -1,20 +1,25 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { login } from './actions'
 
-export default function LoginPage({
+function LoginForm({
   searchParams,
 }: {
-  searchParams: { message?: string; redirect?: string }
+  searchParams?: { message?: string; redirect?: string }
 }) {
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
+  const searchParamsHook = useSearchParams()
+
+  const redirectTarget = searchParams?.redirect || searchParamsHook.get('redirect') || ''
+  const messageText = searchParams?.message || searchParamsHook.get('message') || ''
 
   const handleGoogleLogin = async () => {
     setLoading(true)
-    const nextPath = searchParams?.redirect || '/onboarding'
+    const nextPath = redirectTarget || '/onboarding'
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -74,7 +79,7 @@ export default function LoginPage({
       </div>
 
       <form className="animate-in flex-1 flex flex-col w-full justify-center gap-2 text-foreground">
-        <input type="hidden" name="redirect_to" value={searchParams?.redirect || ''} />
+        <input type="hidden" name="redirect_to" value={redirectTarget} />
         <label className="text-md font-semibold" htmlFor="email">
           이메일
         </label>
@@ -106,12 +111,28 @@ export default function LoginPage({
           </button>
         </div>
 
-        {searchParams?.message && (
+        {messageText && (
           <p className="mt-4 p-4 bg-rose-50 border border-rose-200 text-rose-700 text-center rounded-lg text-sm font-medium">
-            {searchParams.message}
+            {messageText}
           </p>
         )}
       </form>
     </div>
+  )
+}
+
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams?: { message?: string; redirect?: string }
+}) {
+  return (
+    <Suspense fallback={
+      <div className="flex-1 flex flex-col w-full px-8 sm:max-w-md justify-center min-h-screen mx-auto py-10 text-slate-800 text-center">
+        <p className="text-slate-500">로그인 화면을 불러오는 중...</p>
+      </div>
+    }>
+      <LoginForm searchParams={searchParams} />
+    </Suspense>
   )
 }

@@ -45,17 +45,20 @@ function PaymentContent() {
   const errorParam = searchParams.get('error');
   const errorMessage = searchParams.get('message');
 
-  // 1. 사용자 세션 체크 (비로그인 상태도 허용)
+  // 1. 사용자 세션 체크 (비로그인 시 로그인 페이지로 리디렉션)
   useEffect(() => {
     async function checkUser() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
+        setLoading(false);
+      } else {
+        const redirectPath = encodeURIComponent(`/payment?plan=${selectedPlan}`);
+        router.replace(`/login?redirect=${redirectPath}`);
       }
-      setLoading(false);
     }
     checkUser();
-  }, [supabase]);
+  }, [supabase, selectedPlan, router]);
 
   // 2. 토스 결제위젯 초기화 (비로그인의 경우 ANONYMOUS 키 사용)
   useEffect(() => {
@@ -163,7 +166,40 @@ function PaymentContent() {
     );
   }
 
-  // owner가 아닌 경우 접근 차단
+  // 비로그인 사용자: 로그인 페이지로 이동 중
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-400 font-medium">로그인 페이지로 이동 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 매장이 등록되지 않은 신규 가입자: 온보딩으로 안내
+  if (!role) {
+    return (
+      <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white px-4">
+        <div className="max-w-sm w-full bg-[#0a0a0f] border border-[#1a1a24] rounded-2xl p-8 text-center space-y-4">
+          <div className="text-4xl">🏪</div>
+          <h2 className="text-lg font-bold text-white">매장 등록 필요</h2>
+          <p className="text-sm text-gray-400">
+            결제를 진행하려면 먼저 매장 정보를 등록해야 합니다.
+          </p>
+          <button
+            onClick={() => router.push(`/onboarding?plan=${selectedPlan}`)}
+            className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-bold rounded-xl transition hover:opacity-90 cursor-pointer"
+          >
+            매장 등록하러 가기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // manager 또는 staff 계정: 대표 계정만 접근 가능 안내
   if (role !== 'owner') {
     return (
       <div className="min-h-screen bg-[#010103] flex items-center justify-center text-white px-4">
@@ -177,7 +213,7 @@ function PaymentContent() {
           </p>
           <button
             onClick={() => router.push('/dashboard')}
-            className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-bold rounded-xl transition hover:opacity-90"
+            className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-bold rounded-xl transition hover:opacity-90 cursor-pointer"
           >
             대시보드로 돌아가기
           </button>

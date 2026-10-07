@@ -16,6 +16,8 @@ export async function submitStore(formData: FormData) {
   const name = formData.get('name') as string
   const category = formData.get('category') as string
   const region = formData.get('region') as string
+  const plan = (formData.get('plan') as string) || ''
+  const paymentRedirect = plan ? `/payment?plan=${encodeURIComponent(plan)}` : '/payment'
 
   // 중복 생성 방지: 이미 owner_id 에 매핑된 매장이 존재하는지 사전 체크
   const { data: existingStore } = await supabase
@@ -25,7 +27,7 @@ export async function submitStore(formData: FormData) {
     .single()
 
   if (existingStore) {
-    return redirect('/payment')
+    return redirect(paymentRedirect)
   }
 
   // Insert store (using owner_id only as the single unified criteria)
@@ -37,7 +39,10 @@ export async function submitStore(formData: FormData) {
 
   if (error || !newStore) {
     console.error('Error creating store:', error)
-    return redirect('/onboarding?message=매장 등록에 실패했습니다.')
+    const errRedirect = plan
+      ? `/onboarding?message=매장 등록에 실패했습니다.&plan=${encodeURIComponent(plan)}`
+      : '/onboarding?message=매장 등록에 실패했습니다.'
+    return redirect(errRedirect)
   }
 
   // 온보딩 시 store_members에 owner 자동 등록
@@ -60,6 +65,6 @@ export async function submitStore(formData: FormData) {
   }
 
   revalidatePath('/', 'layout')
-  redirect('/payment')
+  redirect(paymentRedirect)
 }
 

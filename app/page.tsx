@@ -28,6 +28,19 @@ export default function LandingPage() {
     });
   }, []);
 
+  const handlePlanSelect = async (plan: 'basic' | 'pro' | 'premium') => {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      const redirectPath = encodeURIComponent(`/payment?plan=${plan}`);
+      window.location.href = `/login?redirect=${redirectPath}`;
+      return;
+    }
+
+    window.location.href = `/payment?plan=${plan}`;
+  };
+
   /* ── Dynamic Icon Injection ── */
   useEffect(() => {
     const link = document.createElement('link');
@@ -531,7 +544,7 @@ export default function LandingPage() {
                 </li>
               </ul>
               <button
-                onClick={() => window.location.href = '/payment?plan=basic'}
+                onClick={() => handlePlanSelect('basic')}
                 className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
               >
                 선택하기
@@ -587,7 +600,7 @@ export default function LandingPage() {
                 </li>
               </ul>
               <button
-                onClick={() => window.location.href = '/payment?plan=pro'}
+                onClick={() => handlePlanSelect('pro')}
                 className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-blue-500/20 drop-shadow-lg"
               >
                 선택하기
@@ -635,7 +648,7 @@ export default function LandingPage() {
                 </li>
               </ul>
               <button
-                onClick={() => window.location.href = '/payment?plan=premium'}
+                onClick={() => handlePlanSelect('premium')}
                 className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
               >
                 선택하기

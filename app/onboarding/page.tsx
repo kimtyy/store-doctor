@@ -1,6 +1,10 @@
 import { submitStore } from './actions'
 
-export default function OnboardingPage({ searchParams }: { searchParams: { message?: string } }) {
+export default function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: { message?: string; plan?: string }
+}) {
   return (
     <div className="flex-1 flex flex-col w-full px-8 sm:max-w-xl justify-center min-h-screen mx-auto py-10 text-slate-800">
       <div className="text-center mb-8">
@@ -16,6 +20,7 @@ export default function OnboardingPage({ searchParams }: { searchParams: { messa
 
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 mb-8">
         <form action={submitStore} className="flex flex-col gap-5">
+          <input type="hidden" name="plan" value={searchParams?.plan || ''} />
           <div>
             <label className="block text-sm font-semibold mb-1 text-slate-800" htmlFor="name">매장명 <span className="text-rose-500">*</span></label>
             <input

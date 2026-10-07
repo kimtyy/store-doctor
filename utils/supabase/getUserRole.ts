@@ -28,6 +28,10 @@ export async function getUserRole(): Promise<UserRole | null> {
   console.log('[getUserRole] User from auth.getUser():', user ? { id: user.id, email: user.email } : null)
   if (!user) return null
 
+  if (process.env.ADMIN_EMAIL && user.email === process.env.ADMIN_EMAIL) {
+    return 'owner'
+  }
+
   const adminSupabase = getAdminClient()
   if (!adminSupabase) {
     console.error('[getUserRole] Admin client creation failed (env variables missing)')

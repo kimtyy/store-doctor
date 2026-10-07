@@ -62,12 +62,22 @@ export async function updateSession(request: NextRequest) {
   
   // 1. 비로그인 사용자 처리
   if (!user) {
-    // 루트(/), 로그인(/login), 약관(/terms), 개인정보(/privacy), 콜백 경로, 결제(/payment) 및 정적 미디어 파일들은 무인증 통과 허용
+    // 루트(/), 로그인(/login), 약관(/terms), 개인정보(/privacy), 콜백 경로, API 및 정적 미디어 파일들은 무인증 통과 허용
     const isStaticAsset = request.nextUrl.pathname.match(/\.(png|jpg|jpeg|gif|webp|svg|mp4|ico|txt)$/)
-    const isPaymentPage = request.nextUrl.pathname.startsWith('/payment')
-    if (!isRootPage && !isAuthPage && !isStaticAsset && !isPaymentPage && !isTermsPage && !isPrivacyPage && !request.nextUrl.pathname.startsWith('/auth/callback')) {
+    const isExempt =
+      isRootPage ||
+      isAuthPage ||
+      isStaticAsset ||
+      isTermsPage ||
+      isPrivacyPage ||
+      request.nextUrl.pathname.startsWith('/auth/callback') ||
+      request.nextUrl.pathname.startsWith('/api/')
+
+    if (!isExempt) {
       const url = request.nextUrl.clone()
+      const originalPath = request.nextUrl.pathname + request.nextUrl.search
       url.pathname = '/login'
+      url.search = `?redirect=${encodeURIComponent(originalPath)}`
       return NextResponse.redirect(url)
     }
   }
