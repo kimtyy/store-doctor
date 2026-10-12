@@ -18,11 +18,9 @@ function getAdminClient() {
 export async function GET(request: Request) {
   try {
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 });
-      }
+    const authHeader = request.headers.get('authorization');
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 });
     }
 
     const tossSecretKey = process.env.TOSS_SECRET_KEY;
