@@ -24,11 +24,15 @@ export function generateCustomerKey(userId: string): string {
 }
 
 function getEncryptionKey(): Buffer {
-  const secret = process.env.TOSS_SECRET_KEY;
-  if (!secret) {
-    throw new Error('TOSS_SECRET_KEY is required for billing key encryption/decryption');
+  const secret = process.env.BILLING_ENCRYPTION_KEY;
+  if (!secret || !secret.trim()) {
+    throw new Error('BILLING_ENCRYPTION_KEY 환경변수가 설정되지 않았습니다.');
   }
-  return crypto.createHash('sha256').update(secret).digest();
+  const trimmed = secret.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return Buffer.from(trimmed, 'hex');
+  }
+  return crypto.createHash('sha256').update(trimmed).digest();
 }
 
 /**

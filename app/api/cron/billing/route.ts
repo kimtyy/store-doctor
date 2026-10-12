@@ -37,13 +37,14 @@ export async function GET(request: Request) {
 
     const now = new Date();
 
-    // 1. 결제일이 도래한 구독 조회 (취소되지 않았고, 빌링키가 존재하며, 상태가 active 또는 past_due/연체)
+    // 1. 결제일이 도래한 구독 조회 (취소되지 않았고, 빌링키와 다음 결제일이 모두 존재하며, 상태가 active 또는 past_due/연체)
     const { data: candidates, error: fetchError } = await adminSupabase
       .from('subscriptions')
       .select('*')
       .in('status', ['active', 'past_due', '연체'])
       .is('cancelled_at', null)
       .not('billing_key', 'is', null)
+      .not('next_billing_date', 'is', null)
       .lte('next_billing_date', now.toISOString());
 
     if (fetchError) {
@@ -56,6 +57,21 @@ export async function GET(request: Request) {
     const results = [];
 
     for (const sub of subscriptions) {
+      // 과거 단건 결제 방식 등 billing_key 또는 next_billing_date가 비어 있는 행 안전하게 건너뛰기
+      if (
+        !sub.billing_key ||
+        typeof sub.billing_key !== 'string' ||
+        !sub.billing_key.trim() ||
+        !sub.next_billing_date
+      ) {
+        results.push({
+          id: sub.id,
+          user_id: sub.user_id,
+          status: 'skipped_missing_billing_info',
+        });
+        continue;
+      }
+
       const retryCount = sub.retry_count || 0;
 
       // 3회 초과 최종 실패 시 이용 제한 처리
