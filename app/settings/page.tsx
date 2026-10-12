@@ -138,13 +138,21 @@ export default function SettingsPage() {
 
   async function handleSignOut() {
     if (!confirm('로그아웃 하시겠습니까?')) return;
-    const supabase = createClient();
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      alert('로그아웃 실패: ' + error.message);
-    } else {
-      router.push('/login');
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Client signout error:', err);
     }
+
+    try {
+      await fetch('/api/auth/signout', { method: 'POST' });
+    } catch (err) {
+      console.error('Server signout error:', err);
+    }
+
+    // 하드 리디렉션을 수행하여 클라이언트 캐시 및 미들웨어 세션 상태를 완전히 초기화
+    window.location.href = '/login';
   }
 
   return (

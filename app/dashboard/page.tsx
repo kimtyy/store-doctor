@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createClient } from '@/utils/supabase/client';
 import { calculateMovingAverage } from '@/lib/analytics/movingAverage';
 import MAChart from '@/components/charts/MAChart';
 import BottomTabNav from '@/components/BottomTabNav';
@@ -143,6 +144,25 @@ export default function DashboardPage() {
         body: JSON.stringify({ onboarding_guide_seen: true }),
       });
     } catch {}
+  }
+
+  async function handleSignOut() {
+    if (!confirm('로그아웃 하시겠습니까?')) return;
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Client signout error:', err);
+    }
+
+    try {
+      await fetch('/api/auth/signout', { method: 'POST' });
+    } catch (err) {
+      console.error('Server signout error:', err);
+    }
+
+    // 하드 리디렉션으로 클라이언트 캐시 및 미들웨어 세션 상태를 완전히 초기화
+    window.location.href = '/login';
   }
 
   // Bottom sales section independent period state & server fetch
@@ -836,6 +856,17 @@ export default function DashboardPage() {
                     ))
                   )}
                 </div>
+              </div>
+
+              {/* 로그아웃 버튼 (대시보드 맨 아래) */}
+              <div className="pt-2 pb-6 text-center">
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="w-full rounded-2xl border border-slate-800 bg-slate-900/60 py-3.5 text-sm font-semibold text-slate-400 hover:text-rose-400 hover:border-rose-900/40 hover:bg-rose-950/20 transition"
+                >
+                  로그아웃
+                </button>
               </div>
             </>
           )}
