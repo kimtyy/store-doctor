@@ -105,6 +105,9 @@ export async function POST() {
           const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
           const subjectPrefix = isTestMode ? '[테스트] ' : '';
           const subject = `${subjectPrefix}[매장닥터] 7일 이내 구독 해지 접수 (환불 검토 필요) - ${user.email}`;
+          const testNotice = isTestMode
+            ? '\n(테스트 결제는 토스 개발자센터 → 테스트 결제내역에서 확인하실 수 있습니다.)'
+            : '';
 
           const text = `[매장닥터 7일 이내 구독 해지 알림]
 
@@ -122,7 +125,7 @@ export async function POST() {
 - 토스 주문번호: ${orderId}
 
 ■ 후속 조치 안내
-토스 상점관리자(https://merchant.tosspayments.com) 접속 → 결제조회 메뉴에서 위 주문번호로 검색 후 결제취소 검토를 진행해 주세요.`;
+토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 위 주문번호로 검색 후 결제취소 검토를 진행해 주세요.${testNotice}`;
 
           await notifyAdmin({ subject, text });
         }
