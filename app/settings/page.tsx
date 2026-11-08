@@ -228,7 +228,7 @@ export default function SettingsPage() {
                 {subscription.cancelled_at ? (
                   <div className="mt-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-2">
                     <p className="leading-relaxed">
-                      자동 결제가 중단되었습니다. {new Date(subscription.expires_at).toLocaleDateString('ko-KR')}까지는 모든 프리미엄 기능을 정상적으로 이용하실 수 있습니다.
+                      자동 결제가 중단되었습니다. {new Date(subscription.expires_at).toLocaleDateString('ko-KR')}까지는 서비스를 정상적으로 이용하실 수 있습니다.
                     </p>
                     <button
                       type="button"
