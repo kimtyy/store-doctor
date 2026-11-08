@@ -142,6 +142,8 @@ export async function GET(request: Request) {
               expires_at: currentNext.toISOString(),
               retry_count: 0,
               last_retry_at: null,
+              last_paid_at: now.toISOString(),
+              last_order_id: orderId,
             })
             .eq('id', sub.id);
 

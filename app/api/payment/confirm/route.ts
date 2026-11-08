@@ -148,6 +148,8 @@ export async function GET(request: Request) {
       billing_key: encryptedBillingKey,
       retry_count: 0,
       cancelled_at: null,
+      last_paid_at: startedAt.toISOString(),
+      last_order_id: orderId,
     };
 
     let { error: dbError } = await adminSupabase

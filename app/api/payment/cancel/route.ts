@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerSupabase } from '@/utils/supabase/server';
 import { createClient as createAdminSupabase } from '@supabase/supabase-js';
 import { getUserRole } from '@/utils/supabase/getUserRole';
+import { notifyAdmin } from '@/lib/notify';
+import { BILLING_PLANS, PlanKey } from '@/lib/billing';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,6 +79,56 @@ export async function POST() {
 
     if (updateError) {
       return NextResponse.json({ error: `구독 해지 처리에 실패했습니다: ${updateError.message}` }, { status: 500 });
+    }
+
+    // 7일 이내 해지 시 관리자 알림 발송 (약관 제8조 전액 환불 검토용)
+    try {
+      const lastPaidDate = subscription.last_paid_at
+        ? new Date(subscription.last_paid_at)
+        : (subscription.started_at ? new Date(subscription.started_at) : null);
+
+      if (lastPaidDate) {
+        const cancelDate = new Date(now);
+        const diffMs = cancelDate.getTime() - lastPaidDate.getTime();
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+        if (diffMs <= sevenDaysMs && diffMs >= 0) {
+          const usedDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+          const planKey = (subscription.plan || 'basic') as PlanKey;
+          const planInfo = BILLING_PLANS[planKey];
+          const planName = planInfo ? `${planInfo.name} 플랜` : subscription.plan;
+          const amountStr = planInfo ? `${planInfo.price.toLocaleString()}원` : '정보 없음';
+          const lastPaidStr = lastPaidDate.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+          const cancelDateStr = cancelDate.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+          const orderId = subscription.last_order_id || '주문번호 정보 없음';
+
+          const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+          const subjectPrefix = isTestMode ? '[테스트] ' : '';
+          const subject = `${subjectPrefix}[매장닥터] 7일 이내 구독 해지 접수 (환불 검토 필요) - ${user.email}`;
+
+          const text = `[매장닥터 7일 이내 구독 해지 알림]
+
+고객이 마지막 결제일로부터 7일 이내에 정기구독을 해지하였습니다.
+이용약관 제8조(7일 이내 전액 환불)에 따라 환불 대상 여부를 검토해 주시기 바랍니다.
+(환불 처리는 자동 진행되지 않으므로 토스 상점관리자에서 관리자 검토 후 직접 취소하셔야 합니다.)
+
+■ 해지 및 결제 정보
+- 고객 이메일: ${user.email}
+- 구독 플랜: ${planName}
+- 결제 금액: ${amountStr}
+- 결제일시: ${lastPaidStr}
+- 해지일시: ${cancelDateStr}
+- 이용 일수: ${usedDays}일
+- 토스 주문번호: ${orderId}
+
+■ 후속 조치 안내
+토스 상점관리자(https://merchant.tosspayments.com) 접속 → 결제조회 메뉴에서 위 주문번호로 검색 후 결제취소 검토를 진행해 주세요.`;
+
+          await notifyAdmin({ subject, text });
+        }
+      }
+    } catch (notifyErr) {
+      console.error('[Cancel] Failed to trigger admin notification on cancellation:', notifyErr);
     }
 
     return NextResponse.json({
