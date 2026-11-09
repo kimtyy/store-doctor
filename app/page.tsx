@@ -13,7 +13,7 @@ import { ScrambleIn } from '@/components/landing/ScrambleText';
 import { ConnectAILabLogo } from '@/components/landing/ConnectAILabLogo';
 import { SITE_CONFIG } from '@/config/landingContent';
 import { createClient } from '@/utils/supabase/client';
-const MAIL_ORDER_LICENSE = '신청 중';
+const MAIL_ORDER_LICENSE = '제2026-경기가평-274호';
 
 export default function LandingPage() {
   const [entranceComplete, setEntranceComplete] = useState(false);

@@ -174,7 +174,7 @@ export default function TermsPage() {
             <p className="font-semibold text-slate-200">사업자 정보</p>
             <ul className="space-y-1 text-xs">
               <li>상호: 허브스마트 | 대표: 김태영</li>
-              <li>사업자등록번호: 526-04-00927</li>
+              <li>사업자등록번호: 526-04-00927 | 통신판매업신고: 제2026-경기가평-274호</li>
               <li>주소: 경기도 가평군 조종면 조종희망로 16-19, 1층</li>
               <li>문의: kimtyy@naver.com | 031-5175-8887</li>
             </ul>
