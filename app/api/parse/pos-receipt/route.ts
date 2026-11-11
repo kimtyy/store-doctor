@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { callClaudeVision } from '../../../../lib/claude';
 import { parsePosReceiptResponse } from '../../../../lib/parsers/posReceipt';
+import { getStoreId } from '@/utils/supabase/getStore';
 
 export async function POST(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const payload = await request.json().catch(() => null);
 

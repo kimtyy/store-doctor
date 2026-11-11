@@ -221,8 +221,12 @@ export async function POST(request: Request) {
   if (!storeInfo) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const STORE_ID = storeInfo.id;
 
-  if (!ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'AI 기능이 설정되지 않았습니다. ANTHROPIC_API_KEY를 확인하세요.' }, { status: 500 });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    const errorMsg = process.env.NODE_ENV === 'production'
+      ? '일시적인 오류입니다. 잠시 후 다시 시도해 주세요.'
+      : 'AI 기능이 설정되지 않았습니다. ANTHROPIC_API_KEY를 확인하세요.';
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 
   try {
@@ -257,7 +261,7 @@ ${storeContext}
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -266,6 +270,7 @@ ${storeContext}
         system: systemPrompt,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
       }),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!response.ok) {

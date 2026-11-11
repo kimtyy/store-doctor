@@ -4,6 +4,7 @@ import { callClaudeVision } from '@/lib/claude';
 import { getStoreInfo } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 
 

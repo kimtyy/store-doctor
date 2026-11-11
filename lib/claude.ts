@@ -1,6 +1,3 @@
-const anthropicKey = process.env.ANTHROPIC_API_KEY;
-const useMock = !anthropicKey;
-
 const sampleSalesResponse = JSON.stringify({
   storeName: '우리 매장',
   date: '2026-05-11',
@@ -49,7 +46,11 @@ const samplePurchaseResponse = JSON.stringify({
 });
 
 export async function callClaudeVision(prompt: string, images?: string[]) {
-  if (useMock) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('일시적인 오류입니다. 잠시 후 다시 시도해 주세요.');
+    }
     return mockResponseByPrompt(prompt);
   }
 
@@ -88,7 +89,7 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': anthropicKey as string,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -97,6 +98,7 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
         temperature: 0,
         messages: messages
       }),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!response.ok) {
@@ -129,6 +131,9 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
     return content;
   } catch (error) {
     if (error instanceof Error) {
+      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+        throw new Error('Claude API 호출 시간이 초과되었습니다 (60초).');
+      }
       throw error;
     }
     throw new Error('알 수 없는 Claude API 오류가 발생했습니다.');
