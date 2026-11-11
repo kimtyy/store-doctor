@@ -6,4 +6,5 @@ out
 .vercel
 .env*.local
 .agents/
+supabase/.temp/
 
