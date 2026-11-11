@@ -268,7 +268,7 @@ ${storeContext}
         system: systemPrompt,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
       }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(50000),
     });
 
     if (!response.ok) {

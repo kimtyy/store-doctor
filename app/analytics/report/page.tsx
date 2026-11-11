@@ -2,8 +2,6 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import TermTooltip from '@/components/ui/TermTooltip';
 
 const WEATHER_EMOJI: Record<string, string> = {
@@ -191,6 +189,14 @@ function MonthlyReportContent() {
     URL.revokeObjectURL(url);
   };
 
+  const hasLastYearData = Boolean(
+    data.comparison?.lastYear?.hasData ??
+      (data.comparison?.lastYear &&
+        (data.comparison.lastYear.openDays > 0 ||
+          data.comparison.lastYear.totalRevenue > 0 ||
+          data.comparison.lastYear.totalPurchase > 0))
+  );
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 print:bg-white pb-20">
       {/* Top Actions (Hidden in print) */}
@@ -220,8 +226,8 @@ function MonthlyReportContent() {
           <h2 className="text-sm font-bold text-sky-800 mb-2 flex items-center gap-1">
             <span>✨</span> AI 한줄 진단
           </h2>
-          <div className="text-slate-800 font-medium leading-relaxed prose prose-sm prose-slate max-w-none prose-p:my-1 prose-headings:my-2">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.aiDiagnosis}</ReactMarkdown>
+          <div className="text-slate-800 font-medium leading-relaxed text-sm">
+            <p className="whitespace-pre-line">{data.aiDiagnosis}</p>
           </div>
         </section>
 
@@ -362,7 +368,13 @@ function MonthlyReportContent() {
                       </td>
                       <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.totalRevenue)}원</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.totalRevenue} base={data.comparison.prev.totalRevenue} /></td>
-                      <td className="p-3"><ComparisonCell current={data.comparison.current.totalRevenue} base={data.comparison.lastYear.totalRevenue} /></td>
+                      <td className="p-3">
+                        {hasLastYearData ? (
+                          <ComparisonCell current={data.comparison.current.totalRevenue} base={data.comparison.lastYear.totalRevenue} />
+                        ) : (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700">
@@ -370,7 +382,13 @@ function MonthlyReportContent() {
                       </td>
                       <td className="p-3 font-bold text-slate-900">{data.comparison.current.costRatio.toFixed(1)}%</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.prev.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" invertColor /></td>
-                      <td className="p-3"><ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.lastYear.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" invertColor /></td>
+                      <td className="p-3">
+                        {hasLastYearData ? (
+                          <ComparisonCell current={data.comparison.current.costRatio} base={data.comparison.lastYear.costRatio} formatter={(v: number) => v.toFixed(1)} suffix="%" invertColor />
+                        ) : (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700">
@@ -378,27 +396,61 @@ function MonthlyReportContent() {
                       </td>
                       <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.operatingProfit)}원</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.operatingProfit} base={data.comparison.prev.operatingProfit} /></td>
-                      <td className="p-3"><ComparisonCell current={data.comparison.current.operatingProfit} base={data.comparison.lastYear.operatingProfit} /></td>
+                      <td className="p-3">
+                        {hasLastYearData ? (
+                          <ComparisonCell current={data.comparison.current.operatingProfit} base={data.comparison.lastYear.operatingProfit} />
+                        ) : (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700">일평균매출</td>
                       <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.avgDailySales)}원</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.avgDailySales} base={data.comparison.prev.avgDailySales} /></td>
-                      <td className="p-3"><ComparisonCell current={data.comparison.current.avgDailySales} base={data.comparison.lastYear.avgDailySales} /></td>
+                      <td className="p-3">
+                        {hasLastYearData ? (
+                          <ComparisonCell current={data.comparison.current.avgDailySales} base={data.comparison.lastYear.avgDailySales} />
+                        ) : (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700">
                         객단가 <TermTooltip term="객단가" />
                       </td>
-                      <td className="p-3 font-bold text-slate-900">{fmt(data.comparison.current.avgSpend)}원</td>
-                      <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.prev.avgSpend} /></td>
-                      <td className="p-3"><ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.lastYear.avgSpend} /></td>
+                      <td className="p-3 font-bold text-slate-900">
+                        {data.comparison.current.avgSpend > 0 ? `${fmt(data.comparison.current.avgSpend)}원` : '-'}
+                      </td>
+                      <td className="p-3 bg-slate-50/50">
+                        {data.comparison.current.avgSpend > 0 && data.comparison.prev.avgSpend > 0 ? (
+                          <ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.prev.avgSpend} />
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {!hasLastYearData ? (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        ) : data.comparison.current.avgSpend > 0 && data.comparison.lastYear.avgSpend > 0 ? (
+                          <ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.lastYear.avgSpend} />
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700">영업일수</td>
                       <td className="p-3 font-bold text-slate-900">{data.comparison.current.openDays}일</td>
                       <td className="p-3 bg-slate-50/50"><ComparisonCell current={data.comparison.current.openDays} base={data.comparison.prev.openDays} formatter={(v: number) => String(v)} suffix="일" /></td>
-                      <td className="p-3"><ComparisonCell current={data.comparison.current.openDays} base={data.comparison.lastYear.openDays} formatter={(v: number) => String(v)} suffix="일" /></td>
+                      <td className="p-3">
+                        {hasLastYearData ? (
+                          <ComparisonCell current={data.comparison.current.openDays} base={data.comparison.lastYear.openDays} formatter={(v: number) => String(v)} suffix="일" />
+                        ) : (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        )}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -449,8 +501,8 @@ function MonthlyReportContent() {
               <h3 className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1">
                 <span>💡</span> AI 진단
               </h3>
-              <div className="text-amber-900 font-medium text-sm leading-relaxed prose prose-sm prose-amber max-w-none prose-p:my-1 prose-headings:my-2">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.bep.aiDiagnosis}</ReactMarkdown>
+              <div className="text-amber-900 font-medium text-sm leading-relaxed">
+                <p className="whitespace-pre-line">{data.bep.aiDiagnosis}</p>
               </div>
             </div>
           </div>
@@ -476,8 +528,8 @@ function MonthlyReportContent() {
                 <h3 className="text-xs font-bold text-sky-800 mb-2 flex items-center gap-1">
                   <span>💡</span> 날씨 AI 진단
                 </h3>
-                <div className="text-sky-900 font-medium text-sm leading-relaxed prose prose-sm prose-sky max-w-none prose-p:my-1 prose-headings:my-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.weather.aiDiagnosis}</ReactMarkdown>
+                <div className="text-sky-900 font-medium text-sm leading-relaxed">
+                  <p className="whitespace-pre-line">{data.weather.aiDiagnosis}</p>
                 </div>
               </div>
             )}
@@ -585,8 +637,8 @@ function MonthlyReportContent() {
                   <h3 className="text-xs font-bold text-indigo-800 mb-2 flex items-center gap-1">
                     <span>🤖</span> AI 종합 예측 및 준비사항
                   </h3>
-                  <div className="text-indigo-900 font-medium text-sm leading-relaxed prose prose-sm prose-indigo max-w-none prose-p:my-1 prose-headings:my-2">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.prediction.aiDiagnosis}</ReactMarkdown>
+                  <div className="text-indigo-900 font-medium text-sm leading-relaxed">
+                    <p className="whitespace-pre-line">{data.prediction.aiDiagnosis}</p>
                   </div>
                 </div>
               )}

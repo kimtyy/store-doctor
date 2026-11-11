@@ -171,6 +171,10 @@ export async function resolvePaymentAttempt(attemptId: string) {
 
   if (!updatedRows || updatedRows.length === 0) {
     console.warn(`[Admin] resolvePaymentAttempt(${attemptId}) matched 0 rows.`);
+    return {
+      success: false,
+      message: '이미 해제되었거나 상태가 바뀌었습니다. 새로고침 해 주세요.',
+    };
   }
 
   revalidatePath('/admin');

@@ -162,10 +162,12 @@ export function ExtendSubscriptionSection({ userId, userEmail }: { userId: strin
 
 export function ResolvePaymentAttemptButton({
   attemptId,
+  orderId,
   status,
   createdAt,
 }: {
   attemptId: string;
+  orderId?: string;
   status?: string;
   createdAt?: string;
 }) {
@@ -182,11 +184,22 @@ export function ResolvePaymentAttemptButton({
       return;
     }
 
-    if (!window.confirm('이 결제 대기 상태를 해제하시겠습니까?\n\n해제하면 사용자가 다시 결제할 수 있습니다.')) return;
+    const orderHint = orderId ? ` (${orderId})` : '';
+    if (
+      !window.confirm(
+        `토스 상점관리자에서 이 orderId 의 결제 여부를 먼저 확인하셨나요?${orderHint}\n\n이 결제 대기 상태를 해제하시겠습니까?\n해제하면 사용자가 다시 결제할 수 있습니다.`
+      )
+    ) {
+      return;
+    }
 
     try {
       setLoading(true);
-      await resolvePaymentAttempt(attemptId);
+      const result = await resolvePaymentAttempt(attemptId);
+      if (result && result.success === false) {
+        alert(result.message || '이미 해제되었거나 상태가 바뀌었습니다. 새로고침 해 주세요.');
+        return;
+      }
       alert('결제 대기 상태가 정상적으로 해제되었습니다.');
     } catch (e: any) {
       alert(e.message || '해제 중 오류가 발생했습니다.');

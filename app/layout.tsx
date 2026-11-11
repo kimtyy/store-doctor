@@ -41,7 +41,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {isAdmin && (
           <a
             href="/admin"
-            className="fixed top-3 right-4 z-50 bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg backdrop-blur transition border border-rose-500/50"
+            className="fixed top-3 right-4 z-50 bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg backdrop-blur transition border border-rose-500/50 print:hidden"
           >
             👑 관리자
           </a>

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { callClaudeVision } from '@/lib/claude';
+import { callClaudeVisionWithMeta, sanitizeReportComment } from '@/lib/claude';
 import { getStoreInfo } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
@@ -188,7 +188,8 @@ export async function GET(request: Request) {
       const avgDaily = oDays > 0 ? Math.round(totalRev / oDays) : 0;
       const totalTables = s.reduce((sum, item) => sum + (item.tables_used || 0), 0);
       const avgSpend = totalTables > 0 ? Math.round(totalRev / totalTables) : 0;
-      return { totalRevenue: totalRev, totalPurchase: totalPur, operatingProfit: opProfit, costRatio: cRatio, openDays: oDays, avgDailySales: avgDaily, avgSpend };
+      const hasData = s.length > 0 || p.length > 0;
+      return { totalRevenue: totalRev, totalPurchase: totalPur, operatingProfit: opProfit, costRatio: cRatio, openDays: oDays, avgDailySales: avgDaily, avgSpend, guestCount: totalTables, hasData };
     }
 
     const currentStats = calcStats(sales, purchases);
@@ -342,36 +343,70 @@ export async function GET(request: Request) {
     const bep = variableCostRatio < 1 ? Math.round(fixedCostsSum / (1 - variableCostRatio)) : 0;
     const bepShortfall = bep - totalRevenue; // Positive means shortfall, negative means excess
 
-    // AI Diagnosis (각 호출은 상호 의존성이 없으므로 Promise.allSettled 병렬 실행, 타임아웃 20초, maxTokens 400)
-    const aiPrompt = `보고서 데이터 요약:\n이번달 매출: ${currentStats.totalRevenue}\n전월 매출: ${prevStats.totalRevenue}\n전년동월 매출: ${lastYearStats.totalRevenue}\n이번달 원가율: ${currentStats.costRatio.toFixed(1)}%\n이번달 영업이익: ${currentStats.operatingProfit}\n실질순이익: ${netProfit}\n이 매장의 ${year}년 ${month}월 성과 및 전월/전년 대비 성장/하락 트렌드를 분석하는 진단 코멘트를 한줄로 작성해줘.`;
-    const predictionPrompt = `다음달(${nextMonth}월) 예측 데이터:\n예측 매출 범위: ${predictedMin} ~ ${predictedMax}\n계절성: ${prediction.seasonality}\n공휴일: ${prediction.holidays.join(', ')}\n주말 일수: ${weekendCount}일\n이번 달 실적 및 위 예측 데이터를 종합하여, 다음 달을 대비하기 위한 구체적인 운영 및 발주 전략을 포함한 AI 진단 코멘트를 작성해줘.`;
-    const bepPrompt = `손익분기점 분석 데이터:\n고정비 합계: ${fixedCostsSum}\n평균 변동비율: ${Math.round(variableCostRatio * 100)}%\n손익분기점: ${bep}\n현재 월매출: ${totalRevenue}\n부족액: ${bepShortfall}\n영업일수: ${openDays}\n이 매장의 상황에 맞는 구체적인 조언(예: 하루 평균 얼마 추가 매출이 필요한지, 객단가를 높일지 등)을 포함한 손익분기점 진단 코멘트를 작성해줘.`;
-    const weatherPrompt = `날씨와 매출 상관관계 데이터:\n${weatherStats.map(w => `${w.condition} ${w.days}일: 평균 ${w.avgRevenue}`).join('\n')}\n이 매장의 날씨에 따른 매출 분석 및 재료/주류 발주 조절에 대한 구체적인 조언을 포함한 AI 진단 코멘트를 작성해줘.`;
+    // AI Diagnosis (각 호출은 상호 의존성이 없으므로 Promise.allSettled 병렬 실행, 타임아웃 20초, maxTokens 600)
+    const reportFormatRule =
+      '평문 3~5문장. 제목, 표, 코드블록, 목록, 이모지, 마크다운 기호(**, #, |) 사용 금지. 화면에 이미 표시된 숫자를 표로 반복하지 말고, 해석과 실행할 조언만 쓴다. 값이 "없음"으로 표시된 항목에 대해서는 데이터 부재 경고문을 쓰지 말 것.';
 
-    const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 400 };
+    const prevMonthSummary = prevStats.hasData
+      ? `매출 ${prevStats.totalRevenue}원, 원가율 ${prevStats.costRatio.toFixed(1)}%, 일평균 ${prevStats.avgDailySales}원`
+      : '없음';
+    const lastYearSummary = lastYearStats.hasData
+      ? `매출 ${lastYearStats.totalRevenue}원, 원가율 ${lastYearStats.costRatio.toFixed(1)}%, 일평균 ${lastYearStats.avgDailySales}원`
+      : '없음';
+
+    const aiPrompt = `보고서 데이터 요약:
+이번달(${year}년 ${month}월) 매출: ${currentStats.totalRevenue}원, 원가율: ${currentStats.costRatio.toFixed(1)}%, 일평균: ${currentStats.avgDailySales}원, 영업이익: ${currentStats.operatingProfit}원, 실질순이익: ${netProfit}원
+전월 실적: ${prevMonthSummary}
+전년동월 실적: ${lastYearSummary}
+이 매장의 ${year}년 ${month}월 성과 및 성장/하락 흐름을 분석해 해석과 실행 조언을 작성해줘.
+${reportFormatRule}`;
+
+    const predictionPrompt = `이번달(${year}년 ${month}월) 실적: 매출 ${currentStats.totalRevenue}원, 원가율 ${currentStats.costRatio.toFixed(1)}%, 일평균 매출 ${currentStats.avgDailySales}원 (영업일 ${currentStats.openDays}일)
+전월 실적: ${prevMonthSummary}
+전년동월 실적: ${lastYearSummary}
+다음달(${nextMonth}월) 예측 데이터: 예측 매출 범위 ${predictedMin}원 ~ ${predictedMax}원, 계절성: ${prediction.seasonality || '일반'}, 공휴일: ${prediction.holidays.length > 0 ? prediction.holidays.join(', ') : '없음'}, 주말 일수: ${weekendCount}일
+이번 달·전월 실적과 다음달 예측 데이터를 종합해, 다음 달을 대비한 구체적인 운영 및 발주 조언을 작성해줘.
+${reportFormatRule}`;
+
+    const bepPrompt = `손익분기점 분석 데이터:
+고정비 합계: ${fixedCostsSum}원, 평균 변동비율: ${Math.round(variableCostRatio * 100)}%, 손익분기점: ${bep}원, 현재 월매출: ${totalRevenue}원, 부족액(초과 시 음수): ${bepShortfall}원, 영업일수: ${openDays}일
+이 매장의 손익분기점 달성과 수익 개선을 위한 구체적인 실행 조언(하루 추가 필요 매출 또는 객단가/비용 조정)을 작성해줘.
+${reportFormatRule}`;
+
+    const weatherPrompt = `날씨와 매출 상관관계 데이터:
+${weatherStats.map(w => `${w.condition} ${w.days}일: 일평균 ${w.avgRevenue}원`).join('\n')}
+이 매장의 날씨에 따른 매출 차이를 해석하고 식자재·주류 발주 조절 조언을 작성해줘.
+${reportFormatRule}`;
+
+    const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 600 };
     const [aiRes, predRes, bepRes, weatherRes] = await Promise.allSettled([
-      callClaudeVision(aiPrompt, undefined, reportClaudeOptions),
-      callClaudeVision(predictionPrompt, undefined, reportClaudeOptions),
-      callClaudeVision(bepPrompt, undefined, reportClaudeOptions),
+      callClaudeVisionWithMeta(aiPrompt, undefined, reportClaudeOptions),
+      callClaudeVisionWithMeta(predictionPrompt, undefined, reportClaudeOptions),
+      callClaudeVisionWithMeta(bepPrompt, undefined, reportClaudeOptions),
       weatherStats.length > 0
-        ? callClaudeVision(weatherPrompt, undefined, reportClaudeOptions)
+        ? callClaudeVisionWithMeta(weatherPrompt, undefined, reportClaudeOptions)
         : Promise.resolve(null),
     ]);
 
+    const aiFallback = '데이터 기반 진단을 생성하지 못했습니다.';
+    const predictionFallback = '예측 진단을 생성하지 못했습니다.';
+    const bepFallback = '손익분기점 진단을 생성하지 못했습니다.';
+    const weatherFallback = '날씨 진단을 생성하지 못했습니다.';
+
     const aiDiagnosis = aiRes.status === 'fulfilled' && aiRes.value
-      ? aiRes.value
-      : '데이터 기반 진단을 생성하지 못했습니다.';
+      ? sanitizeReportComment(aiRes.value.text, aiRes.value.stopReason, aiFallback)
+      : aiFallback;
     const predictionAiDiagnosis = predRes.status === 'fulfilled' && predRes.value
-      ? predRes.value
-      : '예측 진단을 생성하지 못했습니다.';
+      ? sanitizeReportComment(predRes.value.text, predRes.value.stopReason, predictionFallback)
+      : predictionFallback;
     const bepAiDiagnosis = bepRes.status === 'fulfilled' && bepRes.value
-      ? bepRes.value
-      : '손익분기점 진단을 생성하지 못했습니다.';
+      ? sanitizeReportComment(bepRes.value.text, bepRes.value.stopReason, bepFallback)
+      : bepFallback;
     const weatherAiDiagnosis = weatherStats.length === 0
       ? null
       : (weatherRes.status === 'fulfilled' && weatherRes.value
-          ? weatherRes.value
-          : '날씨 진단을 생성하지 못했습니다.');
+          ? sanitizeReportComment(weatherRes.value.text, weatherRes.value.stopReason, weatherFallback)
+          : weatherFallback);
 
     return NextResponse.json({
       storeName: storeInfo.name,

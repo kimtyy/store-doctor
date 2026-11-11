@@ -523,8 +523,14 @@ export default function PurchasesInputPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: [dataUrl] }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? '파싱에 실패했습니다.');
+      const rawText = await response.text();
+      let body: any = null;
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        throw new Error('응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      if (!response.ok) throw new Error(body?.error ?? '파싱에 실패했습니다.');
       const parsed = body.data as PurchaseRecord;
       setEditableResult({
         date: parsed.date ?? new Date().toISOString().split('T')[0],

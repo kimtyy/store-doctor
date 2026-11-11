@@ -204,6 +204,7 @@ export default async function AdminPage() {
                       <td className="px-4 py-3 whitespace-nowrap text-center">
                         <ResolvePaymentAttemptButton
                           attemptId={item.id}
+                          orderId={item.order_id}
                           status={item.status}
                           createdAt={item.created_at}
                         />

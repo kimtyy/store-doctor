@@ -50,12 +50,64 @@ export interface CallClaudeOptions {
   maxTokens?: number;
 }
 
-export async function callClaudeVision(
+export interface ClaudeVisionResult {
+  text: string;
+  stopReason: string | null;
+}
+
+/**
+ * 보고서 AI 코멘트 후처리:
+ * - 잔여 마크다운 기호(**, #, 코드펜스, 파이프 표 행) 제거
+ * - stop_reason === 'max_tokens' 이면 마지막 완결 문장(., 다., 요.)까지만 유지, 없으면 폴백 반환
+ */
+export function sanitizeReportComment(
+  rawText: string,
+  stopReason: string | null | undefined,
+  fallback: string
+): string {
+  if (!rawText || !rawText.trim()) return fallback;
+
+  // 마크다운 표(| ...) 행 및 코드블록 표식 제거, ** 및 # 제거
+  const cleanedLines = rawText
+    .replace(/```[^\n]*/g, '')
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*\|/.test(line))
+    .map((line) =>
+      line
+        .replace(/\*\*/g, '')
+        .replace(/#/g, '')
+        .replace(/^\s*[-*•]\s+/, '')
+        .trim()
+    )
+    .filter((line) => line.length > 0);
+
+  let text = cleanedLines.join(' ').replace(/\s{2,}/g, ' ').trim();
+  if (!text) return fallback;
+
+  if (stopReason === 'max_tokens') {
+    // 마지막 완결 문장(., 다., 요.) 찾기 (소수점 숫자 내부의 '.' 제외)
+    const sentenceEndRegex = /(?:다\.|요\.|(?<!\d)\.(?!\d))(?=\s|$)/g;
+    let lastEnd = -1;
+    let match: RegExpExecArray | null;
+    while ((match = sentenceEndRegex.exec(text)) !== null) {
+      lastEnd = match.index + match[0].length;
+    }
+    if (lastEnd <= 0) {
+      return fallback;
+    }
+    text = text.slice(0, lastEnd).trim();
+    if (!text) return fallback;
+  }
+
+  return text;
+}
+
+export async function callClaudeVisionWithMeta(
   prompt: string,
   images?: string[],
   options?: CallClaudeOptions
-) {
-  const timeoutMs = options?.timeoutMs ?? 60000;
+): Promise<ClaudeVisionResult> {
+  const timeoutMs = options?.timeoutMs ?? 50000;
   const maxTokens = options?.maxTokens ?? 4096;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -63,7 +115,7 @@ export async function callClaudeVision(
     if (process.env.NODE_ENV === 'production') {
       throw new Error('일시적인 오류입니다. 잠시 후 다시 시도해 주세요.');
     }
-    return mockResponseByPrompt(prompt);
+    return { text: mockResponseByPrompt(prompt), stopReason: 'end_turn' };
   }
 
   try {
@@ -140,7 +192,10 @@ export async function callClaudeVision(
       throw new Error('Claude API 응답 텍스트가 비어있습니다.');
     }
 
-    return content;
+    return {
+      text: content,
+      stopReason: typeof data.stop_reason === 'string' ? data.stop_reason : null,
+    };
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === 'TimeoutError' || error.name === 'AbortError') {
@@ -150,6 +205,15 @@ export async function callClaudeVision(
     }
     throw new Error('알 수 없는 Claude API 오류가 발생했습니다.');
   }
+}
+
+export async function callClaudeVision(
+  prompt: string,
+  images?: string[],
+  options?: CallClaudeOptions
+) {
+  const result = await callClaudeVisionWithMeta(prompt, images, options);
+  return result.text;
 }
 
 function mockResponseByPrompt(prompt: string) {

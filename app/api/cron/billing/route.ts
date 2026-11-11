@@ -177,6 +177,7 @@ ${transitionedAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / user_i
             console.error(`[Billing Cron] Failed to send 3-day unconfirmed notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
           }
         }
+        processedSubIds.add(sub.id);
         results.push({ id: sub.id, user_id: sub.user_id, status: 'unconfirmed_retry_paused', unconfirmedCount });
         continue;
       }
