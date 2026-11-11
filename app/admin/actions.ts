@@ -122,3 +122,29 @@ export async function extendSubscription(userId: string, months: number, reason:
   revalidatePath('/admin');
   return { success: true };
 }
+
+export async function resolvePaymentAttempt(attemptId: string) {
+  await checkAdmin();
+
+  const adminClient = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const { error } = await adminClient
+    .from('payment_attempts')
+    .update({
+      status: 'resolved',
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', attemptId);
+
+  if (error) {
+    console.error('Resolve payment attempt error:', error);
+    throw new Error('결제 대기 해제 중 오류가 발생했습니다: ' + error.message);
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/payment');
+  return { success: true };
+}

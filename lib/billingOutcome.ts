@@ -3,8 +3,8 @@
  * 토스 결제 청구 응답 및 주문 조회 결과에 대한 단일 판정 공통 모듈
  */
 
-export type BillingOutcome = 'SUCCESS' | 'FAILURE' | 'UNCONFIRMED';
-export type ChargeCategory = 'SUCCESS' | 'A' | 'B' | 'RATE_LIMIT' | 'DUPLICATE';
+export type BillingOutcome = 'SUCCESS' | 'FAILURE' | 'UNCONFIRMED' | 'SYSTEM_ERROR';
+export type ChargeCategory = 'SUCCESS' | 'A' | 'B' | 'RATE_LIMIT' | 'DUPLICATE' | 'SYSTEM';
 
 export interface ChargeResponseInput {
   ok?: boolean;
@@ -33,23 +33,51 @@ export interface BillingOutcomeResult {
 
 /**
  * 청구 응답 분류:
- * - SUCCESS: 200 OK + 본문 파싱 성공
+ * - SYSTEM: HTTP 401, 403 및 토스 키·인증·상점 설정 오류 코드
+ * - SUCCESS: 200 OK + 본문 status === 'DONE'
  * - RATE_LIMIT: 429 Too Many Requests
  * - DUPLICATE: 중복 주문번호 오류 (ALREADY_PROCESSED_PAYMENT, DUPLICATED_ORDER_ID)
- * - A (명확한 거절): 408·429·중복을 제외한 4xx 이고 응답 본문 파싱 성공
- * - B (처리 중일 수 있음): 네트워크 예외, 타임아웃, 408, 5xx, 응답 본문 파싱 실패(상태 코드 무관)
+ * - A (명확한 거절): 401·403·408·429·SYSTEM·중복을 제외한 4xx 이고 응답 본문 파싱 성공
+ * - B (처리 중일 수 있음): 2xx 응답이지만 status !== 'DONE', 네트워크 예외, 타임아웃, 408, 5xx, 응답 본문 파싱 실패(상태 코드 무관)
  */
+export const TOSS_SYSTEM_ERROR_CODES = [
+  'UNAUTHORIZED_KEY',
+  'FORBIDDEN_REQUEST',
+  'INCORRECT_BASIC_AUTH_FORMAT',
+  'INVALID_API_KEY',
+  'INSECURE_KEY_USAGE',
+  'NOT_FOUND_MERCHANT',
+  'INSUFFICIENT_PRIVILEGES',
+  'NOT_SUPPORTED_METHOD',
+  'NOT_AVAILABLE_PAYMENT_METHOD',
+  'FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING',
+] as const;
+
 export function classifyChargeResponse(charge: ChargeResponseInput): ChargeCategory {
-  if (charge.ok && charge.data) {
-    return 'SUCCESS';
+  const errorCode = charge.data?.code;
+  const isSystemErrorCode = Boolean(
+    errorCode && (TOSS_SYSTEM_ERROR_CODES as readonly string[]).includes(errorCode)
+  );
+
+  // 1. SYSTEM 오류: HTTP 401, 403 또는 키·인증·상점 설정 에러 코드
+  if (charge.status === 401 || charge.status === 403 || isSystemErrorCode) {
+    return 'SYSTEM';
   }
 
+  // 2. 2xx 응답 검증: 본문 status가 DONE이어야만 SUCCESS, 그 외(IN_PROGRESS 등)는 B로 분류해 조회
+  if (charge.ok && charge.data) {
+    if (charge.data.status === 'DONE') {
+      return 'SUCCESS';
+    }
+    return 'B';
+  }
+
+  // 3. 429 Rate limit
   if (charge.status === 429) {
     return 'RATE_LIMIT';
   }
 
-  // 중복 주문번호 오류인지 확인
-  const errorCode = charge.data?.code;
+  // 4. 중복 주문번호 오류인지 확인
   const isDuplicateError =
     errorCode === 'ALREADY_PROCESSED_PAYMENT' ||
     errorCode === 'DUPLICATED_ORDER_ID';
@@ -58,7 +86,7 @@ export function classifyChargeResponse(charge: ChargeResponseInput): ChargeCateg
     return 'DUPLICATE';
   }
 
-  // B: 네트워크 예외, 타임아웃, 408, 5xx, 응답 본문 파싱 실패
+  // 5. B: 네트워크 예외, 타임아웃, 408, 5xx, 응답 본문 파싱 실패
   if (
     charge.error ||
     charge.parseError ||
@@ -69,7 +97,7 @@ export function classifyChargeResponse(charge: ChargeResponseInput): ChargeCateg
     return 'B';
   }
 
-  // A: 408·429·중복을 제외한 4xx 이고 응답 본문 파싱 성공
+  // 6. A: 401·403·408·429·SYSTEM·중복을 제외한 4xx 이고 응답 본문 파싱 성공
   if (charge.status && charge.status >= 400 && charge.status < 500) {
     return 'A';
   }
@@ -90,7 +118,23 @@ export function determineBillingOutcome(
 ): BillingOutcomeResult {
   const category = classifyChargeResponse(charge);
 
-  // 1. 첫 청구 자체가 200 성공인 경우
+  // 0. SYSTEM 오류: 조회 없이 즉시 SYSTEM_ERROR 반환
+  if (category === 'SYSTEM') {
+    const codeStr = charge.data?.code ? ` [${charge.data.code}]` : '';
+    return {
+      outcome: 'SYSTEM_ERROR',
+      paymentKey: null,
+      approvedAt: null,
+      errorMessage: charge.data?.message
+        ? `${charge.data.message}${codeStr}`
+        : `결제 시스템 인증/설정 오류 (HTTP ${charge.status || 0}${codeStr})`,
+      unconfirmedReason: null,
+      chargeCategory: 'SYSTEM',
+      lookupStatus: null,
+    };
+  }
+
+  // 1. 첫 청구 자체가 200 성공인 경우 (status === 'DONE')
   if (category === 'SUCCESS') {
     return {
       outcome: 'SUCCESS',
@@ -251,8 +295,8 @@ export async function resolveBillingOutcome({
 }): Promise<BillingOutcomeResult> {
   const category = classifyChargeResponse(charge);
 
-  // SUCCESS 또는 RATE_LIMIT는 주문 조회가 불필요함
-  if (category === 'SUCCESS' || category === 'RATE_LIMIT' || !fetchLookup) {
+  // SUCCESS, RATE_LIMIT 또는 SYSTEM은 주문 조회가 불필요함
+  if (category === 'SUCCESS' || category === 'RATE_LIMIT' || category === 'SYSTEM' || !fetchLookup) {
     return determineBillingOutcome(charge, null);
   }
 

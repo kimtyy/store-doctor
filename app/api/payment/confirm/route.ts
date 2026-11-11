@@ -93,6 +93,32 @@ export async function GET(request: Request) {
     return NextResponse.redirect(dashboardUrl);
   }
 
+  // 2-C. 결제 대기(pending) 상태 사용자 차단 (이중 결제 방지)
+  // payment_attempts 테이블에 status='pending' 레코드가 있으면 청구하지 않고 대기 안내로 리디렉션
+  try {
+    const { data: pendingAttempt, error: attemptCheckError } = await adminSupabase
+      .from('payment_attempts')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (attemptCheckError) {
+      // 테이블이 아직 없는 경우 (마이그레이션 전) 경고만 남기고 통과
+      console.warn('[Confirm] payment_attempts check failed (table might not exist yet):', attemptCheckError.message);
+    } else if (pendingAttempt) {
+      console.warn(`[Confirm] User ${user.id} has a pending payment attempt (${pendingAttempt.id}). Redirecting to payment_pending.`);
+      const pendingUrl = new URL('/payment', request.url);
+      pendingUrl.searchParams.set('plan', plan);
+      pendingUrl.searchParams.set('notice', 'payment_pending');
+      return NextResponse.redirect(pendingUrl);
+    }
+  } catch (checkErr: any) {
+    console.warn('[Confirm] payment_attempts check exception (table might not exist yet):', checkErr?.message);
+  }
+
   // 3. 토스페이먼츠 시크릿 키 체크 (폴백 없이 환경변수 미설정 시 즉시 에러)
   const tossSecretKey = process.env.TOSS_SECRET_KEY;
   if (!tossSecretKey) {
@@ -110,7 +136,6 @@ export async function GET(request: Request) {
   let planDetail: (typeof BILLING_PLANS)[PlanKey] | null = null;
   let hasAttemptedCancel = false;
   let cancelResultCache: { success: boolean; error?: string } | null = null;
-  let chargeNetworkError: any = null;
 
   // 알림 본문용 paymentKey 마스킹 (마지막 6자리만 노출)
   function maskPaymentKey(key: string | null | undefined): string {
@@ -244,7 +269,6 @@ export async function GET(request: Request) {
         console.error(`Toss first billing charge failed: ${chargeData?.code || 'UNKNOWN'}: ${chargeData?.message || '승인 실패'}`);
       }
     } catch (chargeErr: any) {
-      chargeNetworkError = chargeErr;
       chargeInput = {
         ok: false,
         status: (chargeErr?.name === 'AbortError' || chargeErr?.code === 'ETIMEDOUT') ? 408 : 0,
@@ -259,8 +283,64 @@ export async function GET(request: Request) {
       fetchLookup: () => lookupPaymentByOrderId(orderId!),
     });
 
+    if (outcomeResult.outcome === 'SYSTEM_ERROR') {
+      console.error(`[Confirm] SYSTEM_ERROR during charge for user ${user.id}, orderId ${orderId}. Status: ${chargeInput.status}, Code: ${chargeInput.data?.code}`);
+
+      try {
+        const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+        const subjectPrefix = isTestMode ? '[테스트] ' : '';
+        await notifyAdmin({
+          subject: `${subjectPrefix}[긴급/결제 시스템 오류] 첫 결제 승인 시스템 오류 - ${user.email}`,
+          text: `[매장닥터 결제 시스템 오류 알림]
+
+신규 결제(첫 결제) 승인 처리 중 토스페이먼츠 인증 또는 상점 설정 오류(SYSTEM_ERROR)가 발생하였습니다.
+
+■ 오류 내용 (보안을 위해 키 값은 제외됨)
+- 사용자 식별자: ${user.id} (${user.email})
+- 토스 주문번호: ${orderId}
+- HTTP 상태 코드: ${chargeInput.status || 'N/A'}
+- 토스 에러 코드: ${chargeInput.data?.code || 'N/A'}
+- 에러 메시지: ${chargeInput.data?.message || 'N/A'}
+
+■ 조치 방법
+1. Vercel 환경변수 TOSS_SECRET_KEY 설정 상태 확인
+2. 토스 상점관리자 개발자센터에서 API 키 및 계약/상점 상태 확인`,
+        });
+      } catch (notifyErr: any) {
+        console.error(`[Confirm] Failed to send system error admin notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
+      }
+
+      const failUrl = new URL('/payment', request.url);
+      failUrl.searchParams.set('plan', plan);
+      failUrl.searchParams.set('error', 'server_error');
+      return NextResponse.redirect(failUrl);
+    }
+
     if (outcomeResult.outcome === 'UNCONFIRMED') {
-      // UNCONFIRMED 이면 구독은 저장하지 않고 [수동 확인 필요] 긴급 알림 전송
+      // payment_attempts 테이블에 status='pending' 행 기록
+      let attemptId: string | null = null;
+      try {
+        const { data: attemptData, error: attemptInsertError } = await adminSupabase
+          .from('payment_attempts')
+          .insert({
+            user_id: user.id,
+            order_id: orderId!,
+            status: 'pending',
+            reason: outcomeResult.unconfirmedReason || outcomeResult.errorMessage || '첫 결제 결과 미확인',
+          })
+          .select('id')
+          .single();
+
+        if (attemptInsertError) {
+          console.warn('[Confirm] Failed to record payment_attempts (table might not exist yet):', attemptInsertError.message);
+        } else if (attemptData) {
+          attemptId = attemptData.id;
+        }
+      } catch (insertErr: any) {
+        console.warn('[Confirm] Exception recording payment_attempts (table might not exist yet):', insertErr?.message);
+      }
+
+      // UNCONFIRMED 이면 구독은 저장하지 않고 [수동 확인 필요] 긴급 알림 전송 (payment_attempts.id 및 수동 해제 방법 포함)
       const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
       const subjectPrefix = isTestMode ? '[테스트] ' : '';
       try {
@@ -274,12 +354,15 @@ export async function GET(request: Request) {
 ■ 결제 및 사용자 정보
 - 구독 사용자 ID: ${user.id} (${user.email})
 - 주문번호: ${orderId}
+- 결제 시도 대기 ID (payment_attempts.id): ${attemptId || '기록 실패 (테이블 미생성)'}
 - 결제키(paymentKey 끝 6자리): ${maskPaymentKey(outcomeResult.paymentKey)}
 - 플랜: ${planDetail.name} (${planDetail.price.toLocaleString()}원)
 - 불확실 사유: ${outcomeResult.unconfirmedReason || outcomeResult.errorMessage || '상태 미확인'}
 
-■ 조치 방법
-토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId})로 검색하여 결제 완료 여부를 확인하시고, 승인되어 있다면 즉시 수동 결제 취소 또는 수동 구독 처리를 진행해 주세요.`,
+■ 조치 방법 (결제 확인 및 대기 해제)
+1. 토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId})로 검색하여 결제 완료 여부를 확인합니다.
+2. 대기 해제는 관리자 대시보드(/admin)의 '결제 대기 관리'에서 [대기 해제]를 클릭하거나, Supabase SQL 편집기에서 다음 쿼리를 실행합니다:
+   UPDATE payment_attempts SET status = 'resolved', resolved_at = now() WHERE user_id = '${user.id}' AND status = 'pending';`,
         });
       } catch (notifyErr: any) {
         console.error(`[Confirm] Failed to send admin notification for unconfirmed outcome: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);

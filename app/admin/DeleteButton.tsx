@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { deleteStore, extendSubscription } from './actions';
+import { deleteStore, extendSubscription, resolvePaymentAttempt } from './actions';
 
 export function DeleteStoreButton({ storeId, ownerId }: { storeId: string, ownerId: string | null }) {
   const [loading, setLoading] = useState(false);
@@ -157,5 +157,33 @@ export function ExtendSubscriptionSection({ userId, userEmail }: { userId: strin
         onExtendSuccess={() => setReason('')}
       />
     </div>
+  );
+}
+
+export function ResolvePaymentAttemptButton({ attemptId }: { attemptId: string }) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleResolve() {
+    if (!window.confirm('이 결제 시도 대기를 해제하시겠습니까?\n\n해제 시 해당 사용자는 다시 결제 및 카드 등록을 진행할 수 있게 됩니다.')) return;
+
+    try {
+      setLoading(true);
+      await resolvePaymentAttempt(attemptId);
+      alert('결제 대기 상태가 정상적으로 해제되었습니다.');
+    } catch (e: any) {
+      alert(e.message || '해제 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleResolve}
+      disabled={loading}
+      className="px-2.5 py-1 bg-amber-600/30 hover:bg-amber-600 text-amber-300 hover:text-white rounded text-xs transition border border-amber-500/50 whitespace-nowrap cursor-pointer disabled:opacity-50"
+    >
+      {loading ? '해제중...' : '대기 해제'}
+    </button>
   );
 }

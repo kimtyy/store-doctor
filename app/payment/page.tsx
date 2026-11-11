@@ -25,6 +25,7 @@ function PaymentContent() {
 
   // role 체크: owner만 결제 페이지 접근 가능
   const [role, setRole] = useState<string | null | 'loading'>('loading');
+  const [hasServerPending, setHasServerPending] = useState(false);
 
   useEffect(() => {
     fetch('/api/me/role')
@@ -34,7 +35,7 @@ function PaymentContent() {
   }, []);
 
   const noticeParam = searchParams.get('notice');
-  const isPaymentPending = noticeParam === 'payment_pending';
+  const isPaymentPending = noticeParam === 'payment_pending' || hasServerPending;
   const errorParam = searchParams.get('error');
   const tossCode = searchParams.get('code');
   const tossMessage = searchParams.get('message');
@@ -60,7 +61,7 @@ function PaymentContent() {
     ? ERROR_MESSAGES[errorParam] || DEFAULT_ERROR_MESSAGE
     : null;
 
-  // 1. 사용자 세션 체크 (비로그인 시 로그인 페이지로 리디렉션)
+  // 1. 사용자 세션 체크 (비로그인 시 로그인 페이지로 리디렉션) 및 서버 결제 대기 상태 확인
   useEffect(() => {
     async function checkUser() {
       const {
@@ -69,6 +70,24 @@ function PaymentContent() {
       if (user) {
         setUser(user);
         setLoading(false);
+
+        // 서버 payment_attempts 테이블에서 현재 사용자의 pending 행 확인 (RLS: 본인 행만 조회)
+        try {
+          const { data: pendingAttempt, error: attemptErr } = await supabase
+            .from('payment_attempts')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('status', 'pending')
+            .limit(1)
+            .maybeSingle();
+
+          if (!attemptErr && pendingAttempt) {
+            setHasServerPending(true);
+          }
+        } catch (attemptCheckErr: any) {
+          // 테이블 미생성(마이그레이션 전) 또는 조회 오류 시 URL notice 파라미터로만 폴백
+          console.warn('[Payment] Failed to check payment_attempts on server:', attemptCheckErr?.name || 'Error', attemptCheckErr?.message || String(attemptCheckErr));
+        }
       } else {
         const redirectPath = encodeURIComponent(`/payment?plan=${selectedPlan}`);
         router.replace(`/login?redirect=${redirectPath}`);
@@ -126,7 +145,7 @@ function PaymentContent() {
         failUrl,
       });
     } catch (err: any) {
-      console.error('Billing auth error:', err);
+      console.error('Billing auth error:', err?.name || 'Error', err?.message || String(err));
       if (err?.code !== 'USER_CANCEL') {
         setErrorMessageState(err?.message || '카드 등록 요청 중 오류가 발생했습니다. 다시 시도해 주세요.');
       }

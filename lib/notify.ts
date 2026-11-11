@@ -93,7 +93,8 @@ async function sendTelegramNotification(payload: AdminNotificationPayload): Prom
   console.log('[Notify] Telegram notification stub called (not implemented yet)');
   return {
     channel: 'telegram',
-    success: true,
+    success: false,
+    error: 'Telegram notification stub (not implemented yet)',
   };
 }
 

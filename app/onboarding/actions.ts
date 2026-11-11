@@ -40,8 +40,8 @@ export async function submitStore(formData: FormData) {
   if (error || !newStore) {
     console.error('Error creating store:', error)
     const errRedirect = plan
-      ? `/onboarding?message=매장 등록에 실패했습니다.&plan=${encodeURIComponent(plan)}`
-      : '/onboarding?message=매장 등록에 실패했습니다.'
+      ? `/onboarding?message=store_create_failed&plan=${encodeURIComponent(plan)}`
+      : '/onboarding?message=store_create_failed'
     return redirect(errRedirect)
   }
 

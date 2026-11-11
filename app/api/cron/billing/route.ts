@@ -61,6 +61,7 @@ export async function GET(request: Request) {
 
     const subscriptions = candidates || [];
     const results = [];
+    const failedSubscriptionIds: string[] = [];
 
     for (const sub of subscriptions) {
       // 과거 단건 결제 방식 등 billing_key 또는 next_billing_date가 비어 있는 행 안전하게 건너뛰기
@@ -82,13 +83,8 @@ export async function GET(request: Request) {
       const unconfirmedCount = sub.unconfirmed_count || 0;
 
       // 3일 연속 불확실인 경우 자동 재시도를 멈추고 대기 (알림은 이미 1회 발송되었거나 여기서 1회 발송)
-      // 관리자 확인 전까지 expires_at을 "정지 시점 + 7일"까지 유지하여 이용 차단을 방지함 (기존 값이 더 길면 줄이지 않음)
+      // 정지에 처음 들어갈 때(3일차) 한 번만 expires_at을 설정했으므로, 이후 알림 재발송 시에는 expires_at을 늘리지 않는다.
       if (unconfirmedCount >= 3) {
-        const pauseGraceDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-        const finalExpiresAt = sub.expires_at && new Date(sub.expires_at) > pauseGraceDate
-          ? sub.expires_at
-          : pauseGraceDate.toISOString();
-
         if (!sub.unconfirmed_notified_at) {
           try {
             const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
@@ -109,16 +105,12 @@ export async function GET(request: Request) {
 ■ 재개 및 조치 방법
 토스 상점관리자에서 orderId로 결제 여부 확인 → 결제됨: next_billing_date·expires_at·last_paid_at 갱신 후 unconfirmed_count=0, unconfirmed_notified_at=null / 결제 안 됨: unconfirmed_count=0, unconfirmed_notified_at=null 만 변경(다음 cron이 같은 orderId로 재청구)`,
             });
-            const updatePayload: Record<string, any> = {
-              expires_at: finalExpiresAt,
-            };
             if (sent) {
-              updatePayload.unconfirmed_notified_at = now.toISOString();
+              await adminSupabase
+                .from('subscriptions')
+                .update({ unconfirmed_notified_at: now.toISOString() })
+                .eq('id', sub.id);
             }
-            await adminSupabase
-              .from('subscriptions')
-              .update(updatePayload)
-              .eq('id', sub.id);
           } catch (notifyErr: any) {
             console.error(`[Billing Cron] Failed to send 3-day unconfirmed notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
           }
@@ -177,18 +169,19 @@ export async function GET(request: Request) {
       const currentNext = new Date(baseBillingDate);
       currentNext.setMonth(currentNext.getMonth() + 1);
 
-      // 청구 결과를 3가지로 명확히 구분:
+      // 청구 결과를 명확히 구분:
       // 1. CONFIRMED_SUCCESS: 응답 성공 또는 주문 조회 DONE 확인
       // 2. CONFIRMED_FAILURE: 토스가 카드 거절 등 명확한 실패 코드를 돌려준 경우
       // 3. UNCONFIRMED: 네트워크 오류, 타임아웃, 응답 파싱 실패, 5xx 에러, 또는 중복 오류 후 주문 조회 실패
-      let billingResult: 'CONFIRMED_SUCCESS' | 'CONFIRMED_FAILURE' | 'UNCONFIRMED' = 'UNCONFIRMED';
+      // 4. SYSTEM_ERROR: 토스 인증/상점 설정 오류 (HTTP 401, 403, 키/권한 오류 코드)
+      let billingResult: 'CONFIRMED_SUCCESS' | 'CONFIRMED_FAILURE' | 'UNCONFIRMED' | 'SYSTEM_ERROR' = 'UNCONFIRMED';
       let isDuplicateResolved = false;
       let lookupApprovedAt: string | null = null;
       let paymentErrorMessage = '';
       let unconfirmedReason = '';
+      let chargeInput: ChargeResponseInput = {};
 
       try {
-        let chargeInput: ChargeResponseInput;
         try {
           const tossRes = await fetch(`https://api.tosspayments.com/v1/billing/${plainBillingKey}`, {
             method: 'POST',
@@ -251,8 +244,10 @@ export async function GET(request: Request) {
         billingResult = outcomeResult.outcome === 'SUCCESS'
           ? 'CONFIRMED_SUCCESS'
           : outcomeResult.outcome === 'FAILURE'
-          ? 'CONFIRMED_FAILURE'
-          : 'UNCONFIRMED';
+            ? 'CONFIRMED_FAILURE'
+            : outcomeResult.outcome === 'SYSTEM_ERROR'
+              ? 'SYSTEM_ERROR'
+              : 'UNCONFIRMED';
 
         lookupApprovedAt = outcomeResult.approvedAt;
         isDuplicateResolved = outcomeResult.chargeCategory === 'DUPLICATE' && outcomeResult.outcome === 'SUCCESS';
@@ -264,6 +259,46 @@ export async function GET(request: Request) {
       }
 
       // ── 결과 처리 ───────────────────────────────────────────────────────────
+      if (billingResult === 'SYSTEM_ERROR') {
+        console.error(`[Billing Cron] CRITICAL: System error on sub ${sub.id}. Status: ${chargeInput?.status}, Code: ${chargeInput?.data?.code}. Halting batch.`);
+
+        results.push({
+          id: sub.id,
+          user_id: sub.user_id,
+          status: 'system_error_halted',
+          orderId,
+          error: paymentErrorMessage,
+        });
+
+        // 긴급 알림 1회 발송 (키 값 절대 금지, HTTP 상태와 오류 코드만)
+        try {
+          const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+          const subjectPrefix = isTestMode ? '[테스트] ' : '';
+          await notifyAdmin({
+            subject: `${subjectPrefix}[긴급/결제 시스템 오류] 정기결제 배치 중단`,
+            text: `[매장닥터 정기결제 시스템 오류 알림]
+
+정기결제 갱신 배치 처리 중 토스페이먼츠 인증 또는 상점 설정 오류(SYSTEM_ERROR)가 발생하여 나머지 전체 청구를 즉시 중단하였습니다.
+구독 상태 및 retry_count는 변경되지 않았습니다.
+
+■ 오류 내용 (보안을 위해 키 값은 제외됨)
+- HTTP 상태 코드: ${chargeInput?.status || 'N/A'}
+- 토스 에러 코드: ${chargeInput?.data?.code || 'N/A'}
+- 에러 메시지: ${paymentErrorMessage || 'N/A'}
+- 발생 구독 ID: ${sub.id}
+
+■ 조치 방법
+1. Vercel 환경변수 TOSS_SECRET_KEY 설정 상태 확인 (공백, 앞뒤 특수문자, live/test 키 일치 여부)
+2. 토스 상점관리자 개발자센터에서 API 키 및 상점 상태 확인`,
+          });
+        } catch (notifyErr: any) {
+          console.error(`[Billing Cron] Failed to send system error admin notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
+        }
+
+        // 해당 실행의 나머지 청구를 즉시 중단
+        break;
+      }
+
       if (billingResult === 'CONFIRMED_SUCCESS') {
         // 확정 성공: DB 갱신 (최대 3회 재시도)
         // 승인 시각(approvedAt)이 있으면 last_paid_at으로 반영, 없으면 현재 시각 사용 및 콘솔 기록
@@ -378,6 +413,7 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
           });
         }
       } else if (billingResult === 'CONFIRMED_FAILURE') {
+        failedSubscriptionIds.push(sub.id);
         // 확정 실패: 카드 거절 등 명확한 실패인 경우에만 retry_count 증가, past_due/expired 처리
         const newRetryCount = retryCount + 1;
         const nextStatus = newRetryCount >= 3 ? 'expired' : 'past_due';
@@ -424,11 +460,15 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
         console.error(`[Billing Cron] UNCONFIRMED payment result for sub ${sub.id}, orderId ${orderId}. Reason: ${unconfirmedReason}`);
 
         if (newUnconfirmedCount >= 3) {
-          // 3일 정지 상태: expires_at = max(현재 expires_at, 정지 시점 + 7일)
-          const pauseGraceDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-          const finalExpiresAt = sub.expires_at && new Date(sub.expires_at) > pauseGraceDate
-            ? sub.expires_at
-            : pauseGraceDate.toISOString();
+          // 3일 정지 상태: expires_at 은 정지에 처음 들어갈 때(newUnconfirmedCount === 3) 한 번만 "정지 시점 + 7일"로 정한다.
+          // 이후 알림 재발송을 시도하는 날에는 expires_at 을 늘리지 않는다.
+          let finalExpiresAt = sub.expires_at;
+          if (newUnconfirmedCount === 3) {
+            const pauseGraceDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+            finalExpiresAt = sub.expires_at && new Date(sub.expires_at) > pauseGraceDate
+              ? sub.expires_at
+              : pauseGraceDate.toISOString();
+          }
 
           let notifiedAt = sub.unconfirmed_notified_at;
 
@@ -480,15 +520,15 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
             });
         } else if (newUnconfirmedCount === 1) {
           // 1일차 불확실 건: [긴급/결제 결과 미확인] 1회 발송
+          // 유예 문구: 재시도 여부와 관계없이 계산한 유예 값이 이미 지난 날짜이면 "이용 유예 없음"으로 안내한다.
           const baseGraceDate = new Date(baseBillingDate.getTime() + 3 * 24 * 60 * 60 * 1000);
-          const isRetryPeriod = (sub.retry_count || 0) > 0;
           const isGraceInPast = baseGraceDate <= now;
 
           let finalExpiresAt = sub.expires_at;
           let graceNoticeText = '';
 
-          if (isRetryPeriod && isGraceInPast) {
-            graceNoticeText = '재시도 구간이라 이용 유예 없음';
+          if (isGraceInPast) {
+            graceNoticeText = '이용 유예 없음';
             finalExpiresAt = sub.expires_at;
           } else {
             graceNoticeText = '고객 이용 유예(expires_at: 원래 예정 결제일 + 3일)가 적용되었으며,';
@@ -540,9 +580,8 @@ ${graceNoticeText} 동일 주문번호(${orderId})로 다음 크론에서 재확
           console.warn(`[Billing Cron] UNCONFIRMED day 2 for sub ${sub.id}, orderId ${orderId}. Skipping email notification (console only).`);
 
           const baseGraceDate = new Date(baseBillingDate.getTime() + 3 * 24 * 60 * 60 * 1000);
-          const isRetryPeriod = (sub.retry_count || 0) > 0;
           const isGraceInPast = baseGraceDate <= now;
-          const finalExpiresAt = isRetryPeriod && isGraceInPast
+          const finalExpiresAt = isGraceInPast
             ? sub.expires_at
             : (sub.expires_at && new Date(sub.expires_at) > baseGraceDate ? sub.expires_at : baseGraceDate.toISOString());
 
@@ -572,6 +611,28 @@ ${graceNoticeText} 동일 주문번호(${orderId})로 다음 크론에서 재확
           reason: unconfirmedReason,
           unconfirmedCount: newUnconfirmedCount,
         });
+      }
+    }
+
+    // cron 실행 끝에 FAILURE 가 1건 이상이면 요약 알림 1회 (건수와 구독 id 목록만, 개인정보·카드정보 금지)
+    if (failedSubscriptionIds.length > 0) {
+      try {
+        const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+        const subjectPrefix = isTestMode ? '[테스트] ' : '';
+        await notifyAdmin({
+          subject: `${subjectPrefix}[정기결제 실패 요약] 총 ${failedSubscriptionIds.length}건 결제 실패`,
+          text: `[매장닥터 정기결제 갱신 실패 요약 보고]
+
+오늘 정기결제 배치 실행 중 총 ${failedSubscriptionIds.length}건의 구독 갱신 결제가 확정 실패(카드 한도초과/잔액부족/카드사 거절 등)하였습니다.
+해당 구독들은 retry_count가 증가되었으며, 3회 이상 실패 시 만료 처리됩니다.
+
+■ 실패 구독 ID 목록 (${failedSubscriptionIds.length}건)
+${failedSubscriptionIds.map((id, idx) => `${idx + 1}. ${id}`).join('\n')}
+
+(개인정보 및 카드 정보는 보안 정책상 포함되지 않습니다.)`,
+        });
+      } catch (notifyErr: any) {
+        console.error(`[Billing Cron] Failed to send failure summary admin notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
       }
     }
 

@@ -5,6 +5,20 @@ export default function OnboardingPage({
 }: {
   searchParams: { message?: string; plan?: string }
 }) {
+  const rawMessage = searchParams?.message
+
+  const ONBOARDING_ERROR_MESSAGES: Record<string, string> = {
+    store_create_failed: '매장 등록에 실패했습니다. 다시 시도해 주세요.',
+    missing_fields: '필수 매장 정보를 모두 입력해 주세요.',
+    '매장 등록에 실패했습니다.': '매장 등록에 실패했습니다. 다시 시도해 주세요.',
+  }
+
+  const DEFAULT_ONBOARDING_MESSAGE = '매장 등록에 실패했습니다. 다시 시도해 주세요.'
+
+  const messageText = rawMessage
+    ? ONBOARDING_ERROR_MESSAGES[rawMessage] || DEFAULT_ONBOARDING_MESSAGE
+    : null
+
   return (
     <div className="flex-1 flex flex-col w-full px-8 sm:max-w-xl justify-center min-h-screen mx-auto py-10 text-slate-800">
       <div className="text-center mb-8">
@@ -12,9 +26,9 @@ export default function OnboardingPage({
         <p className="text-slate-500 mt-2">AI 매장 진단을 시작하기 전, 매장 정보를 입력해주세요.</p>
       </div>
 
-      {searchParams?.message && (
+      {messageText && (
         <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 text-center rounded-lg text-sm font-medium">
-          {searchParams.message}
+          {messageText}
         </div>
       )}
 

@@ -36,11 +36,7 @@ export async function login(formData: FormData) {
   })
 
   if (error) {
-    // 한글 등 non-ASCII 문자를 인코딩하지 않고 redirect()에 넘기면
-    // x-action-redirect 헤더에 그대로 실리면서 Node가 ERR_INVALID_CHAR로
-    // 거부해 500이 발생한다. 메시지도 반드시 encodeURIComponent로 감싼다.
-    const message = encodeURIComponent('로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.')
-    const failUrl = `/login?message=${message}${
+    const failUrl = `/login?message=login_failed${
       redirectTo ? `&redirect=${encodeURIComponent(redirectTo)}` : ''
     }`
     return redirect(failUrl)

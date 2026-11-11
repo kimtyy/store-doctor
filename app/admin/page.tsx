@@ -1,7 +1,7 @@
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
-import { DeleteStoreButton, ExtendSubscriptionSection } from './DeleteButton';
+import { DeleteStoreButton, ExtendSubscriptionSection, ResolvePaymentAttemptButton } from './DeleteButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +42,24 @@ export default async function AdminPage() {
     console.error('subscription_extensions 조회 중 예외 발생:', err);
   }
 
+  // 안전하게 payment_attempts 조회 (테이블 미생성 대비)
+  let paymentAttempts: any[] = [];
+  try {
+    const { data, error } = await adminClient
+      .from('payment_attempts')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('payment_attempts 조회 실패 (테이블 미생성 가능성):', error.message);
+    } else {
+      paymentAttempts = data || [];
+    }
+  } catch (err) {
+    console.warn('payment_attempts 조회 중 예외 발생:', err);
+  }
+
   // 유저 정보 매핑
   const storeList = (stores || []).map(store => {
     const owner = users.find(u => u.id === store.owner_id);
@@ -66,6 +84,14 @@ export default async function AdminPage() {
     return {
       ...ext,
       ownerEmail: owner?.email || '미상'
+    };
+  });
+
+  const paymentAttemptList = paymentAttempts.map(attempt => {
+    const owner = users.find(u => u.id === attempt.user_id);
+    return {
+      ...attempt,
+      userEmail: owner?.email || '미상'
     };
   });
 
@@ -115,6 +141,56 @@ export default async function AdminPage() {
                       <td className="px-4 py-3 whitespace-nowrap">{store.region || '-'}</td>
                       <td className="px-4 py-3 whitespace-nowrap text-center">
                         <DeleteStoreButton storeId={store.id} ownerId={store.owner_id} />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* 결제 대기 (pending) 현황 */}
+        <section>
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <span>⏳</span> 결제 대기 현황 ({paymentAttemptList.length}건)
+          </h2>
+          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-800/50 text-slate-300">
+                <tr>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">발생일시</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">사용자</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">주문번호</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">보류 사유</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">관리</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {paymentAttemptList.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
+                      현재 결제 대기 중인 사용자가 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  paymentAttemptList.map(item => (
+                    <tr key={item.id} className="hover:bg-slate-800/20">
+                      <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">
+                        {new Date(item.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-medium text-slate-200">{item.userEmail}</div>
+                        <div className="text-xs text-slate-500 font-mono">{item.user_id}</div>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-amber-300 whitespace-nowrap">
+                        {item.order_id}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 text-xs max-w-xs truncate" title={item.reason}>
+                        {item.reason || '-'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <ResolvePaymentAttemptButton attemptId={item.id} />
                       </td>
                     </tr>
                   ))
