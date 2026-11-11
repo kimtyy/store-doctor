@@ -130,7 +130,8 @@ export async function GET(request: Request) {
     const isUniqueViolation =
       attemptInsertError.code === '23505' ||
       attemptInsertError.message?.toLowerCase().includes('unique') ||
-      attemptInsertError.message?.toLowerCase().includes('duplicate key');
+      attemptInsertError.message?.toLowerCase().includes('duplicate key') ||
+      attemptInsertError.message?.includes('uq_payment_attempts_user_active');
 
     if (isUniqueViolation) {
       console.warn(`[Confirm] User ${user.id} has an active payment attempt (unique lock). Redirecting to payment_pending.`);
