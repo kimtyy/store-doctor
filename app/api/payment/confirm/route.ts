@@ -39,8 +39,7 @@ export async function GET(request: Request) {
   if (!customerKey || !authKey) {
     const failUrl = new URL('/payment', request.url);
     failUrl.searchParams.set('plan', plan);
-    failUrl.searchParams.set('error', 'true');
-    failUrl.searchParams.set('message', '카드 등록 및 빌링 필수 정보가 누락되었습니다.');
+    failUrl.searchParams.set('error', 'missing_params');
     return NextResponse.redirect(failUrl);
   }
 
@@ -70,8 +69,7 @@ export async function GET(request: Request) {
     console.error('Database client initialization failed in confirm route');
     const failUrl = new URL('/payment', request.url);
     failUrl.searchParams.set('plan', plan);
-    failUrl.searchParams.set('error', 'true');
-    failUrl.searchParams.set('message', '결제 서버 데이터베이스 초기화 오류가 발생했습니다.');
+    failUrl.searchParams.set('error', 'server_error');
     return NextResponse.redirect(failUrl);
   }
 
@@ -101,8 +99,7 @@ export async function GET(request: Request) {
     console.error('TOSS_SECRET_KEY 환경변수가 설정되지 않았습니다.');
     const failUrl = new URL('/payment', request.url);
     failUrl.searchParams.set('plan', plan);
-    failUrl.searchParams.set('error', 'true');
-    failUrl.searchParams.set('message', '결제 서버 환경변수 설정 오류가 발생했습니다. 관리자에게 문의해 주세요.');
+    failUrl.searchParams.set('error', 'server_error');
     return NextResponse.redirect(failUrl);
   }
 
@@ -200,8 +197,7 @@ export async function GET(request: Request) {
       console.error(`Toss billing authorizations issue failed: ${issueData?.code || 'UNKNOWN'}: ${issueData?.message || '발급 실패'}`);
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
-      failUrl.searchParams.set('error', 'true');
-      failUrl.searchParams.set('message', issueData.message || '카드 등록 및 빌링키 발급에 실패했습니다.');
+      failUrl.searchParams.set('error', 'card_auth_failed');
       return NextResponse.redirect(failUrl);
     }
 
@@ -289,19 +285,17 @@ export async function GET(request: Request) {
         console.error(`[Confirm] Failed to send admin notification for unconfirmed outcome: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
       }
 
-      const failUrl = new URL('/payment', request.url);
-      failUrl.searchParams.set('plan', plan);
-      failUrl.searchParams.set('error', 'true');
-      failUrl.searchParams.set('message', '결제 확인이 지연되고 있습니다. 확인 후 결제가 완료된 경우 구독을 반영하거나 취소해 드립니다. 다시 결제하지 마시고 잠시 후 확인해 주세요. 문의: 031-5175-8887');
-      return NextResponse.redirect(failUrl);
+      const pendingUrl = new URL('/payment', request.url);
+      pendingUrl.searchParams.set('plan', plan);
+      pendingUrl.searchParams.set('notice', 'payment_pending');
+      return NextResponse.redirect(pendingUrl);
     }
 
     if (outcomeResult.outcome === 'FAILURE') {
-      // FAILURE 면 지금처럼 알림 없이 "결제가 완료되지 않았습니다. 다시 시도해 주세요"
+      // FAILURE 면 알림 없이 "결제가 완료되지 않았습니다. 다시 시도해 주세요"
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
-      failUrl.searchParams.set('error', 'true');
-      failUrl.searchParams.set('message', '결제가 완료되지 않았습니다. 다시 시도해 주세요.');
+      failUrl.searchParams.set('error', 'payment_failed');
       return NextResponse.redirect(failUrl);
     }
 
@@ -334,8 +328,7 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
 
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
-      failUrl.searchParams.set('error', 'true');
-      failUrl.searchParams.set('message', '결제가 취소되었습니다. 다시 시도해 주세요.');
+      failUrl.searchParams.set('error', 'payment_cancelled');
       return NextResponse.redirect(failUrl);
     }
 
@@ -443,8 +436,7 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
 
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
-      failUrl.searchParams.set('error', 'true');
-      failUrl.searchParams.set('message', '결제가 취소되었습니다. 다시 시도해 주세요.');
+      failUrl.searchParams.set('error', 'payment_cancelled');
       return NextResponse.redirect(failUrl);
     }
 
@@ -519,8 +511,7 @@ ${cancelResult.success ? '결제는 즉시 전액 자동 취소되었습니다.'
 
     const failUrl = new URL('/payment', request.url);
     failUrl.searchParams.set('plan', plan);
-    failUrl.searchParams.set('error', 'true');
-    failUrl.searchParams.set('message', paymentKey ? '결제가 취소되었습니다. 다시 시도해 주세요.' : '결제가 완료되지 않았습니다. 다시 시도해 주세요.');
+    failUrl.searchParams.set('error', paymentKey ? 'payment_cancelled' : 'payment_failed');
     return NextResponse.redirect(failUrl);
   }
 }
