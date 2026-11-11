@@ -77,8 +77,9 @@ export async function GET(request: Request) {
       const unconfirmedCount = sub.unconfirmed_count || 0;
 
       // 3일 연속 불확실인 경우 자동 재시도를 멈추고 대기 (알림은 이미 1회 발송되었거나 여기서 1회 발송)
-      // 불확실 상태인 동안 사용자 이용은 막지 않는다(현재 상태 유지)
+      // 관리자 확인 전까지 expires_at을 "정지 시점 + 7일"까지 유지하여 이용 차단을 방지함
       if (unconfirmedCount >= 3) {
+        const pauseGraceExpiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
         if (!sub.unconfirmed_notified_at) {
           try {
             const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
@@ -88,7 +89,7 @@ export async function GET(request: Request) {
               text: `[매장닥터 정기결제 수동 확인 필요 알림]
 
 정기결제 갱신 처리가 3일 연속 불확실(네트워크 오류/타임아웃/조회 불가 등) 상태로 지속되어 자동 재시도를 일시 중단하였습니다.
-고객의 서비스 이용은 정상 유지 중이며, 중복 결제 방지를 위해 관리자의 수동 확인이 필요합니다.
+관리자 확인 전까지 고객의 서비스 이용 유예(expires_at: 정지 시점 + 7일)가 유지되며, 중복 결제 방지를 위해 관리자의 수동 확인이 필요합니다.
 
 ■ 상세 정보
 - 구독 ID: ${sub.id}
@@ -96,14 +97,15 @@ export async function GET(request: Request) {
 - 연속 불확실 일수: ${unconfirmedCount}일
 - 마지막 불확실 시각: ${sub.last_unconfirmed_at || '기록 없음'}
 
-■ 조치 방법
-토스 상점관리자(https://dashboard.tosspayments.com)에서 고객의 결제 상태를 확인한 후,
-이미 결제되었다면 DB의 next_billing_date를 수동 갱신하고 unconfirmed_count를 0으로 리셋해 주세요.
-결제가 되지 않았다면 고객 카드 확인 후 재청구를 진행해 주세요.`,
+■ 재개 및 조치 방법
+토스 상점관리자에서 orderId로 결제 여부 확인 → 결제됨: next_billing_date·expires_at·last_paid_at 갱신 후 unconfirmed_count=0, unconfirmed_notified_at=null / 결제 안 됨: unconfirmed_count=0, unconfirmed_notified_at=null 만 변경(다음 cron이 같은 orderId로 재청구)`,
             });
             await adminSupabase
               .from('subscriptions')
-              .update({ unconfirmed_notified_at: now.toISOString() })
+              .update({
+                unconfirmed_notified_at: now.toISOString(),
+                expires_at: pauseGraceExpiresAt,
+              })
               .eq('id', sub.id);
           } catch (notifyErr: any) {
             console.error(`[Billing Cron] Failed to send 3-day unconfirmed notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
@@ -234,6 +236,10 @@ export async function GET(request: Request) {
           if (tossRes.ok && tossData) {
             billingResult = 'CONFIRMED_SUCCESS';
             lookupApprovedAt = tossData.approvedAt || null;
+          } else if (tossRes.status === 429) {
+            // 429 등 일시적 오류는 확정 실패로 보지 않고 불확실로 처리
+            billingResult = 'UNCONFIRMED';
+            unconfirmedReason = '토스 API 요청 제한 (HTTP 429 Too Many Requests)';
           } else if (tossRes.status >= 500 || !tossData) {
             // 5xx 서버 오류 또는 응답 파싱 실패 -> 불확실
             billingResult = 'UNCONFIRMED';
@@ -256,50 +262,35 @@ export async function GET(request: Request) {
               }
             } catch (e) {}
           } else {
-            // 4xx 응답:
-            const errorCode = tossData?.code || '';
-            const errorMsg = String(tossData?.message || '');
-            paymentErrorMessage = errorMsg || `HTTP ${tossRes.status}`;
+            // 4xx 응답: 코드나 메시지 문자열("이미"/"중복")에 관계없이 먼저 같은 orderId로 주문 조회를 한다.
+            try {
+              const lookupRes = await fetch(`https://api.tosspayments.com/v1/payments/orders/${encodeURIComponent(orderId)}`, {
+                method: 'GET',
+                headers: {
+                  Authorization: `Basic ${encodedCredential}`,
+                },
+              });
+              const lookupData = await lookupRes.json().catch(() => ({}));
 
-            const isDuplicateError =
-              errorCode === 'ALREADY_PROCESSED_PAYMENT' ||
-              errorCode === 'DUPLICATED_ORDER_ID' ||
-              errorMsg.includes('이미') ||
-              errorMsg.includes('중복');
-
-            if (isDuplicateError) {
-              console.warn(`[Billing Cron] Toss duplicate order detected for sub ${sub.id}, orderId ${orderId}. Checking payment status...`);
-              try {
-                const lookupRes = await fetch(`https://api.tosspayments.com/v1/payments/orders/${encodeURIComponent(orderId)}`, {
-                  method: 'GET',
-                  headers: {
-                    Authorization: `Basic ${encodedCredential}`,
-                  },
-                });
-                if (lookupRes.ok) {
-                  const lookupData = await lookupRes.json();
-                  if (lookupData.status === 'DONE') {
-                    // 이미 결제 완료된 건이므로 재청구 없이 DB 갱신만 수행
-                    billingResult = 'CONFIRMED_SUCCESS';
-                    isDuplicateResolved = true;
-                    lookupApprovedAt = lookupData.approvedAt || null;
-                    console.log(`[Billing Cron] OrderId ${orderId} confirmed DONE via order lookup. Proceeding to DB update without re-charge.`);
-                  } else {
-                    billingResult = 'UNCONFIRMED';
-                    unconfirmedReason = `중복 응답 후 조회 상태가 DONE이 아님 (${lookupData.status})`;
-                  }
-                } else {
-                  // 중복 오류 후 주문 조회 실패(404 이외 오류 포함) -> 결과 불확실로 분류
-                  billingResult = 'UNCONFIRMED';
-                  unconfirmedReason = `중복 응답 후 주문 조회 실패 (HTTP ${lookupRes.status})`;
-                }
-              } catch (lookupErr: any) {
+              if (lookupRes.ok && lookupData?.status === 'DONE') {
+                // · 조회 DONE → 확정 성공 (DB 맞춤)
+                billingResult = 'CONFIRMED_SUCCESS';
+                isDuplicateResolved = true;
+                lookupApprovedAt = lookupData.approvedAt || null;
+                console.log(`[Billing Cron] OrderId ${orderId} confirmed DONE via order lookup on 4xx response.`);
+              } else if (lookupRes.status === 404 && lookupData?.code === 'NOT_FOUND_PAYMENT') {
+                // · 조회 404 이고 응답 본문 코드가 "결제 없음"(NOT_FOUND_PAYMENT)
+                // → 확정 실패 (현재 규칙대로 retry_count 증가)
+                billingResult = 'CONFIRMED_FAILURE';
+                paymentErrorMessage = tossData?.message || `결제 거절 (HTTP ${tossRes.status})`;
+              } else {
+                // · 그 외 (조회 실패, DONE 아닌 상태, 다른 404) → 불확실
                 billingResult = 'UNCONFIRMED';
-                unconfirmedReason = `중복 응답 후 주문 조회 예외: ${lookupErr?.message || String(lookupErr)}`;
+                unconfirmedReason = `4xx 오류(HTTP ${tossRes.status}) 후 주문 조회 불확실: 상태=${lookupRes.status}, code=${lookupData?.code || 'UNKNOWN'}`;
               }
-            } else {
-              // 중복이 아닌 4xx 응답 (카드 한도 초과, 잔액 부족, 유효기간 만료 등 명확한 카드사 거절)
-              billingResult = 'CONFIRMED_FAILURE';
+            } catch (lookupErr: any) {
+              billingResult = 'UNCONFIRMED';
+              unconfirmedReason = `4xx 오류 후 주문 조회 네트워크 예외: ${lookupErr?.name || 'Error'}: ${lookupErr?.message || String(lookupErr)}`;
             }
           }
         }
@@ -434,6 +425,8 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
             retry_count: newRetryCount,
             last_retry_at: now.toISOString(),
             unconfirmed_count: 0,
+            unconfirmed_notified_at: null,
+            last_unconfirmed_at: null,
           })
           .eq('id', sub.id)
           .then(async ({ error }) => {
@@ -462,11 +455,14 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
         // billingResult === 'UNCONFIRMED'
         // 결과 불확실: retry_count와 status를 변경하지 않음 (같은 orderId 유지, 연체/만료 처리 금지)
         const newUnconfirmedCount = unconfirmedCount + 1;
+        const isNewUnconfirmedStreak = unconfirmedCount === 0;
 
         console.error(`[Billing Cron] UNCONFIRMED payment result for sub ${sub.id}, orderId ${orderId}. Reason: ${unconfirmedReason}`);
 
         if (newUnconfirmedCount >= 3) {
-          // 3일 연속 불확실이면 [긴급/수동 확인 필요] 알림 1회 발송
+          // 3일 정지 상태: 관리자 확인 전까지 expires_at을 "정지 시점 + 7일"까지 유지
+          const pauseGraceExpiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
           if (!sub.unconfirmed_notified_at) {
             try {
               const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
@@ -476,7 +472,7 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
                 text: `[매장닥터 정기결제 수동 확인 필요 알림]
 
 정기결제 갱신 처리가 3일 연속 불확실(네트워크 오류/타임아웃/조회 불가 등) 상태로 지속되어 자동 재시도를 일시 중단하였습니다.
-고객의 서비스 이용은 정상 유지 중이며, 중복 결제 방지를 위해 관리자의 수동 확인이 필요합니다.
+관리자 확인 전까지 고객의 서비스 이용 유예(expires_at: 정지 시점 + 7일)가 유지되며, 중복 결제 방지를 위해 관리자의 수동 확인이 필요합니다.
 
 ■ 상세 정보
 - 구독 ID: ${sub.id}
@@ -486,10 +482,8 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
 - 불확실 사유: ${unconfirmedReason}
 - 연속 불확실 일수: ${newUnconfirmedCount}일
 
-■ 조치 방법
-토스 상점관리자(https://dashboard.tosspayments.com)에서 주문번호(${orderId})로 결제 상태를 확인한 후,
-이미 결제되었다면 DB의 next_billing_date를 수동 갱신하고 unconfirmed_count를 0으로 리셋해 주세요.
-결제가 되지 않았다면 고객 카드 확인 후 재청구를 진행해 주세요.`,
+■ 재개 및 조치 방법
+토스 상점관리자에서 orderId로 결제 여부 확인 → 결제됨: next_billing_date·expires_at·last_paid_at 갱신 후 unconfirmed_count=0, unconfirmed_notified_at=null / 결제 안 됨: unconfirmed_count=0, unconfirmed_notified_at=null 만 변경(다음 cron이 같은 orderId로 재청구)`,
               });
             } catch (notifyErr: any) {
               console.error(`[Billing Cron] Failed to send 3-day unconfirmed admin notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
@@ -499,6 +493,7 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
           const unconfirmedPayload: Record<string, any> = {
             unconfirmed_count: newUnconfirmedCount,
             last_unconfirmed_at: now.toISOString(),
+            expires_at: pauseGraceExpiresAt,
             unconfirmed_notified_at: sub.unconfirmed_notified_at || now.toISOString(),
           };
 
@@ -512,7 +507,9 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
               }
             });
         } else {
-          // 3일 미만 불확실 건: [긴급/결제 결과 미확인] 알림 발송
+          // 3일 미만 불확실 건 (1~2일차): expires_at을 "원래 예정 결제일 + 3일"까지 연장 (next_billing_date, orderId 유지)
+          const graceExpiresAt = new Date(baseBillingDate.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
           try {
             const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
             const subjectPrefix = isTestMode ? '[테스트] ' : '';
@@ -521,7 +518,7 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
               text: `[매장닥터 정기결제 결과 미확인 알림]
 
 정기결제 갱신 요청 중 결과가 불확실(네트워크 오류/타임아웃/조회 불가 등)하여 재청구 및 연체 처리를 보류하였습니다.
-동일 주문번호(${orderId})로 다음 크론에서 재확인 또는 정상 청구가 진행됩니다.
+고객 이용 유예(expires_at: 원래 예정 결제일 + 3일)가 적용되었으며, 동일 주문번호(${orderId})로 다음 크론에서 재확인 또는 정상 청구가 진행됩니다.
 
 ■ 상세 정보
 - 구독 ID: ${sub.id}
@@ -538,6 +535,9 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
           const unconfirmedPayload: Record<string, any> = {
             unconfirmed_count: newUnconfirmedCount,
             last_unconfirmed_at: now.toISOString(),
+            expires_at: graceExpiresAt,
+            // 새로운 불확실 구간 시작(0 -> 1) 시 unconfirmed_notified_at을 null로 비움
+            unconfirmed_notified_at: isNewUnconfirmedStreak ? null : sub.unconfirmed_notified_at,
           };
 
           await adminSupabase

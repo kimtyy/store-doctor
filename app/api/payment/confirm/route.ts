@@ -107,6 +107,7 @@ export async function GET(request: Request) {
   let planDetail: (typeof BILLING_PLANS)[PlanKey] | null = null;
   let hasAttemptedCancel = false;
   let cancelResultCache: { success: boolean; error?: string } | null = null;
+  let chargeNetworkError: any = null;
 
   // 알림 본문용 paymentKey 마스킹 (마지막 6자리만 노출)
   function maskPaymentKey(key: string | null | undefined): string {
@@ -125,7 +126,13 @@ export async function GET(request: Request) {
         },
       });
       if (!res.ok) {
-        return { success: false, status: res.status };
+        const errorData = await res.json().catch(() => null);
+        return {
+          success: false,
+          status: res.status,
+          data: errorData,
+          error: errorData?.message || `HTTP ${res.status}`,
+        };
       }
       const data = await res.json();
       return { success: true, data, status: res.status };
@@ -185,7 +192,7 @@ export async function GET(request: Request) {
     const issueData = await issueResponse.json();
 
     if (!issueResponse.ok || !issueData.billingKey) {
-      console.error('Toss billing authorizations issue failed:', issueData.message || issueData);
+      console.error(`Toss billing authorizations issue failed: ${issueData?.code || 'UNKNOWN'}: ${issueData?.message || '발급 실패'}`);
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
       failUrl.searchParams.set('error', 'true');
@@ -199,26 +206,32 @@ export async function GET(request: Request) {
     planDetail = BILLING_PLANS[plan];
     orderId = `sub_${user.id.slice(0, 8)}_${Date.now()}`;
 
-    const chargeResponse = await fetch(`https://api.tosspayments.com/v1/billing/${billingKey}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${encodedCredential}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        customerKey,
-        amount: planDetail.price,
-        orderId,
-        orderName: `매장닥터 ${planDetail.name} 정기구독`,
-        customerEmail: user.email,
-        customerName: user.user_metadata?.name || '매장 대표님',
-      }),
-    });
+    let chargeResponse: Response;
+    try {
+      chargeResponse = await fetch(`https://api.tosspayments.com/v1/billing/${billingKey}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${encodedCredential}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customerKey,
+          amount: planDetail.price,
+          orderId,
+          orderName: `매장닥터 ${planDetail.name} 정기구독`,
+          customerEmail: user.email,
+          customerName: user.user_metadata?.name || '매장 대표님',
+        }),
+      });
+    } catch (chargeErr: any) {
+      chargeNetworkError = chargeErr;
+      throw chargeErr;
+    }
 
     const chargeData = await chargeResponse.json().catch(() => ({}));
 
     if (!chargeResponse.ok) {
-      console.error('Toss first billing charge failed:', chargeData.message || chargeData);
+      console.error(`Toss first billing charge failed: ${chargeData?.code || 'UNKNOWN'}: ${chargeData?.message || '승인 실패'}`);
 
       // 토스 오류/실패 응답 시에도 혹시 승인되었는지 주문번호로 결제 조회 확인
       const lookup = await lookupPaymentByOrderId(orderId);
@@ -384,12 +397,17 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
         paymentKey = lookup.data.paymentKey;
         console.log(`[Confirm] OrderId ${orderId} verified DONE via order lookup. Proceeding to auto-cancel.`);
       } else if (!lookup.success) {
-        if (lookup.status === 404) {
-          // 주문 조회가 404(주문 없음)이면 "청구되지 않음"으로 간주 -> 긴급 알림 미발송
-          console.log(`[Confirm] OrderId ${orderId} returned 404 (not charged). Skipping admin alert.`);
+        const isSafeNotFound =
+          lookup.status === 404 &&
+          lookup.data?.code === 'NOT_FOUND_PAYMENT' &&
+          !chargeNetworkError;
+
+        if (isSafeNotFound) {
+          // 토스로부터 명확한 응답을 받았고 조회가 404 NOT_FOUND_PAYMENT인 경우 -> 미청구 확인으로 간주하여 긴급 알림 생략
+          console.log(`[Confirm] OrderId ${orderId} returned 404 NOT_FOUND_PAYMENT with definitive charge response. Skipping admin alert.`);
         } else {
-          // 404 이외의 조회 실패만 긴급 알림 발송
-          console.error(`[Confirm] CRITICAL: Payment status unconfirmed for orderId ${orderId}, user ${user.email}. Lookup error: ${lookup.error || lookup.status}`);
+          // 청구 요청 네트워크 오류/타임아웃 발생 후 조회 404이거나, 404 이외의 조회 실패, 다른 에러 코드인 경우 -> 긴급 알림 발송
+          console.error(`[Confirm] CRITICAL: Payment status unconfirmed for orderId ${orderId}, user ${user.email}. Lookup status: ${lookup.status}, code: ${lookup.data?.code}, chargeNetworkError: ${Boolean(chargeNetworkError)}`);
           const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
           const subjectPrefix = isTestMode ? '[테스트] ' : '';
           try {
@@ -397,7 +415,7 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
               subject: `${subjectPrefix}[긴급/수동 확인 필요] 결제 상태 미확인 건 - ${user.email}`,
               text: `[매장닥터 결제 상태 미확인 알림 - 수동 확인 필요]
 
-첫 정기구독 결제 승인 요청 중 네트워크 단절/예외가 발생하였고, 토스 주문번호 조회도 실패하여 결제 성패 여부를 확인할 수 없습니다.
+첫 정기구독 결제 승인 요청 중 네트워크 단절/예외가 발생하였고, 토스 주문번호 조회도 실패하거나 일시 미확인되어 결제 성패 여부를 확정할 수 없습니다.
 고객 카드가 결제되었을 가능성이 있으므로 토스 상점관리자에서 즉시 해당 주문번호를 확인해 주시기 바랍니다.
 
 ■ 결제 및 사용자 정보
@@ -405,7 +423,8 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
 - 사용자 식별자: ${user.email} (ID: ${user.id})
 - 플랜: ${planDetail?.name || plan} (${planDetail?.price ? planDetail.price.toLocaleString() + '원' : ''})
 - 예외 내용: ${error?.message || String(error)}
-- 조회 실패 사유: ${lookup.error || `HTTP ${lookup.status}`}
+- 청구 요청 네트워크 단절/타임아웃 여부: ${chargeNetworkError ? '예 (네트워크 단절/타임아웃)' : '아니오'}
+- 토스 조회 결과: HTTP ${lookup.status || 'N/A'}${lookup.data?.code ? ` (${lookup.data.code})` : ''} / ${lookup.error || 'N/A'}
 
 ■ 조치 방법
 토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId})로 검색하여 결제 완료 여부를 확인하시고, 승인되어 있다면 즉시 취소 처리해 주세요.`,

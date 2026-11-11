@@ -248,8 +248,6 @@ export default function DashboardPage() {
       const notice = params.get('notice');
       if (notice === 'already_subscribed') {
         setNoticeMessage('이미 이용 중인 구독이 있습니다.');
-      } else if (params.get('message')) {
-        setNoticeMessage(params.get('message'));
       }
     }
   }, []);

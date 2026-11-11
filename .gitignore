@@ -7,4 +7,5 @@ out
 .env*.local
 .agents/
 supabase/.temp/
+scratch/
 
