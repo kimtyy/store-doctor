@@ -161,11 +161,18 @@ export async function GET(request: Request) {
         baseIngByDate[bp.date] = (baseIngByDate[bp.date] ?? 0) + (bp.total_amount ?? 0);
       }
     }
+    const baseSalesByDate: Record<string, number> = {};
+    for (const sd of baseSalesData ?? []) {
+      baseSalesByDate[sd.date] = (baseSalesByDate[sd.date] ?? 0) + (sd.net_revenue ?? 0);
+    }
+    const baseDates = Array.from(
+      new Set([...Object.keys(baseSalesByDate), ...Object.keys(baseIngByDate)])
+    ).sort();
     const baseline60 = getLatestCostRatioBaseline60(
-      (baseSalesData ?? []).map((sd) => ({
-        date: sd.date,
-        revenue: sd.net_revenue ?? 0,
-        ingredientCost: baseIngByDate[sd.date] ?? 0,
+      baseDates.map((date) => ({
+        date,
+        revenue: baseSalesByDate[date] ?? 0,
+        ingredientCost: baseIngByDate[date] ?? 0,
       }))
     );
 

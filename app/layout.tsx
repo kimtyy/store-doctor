@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { createClient } from '@/utils/supabase/server';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -21,10 +20,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const isAdmin = !!user?.email && user.email === process.env.ADMIN_EMAIL;
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ko">
       <head>
@@ -38,14 +34,6 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </head>
       <body className="bg-slate-950 text-slate-100">
         {children}
-        {isAdmin && (
-          <a
-            href="/admin"
-            className="fixed bottom-24 right-4 z-40 bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg backdrop-blur transition border border-rose-500/50 print:hidden"
-          >
-            👑 관리자
-          </a>
-        )}
       </body>
     </html>
   );

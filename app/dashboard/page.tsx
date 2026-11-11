@@ -14,6 +14,7 @@ import {
   getLatestCostRatioBaseline60,
 } from '@/lib/analytics/costRatio';
 import CostRatioAlertCard from '@/components/diagnosis/CostRatioAlertCard';
+import AdminHeaderBadge from '@/components/ui/AdminHeaderBadge';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 
@@ -305,15 +306,27 @@ export default function DashboardPage() {
     [salesData]
   );
 
-  const costRatioDays = useMemo(
-    () =>
-      nonEventSalesData.map((d) => ({
-        date: d.date,
-        revenue: d.netRevenue,
-        ingredientCost: ingredientByDate[d.date] ?? 0,
-      })),
-    [nonEventSalesData, ingredientByDate]
-  );
+  const costRatioDays = useMemo(() => {
+    if (nonEventSalesData.length === 0) return [];
+    const salesByDate: Record<string, number> = {};
+    for (const d of nonEventSalesData) {
+      salesByDate[d.date] = (salesByDate[d.date] ?? 0) + (d.netRevenue || 0);
+    }
+    const minSalesDate = nonEventSalesData[0].date;
+    const maxSalesDate = nonEventSalesData[nonEventSalesData.length - 1].date;
+    // 휴무일·미입력일 재료비도 해당 달력 창 안에 들어오도록 매출일 + 매입일 합집합 타임라인 구성
+    const allDates = Array.from(
+      new Set([
+        ...Object.keys(salesByDate),
+        ...Object.keys(ingredientByDate).filter((dt) => dt >= minSalesDate && dt <= maxSalesDate),
+      ])
+    ).sort();
+    return allDates.map((date) => ({
+      date,
+      revenue: salesByDate[date] ?? 0,
+      ingredientCost: ingredientByDate[date] ?? 0,
+    }));
+  }, [nonEventSalesData, ingredientByDate]);
 
   const chartData = useMemo((): MAChartDataPoint[] => {
     if (nonEventSalesData.length === 0) return [];
@@ -337,18 +350,33 @@ export default function DashboardPage() {
     const profitMa60  = calcNullableMA(profitValues, 60);
     const profitMa120 = calcNullableMA(profitValues, 120);
 
-    // 원가율 추세: N일간 재료비 합계 ÷ N일간 매출 합계 (공통 lib 함수)
-    const crMa5   = calculateCostRatioMovingAverage(costRatioDays, 5);
-    const crMa20  = calculateCostRatioMovingAverage(costRatioDays, 20);
-    const crMa60  = calculateCostRatioMovingAverage(costRatioDays, 60);
-    const crMa120 = calculateCostRatioMovingAverage(costRatioDays, 120);
+    // 원가율 추세: N일간 재료비 합계(휴무·미입력일 매입 포함) ÷ N일간 매출 합계 (공통 lib 함수)
+    const crMa5All   = calculateCostRatioMovingAverage(costRatioDays, 5);
+    const crMa20All  = calculateCostRatioMovingAverage(costRatioDays, 20);
+    const crMa60All  = calculateCostRatioMovingAverage(costRatioDays, 60);
+    const crMa120All = calculateCostRatioMovingAverage(costRatioDays, 120);
+    const crMap: Record<
+      string,
+      { ma5: number | null; ma20: number | null; ma60: number | null; ma120: number | null }
+    > = {};
+    costRatioDays.forEach((d, idx) => {
+      crMap[d.date] = {
+        ma5: crMa5All[idx] ?? null,
+        ma20: crMa20All[idx] ?? null,
+        ma60: crMa60All[idx] ?? null,
+        ma120: crMa120All[idx] ?? null,
+      };
+    });
 
     return nonEventSalesData.map((d, i) => ({
       date: d.date.slice(-5),
       revenueMa5: revMa5[i],   revenueMa20: revMa20[i],   revenueMa60: revMa60[i],   revenueMa120: revMa120[i],
       costMa5: costMa5[i],     costMa20: costMa20[i],     costMa60: costMa60[i],     costMa120: costMa120[i],
       profitMa5: profitMa5[i], profitMa20: profitMa20[i], profitMa60: profitMa60[i], profitMa120: profitMa120[i],
-      costRatioMa5: crMa5[i],  costRatioMa20: crMa20[i],  costRatioMa60: crMa60[i],  costRatioMa120: crMa120[i],
+      costRatioMa5: crMap[d.date]?.ma5 ?? null,
+      costRatioMa20: crMap[d.date]?.ma20 ?? null,
+      costRatioMa60: crMap[d.date]?.ma60 ?? null,
+      costRatioMa120: crMap[d.date]?.ma120 ?? null,
     }));
   }, [nonEventSalesData, purchaseByDate, costRatioDays]);
 
@@ -357,8 +385,8 @@ export default function DashboardPage() {
     [costRatioDays]
   );
   const storeCostRatioAvg60 = costRatioBaseline60.costRatio;
-  const latestCostRatioMa5 =
-    chartData.length > 0 ? chartData[chartData.length - 1].costRatioMa5 : null;
+  const latestCostRatioMa20 =
+    chartData.length > 0 ? chartData[chartData.length - 1].costRatioMa20 : null;
 
   const dataAvailability = useMemo((): DataAvailability => ({
     ma5: nonEventSalesData.length >= 5,
@@ -528,8 +556,9 @@ export default function DashboardPage() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
-        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-sky-400">📊 매장닥터</h1>
+          <AdminHeaderBadge />
         </div>
       </header>
 
@@ -845,7 +874,7 @@ export default function DashboardPage() {
               {/* ── 원가율 경고 카드 ──────────────────────────────────── */}
               {!isRoleLoading && canViewAnalytics && (
                 <CostRatioAlertCard
-                  ma5={latestCostRatioMa5}
+                  ma20={latestCostRatioMa20}
                   ma60={storeCostRatioAvg60}
                   operatingDaysCount={costRatioBaseline60.operatingDaysCount}
                 />

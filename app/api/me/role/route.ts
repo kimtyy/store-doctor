@@ -9,8 +9,9 @@ export async function GET() {
     const role = await getUserRole()
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    return NextResponse.json({ role, userId: user?.id ?? null })
+    const isAdmin = !!user?.email && user.email === process.env.ADMIN_EMAIL
+    return NextResponse.json({ role, userId: user?.id ?? null, isAdmin })
   } catch {
-    return NextResponse.json({ role: null, userId: null })
+    return NextResponse.json({ role: null, userId: null, isAdmin: false })
   }
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import BottomTabNav from '../../../components/BottomTabNav';
+import AdminHeaderBadge from '../../../components/ui/AdminHeaderBadge';
 
 interface MasterRow {
   id: string;
@@ -137,9 +138,12 @@ export default function VendorMasterPage() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
-        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center gap-3">
-          <a href="/settings" className="text-slate-400 hover:text-slate-200 text-lg">←</a>
-          <h1 className="text-xl font-bold text-slate-100">매입처 관리</h1>
+        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <a href="/settings" className="text-slate-400 hover:text-slate-200 text-lg">←</a>
+            <h1 className="text-xl font-bold text-slate-100">매입처 관리</h1>
+          </div>
+          <AdminHeaderBadge />
         </div>
       </header>
 

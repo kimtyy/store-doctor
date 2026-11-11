@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '../../utils/supabase/client';
 import BottomTabNav from '../../components/BottomTabNav';
+import AdminHeaderBadge from '@/components/ui/AdminHeaderBadge';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -165,8 +166,9 @@ export default function SettingsPage() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
-        <div className="mx-auto max-w-2xl px-4 py-4">
+        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-slate-100">설정</h1>
+          <AdminHeaderBadge />
         </div>
       </header>
 

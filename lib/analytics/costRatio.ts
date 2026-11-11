@@ -6,9 +6,9 @@ export const COST_RATIO_THRESHOLDS = {
   INDUSTRY_REFERENCE_PCT: 35,
   /** 상대 기준 경고를 적용하기 위한 최소 영업일 수 (60일 데이터 충분 기준) */
   MIN_DAYS_FOR_RELATIVE_ALERT: 30,
-  /** 주의: 5일 원가율이 매장 60일 원가율 대비 +3%p 이상 */
+  /** 주의: 20일 원가율이 매장 60일 원가율 대비 +3%p 이상 */
   RELATIVE_CAUTION_DELTA_PP: 3,
-  /** 위험: 5일 원가율이 매장 60일 원가율 대비 +5%p 이상 */
+  /** 위험: 20일 원가율이 매장 60일 원가율 대비 +5%p 이상 */
   RELATIVE_DANGER_DELTA_PP: 5,
 } as const;
 
@@ -45,8 +45,8 @@ function shiftDateStr(dateStr: string, deltaDays: number): string {
 
 /**
  * N일 원가율 이동평균 시리즈 계산 (단일 공통 함수):
- * - N일 원가율 = (창 안의 매출 있는 날들의 재료비 합계) ÷ (창 안의 매출 합계) × 100
- * - 매출 없는 날(revenue <= 0)은 분자·분모 모두 제외
+ * - N일 원가율 = (달력 창 안의 전체 재료비 합계[휴무·미입력일 매입 포함]) ÷ (창 안의 매출 있는 날 합계) × 100
+ * - 매출 없는 날(revenue <= 0)은 분모(매출)·입력일수에서는 제외하되, 해당 창 내 재료비는 분자에 포함
  * - 재료비 매입 없는 영업일은 ingredientCost = 0으로 포함
  * - 창 안의 매출 입력일 수가 최소 기준 미만이면 null
  */
@@ -71,38 +71,48 @@ export function calculateCostRatioMovingAverage(
       windowDays = days.slice(Math.max(0, idx - period + 1), idx + 1);
     }
 
-    const validSalesDays = windowDays.filter((d) => d.revenue > 0);
-    if (validSalesDays.length < minSalesDays) {
-      return null;
-    }
-
+    let salesDaysCount = 0;
     let revSum = 0;
     let ingSum = 0;
-    for (const d of validSalesDays) {
-      revSum += d.revenue;
+    for (const d of windowDays) {
       ingSum += Math.max(0, d.ingredientCost || 0);
+      if (d.revenue > 0) {
+        salesDaysCount++;
+        revSum += d.revenue;
+      }
     }
-    if (revSum <= 0) return null;
+
+    if (salesDaysCount < minSalesDays || revSum <= 0) {
+      return null;
+    }
     return (ingSum / revSum) * 100;
   });
 }
 
 /**
  * 기간(또는 최근 60일) 합계 기준 원가율과 매출 입력일 수 계산
+ * (휴무일·미입력일 재료비도 분자에 포함)
  */
 export function calculateWindowCostRatio(days: DailyCostRatioInput[]): {
   costRatio: number | null;
   operatingDaysCount: number;
 } {
-  const validSalesDays = days.filter((d) => d.revenue > 0);
-  if (validSalesDays.length === 0) {
-    return { costRatio: null, operatingDaysCount: 0 };
+  let operatingDaysCount = 0;
+  let revSum = 0;
+  let ingSum = 0;
+  for (const d of days) {
+    ingSum += Math.max(0, d.ingredientCost || 0);
+    if (d.revenue > 0) {
+      operatingDaysCount++;
+      revSum += d.revenue;
+    }
   }
-  const revSum = validSalesDays.reduce((s, d) => s + d.revenue, 0);
-  const ingSum = validSalesDays.reduce((s, d) => s + Math.max(0, d.ingredientCost || 0), 0);
+  if (operatingDaysCount === 0 || revSum <= 0) {
+    return { costRatio: null, operatingDaysCount };
+  }
   return {
-    costRatio: revSum > 0 ? (ingSum / revSum) * 100 : null,
-    operatingDaysCount: validSalesDays.length,
+    costRatio: (ingSum / revSum) * 100,
+    operatingDaysCount,
   };
 }
 
@@ -114,24 +124,33 @@ export function getLatestCostRatioBaseline60(days: DailyCostRatioInput[]): {
   const validAll = days.filter((d) => d.revenue > 0);
   if (validAll.length === 0) return { costRatio: null, operatingDaysCount: 0 };
 
-  const last = validAll[validAll.length - 1];
+  const lastValid = validAll[validAll.length - 1];
   let windowDays: DailyCostRatioInput[];
-  if (last.date) {
-    const startDate = shiftDateStr(last.date, -59);
-    windowDays = validAll.filter((d) => d.date && d.date >= startDate && d.date <= last.date!);
+  if (lastValid.date) {
+    const startDate = shiftDateStr(lastValid.date, -59);
+    // 마지막 매출일 기준 60일 달력 창 내 모든 날짜(휴무일 재료비 포함) 포함
+    windowDays = days.filter((d) => d.date && d.date >= startDate && d.date <= lastValid.date!);
   } else {
-    windowDays = validAll.slice(-60);
+    windowDays = days.slice(-60);
   }
 
-  const operatingDaysCount = windowDays.length;
-  if (operatingDaysCount < COST_RATIO_THRESHOLDS.MIN_DAYS_FOR_RELATIVE_ALERT) {
+  let operatingDaysCount = 0;
+  let revSum = 0;
+  let ingSum = 0;
+  for (const d of windowDays) {
+    ingSum += Math.max(0, d.ingredientCost || 0);
+    if (d.revenue > 0) {
+      operatingDaysCount++;
+      revSum += d.revenue;
+    }
+  }
+
+  if (operatingDaysCount < COST_RATIO_THRESHOLDS.MIN_DAYS_FOR_RELATIVE_ALERT || revSum <= 0) {
     return { costRatio: null, operatingDaysCount };
   }
 
-  const revSum = windowDays.reduce((s, d) => s + d.revenue, 0);
-  const ingSum = windowDays.reduce((s, d) => s + Math.max(0, d.ingredientCost || 0), 0);
   return {
-    costRatio: revSum > 0 ? (ingSum / revSum) * 100 : null,
+    costRatio: (ingSum / revSum) * 100,
     operatingDaysCount,
   };
 }
@@ -141,20 +160,25 @@ export function calculateCostRatio(totalRevenue: number, ingredientCost: number)
   return (ingredientCost / totalRevenue) * 100;
 }
 
+function round1(v: number): number {
+  return Math.round(v * 10) / 10;
+}
+
 export function evaluateCostRatioRelativeAlert(
-  ma5: number | null,
+  recentCostRatio: number | null,
   ma60: number | null,
   operatingDaysCount: number
 ): { level: CostRatioRelativeLevel; deltaPp: number | null } {
   if (
     operatingDaysCount < COST_RATIO_THRESHOLDS.MIN_DAYS_FOR_RELATIVE_ALERT ||
-    ma5 === null ||
+    recentCostRatio === null ||
     ma60 === null
   ) {
     return { level: 'insufficient', deltaPp: null };
   }
 
-  const deltaPp = ma5 - ma60;
+  // 화면에 표시되는 소수 첫째 자리 반올림 값 기준으로 비교해 "+3.0%p인데 안정" 모순 방지
+  const deltaPp = round1(round1(recentCostRatio) - round1(ma60));
   if (deltaPp >= COST_RATIO_THRESHOLDS.RELATIVE_DANGER_DELTA_PP) {
     return { level: 'danger', deltaPp };
   }
@@ -165,7 +189,7 @@ export function evaluateCostRatioRelativeAlert(
 }
 
 export function formatCostRatioAlertSummary(
-  ma5: number | null,
+  ma20: number | null,
   ma60: number | null,
   operatingDaysCount: number
 ): {
@@ -182,21 +206,23 @@ export function formatCostRatioAlertSummary(
       message: `데이터가 쌓이면 경고가 시작됩니다. (최근 60일 매출 입력 ${operatingDaysCount}일 / ${COST_RATIO_THRESHOLDS.MIN_DAYS_FOR_RELATIVE_ALERT}일 이상 시 활성화)`,
     };
   }
-  const { level, deltaPp } = evaluateCostRatioRelativeAlert(ma5, ma60, operatingDaysCount);
-  if (level === 'insufficient' || ma5 === null || ma60 === null || deltaPp === null) {
+  const { level, deltaPp } = evaluateCostRatioRelativeAlert(ma20, ma60, operatingDaysCount);
+  if (level === 'insufficient' || ma20 === null || ma60 === null || deltaPp === null) {
     return {
       level: 'insufficient',
       deltaPp: null,
       title: '원가율 계산 대기',
-      message: '최근 5일간 매출 입력일이 3일 미만이어서 5일 원가율을 계산하지 않았습니다.',
+      message: '최근 20일간 매출 입력일이 10일 미만이어서 20일 원가율을 계산하지 않았습니다.',
     };
   }
+  const r20 = round1(ma20);
+  const r60 = round1(ma60);
   if (level === 'danger') {
     return {
       level,
       deltaPp,
       title: '원가율 위험',
-      message: `최근 5일 원가율 ${ma5.toFixed(1)}%로 평소(60일 ${ma60.toFixed(1)}%)보다 ${deltaPp.toFixed(1)}%p 높습니다. 재료 단가나 로스를 즉시 확인해 보세요.`,
+      message: `최근 20일 원가율 ${r20.toFixed(1)}%로 평소(60일 ${r60.toFixed(1)}%)보다 ${deltaPp.toFixed(1)}%p 높습니다. 재료 단가나 로스를 즉시 확인해 보세요.`,
     };
   }
   if (level === 'caution') {
@@ -204,7 +230,7 @@ export function formatCostRatioAlertSummary(
       level,
       deltaPp,
       title: '원가율 주의',
-      message: `최근 5일 원가율 ${ma5.toFixed(1)}%로 평소(60일 ${ma60.toFixed(1)}%)보다 ${deltaPp.toFixed(1)}%p 높습니다. 재료 단가나 로스를 확인해 보세요.`,
+      message: `최근 20일 원가율 ${r20.toFixed(1)}%로 평소(60일 ${r60.toFixed(1)}%)보다 ${deltaPp.toFixed(1)}%p 높습니다. 재료 단가나 로스를 확인해 보세요.`,
     };
   }
   const diffText =
@@ -213,6 +239,6 @@ export function formatCostRatioAlertSummary(
     level: 'normal',
     deltaPp,
     title: '원가율 안정',
-    message: `최근 5일 원가율 ${ma5.toFixed(1)}%로 평소(60일 ${ma60.toFixed(1)}%)보다 ${diffText}.`,
+    message: `최근 20일 원가율 ${r20.toFixed(1)}%로 평소(60일 ${r60.toFixed(1)}%)보다 ${diffText}.`,
   };
 }

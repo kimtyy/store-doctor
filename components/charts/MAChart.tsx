@@ -6,6 +6,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { COST_RATIO_THRESHOLDS } from '@/lib/analytics/costRatio';
+import { detectCrosses } from '@/lib/analytics/movingAverage';
 
 export interface MAChartDataPoint {
   date: string;
@@ -92,35 +93,26 @@ const TABS: TabConfig[] = [
 const MA_LABELS = ['5일', '20일', '60일', '120일'] as const;
 const AVAIL_KEYS: (keyof DataAvailability)[] = ['ma5', 'ma20', 'ma60', 'ma120'];
 
-function detectCrosses(
-  data: MAChartDataPoint[],
-  ma5Key: keyof MAChartDataPoint,
-  ma20Key: keyof MAChartDataPoint,
-): ('golden' | 'death' | null)[] {
-  return data.map((point, i) => {
-    if (i === 0) return null;
-    const prev = data[i - 1];
-    const cur5 = point[ma5Key] as number | null;
-    const prev5 = prev[ma5Key] as number | null;
-    const cur20 = point[ma20Key] as number | null;
-    const prev20 = prev[ma20Key] as number | null;
-    if (cur5 == null || prev5 == null || cur20 == null || prev20 == null) return null;
-    if (prev5 <= prev20 && cur5 > cur20) return 'golden';
-    if (prev5 >= prev20 && cur5 < cur20) return 'death';
-    return null;
-  });
-}
-
 type MAKey = 'ma5' | 'ma20' | 'ma60' | 'ma120';
+
+const DEFAULT_VISIBLE_BY_TAB: Record<TabKey, Record<MAKey, boolean>> = {
+  revenue: { ma5: true, ma20: true, ma60: false, ma120: false },
+  cost: { ma5: true, ma20: true, ma60: false, ma120: false },
+  profit: { ma5: true, ma20: true, ma60: false, ma120: false },
+  costRatio: { ma5: false, ma20: true, ma60: true, ma120: false },
+};
 
 export default function MAChart({ data, availability, storeCostRatioAvg60 = null }: MAChartProps) {
   const [tab, setTab] = useState<TabKey>('revenue');
   const cfg = TABS.find((t) => t.key === tab)!;
-  const [visibleMAs, setVisibleMAs] = useState<Record<MAKey, boolean>>({
-    ma5: true, ma20: true, ma60: false, ma120: false,
-  });
+  const [visibleByTab, setVisibleByTab] =
+    useState<Record<TabKey, Record<MAKey, boolean>>>(DEFAULT_VISIBLE_BY_TAB);
+  const visibleMAs = visibleByTab[tab];
   function toggleMA(key: MAKey) {
-    setVisibleMAs(prev => ({ ...prev, [key]: !prev[key] }));
+    setVisibleByTab((prev) => ({
+      ...prev,
+      [tab]: { ...prev[tab], [key]: !prev[tab][key] },
+    }));
   }
 
   // 원가율 탭: 100% 상한에 맞춰 그린 뒤 툴팁에는 실제 원본 값을 표시
@@ -355,19 +347,24 @@ export default function MAChart({ data, availability, storeCostRatioAvg60 = null
         </ResponsiveContainer>
       </div>
 
-      {/* 원가율 기준선 범례 (차트 바깥 분리로 선 겹침 방지) */}
+      {/* 원가율 기준선 범례 및 안내 문구 (차트 바깥 분리로 선 겹침 방지) */}
       {cfg.isCostRatio && (
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 px-1">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block w-4 border-t border-dashed border-slate-400" />
-            <span>일반 참고 {COST_RATIO_THRESHOLDS.INDUSTRY_REFERENCE_PCT}%</span>
-          </span>
-          {storeCostRatioAvg60 != null && (
-            <span className="inline-flex items-center gap-1.5 text-sky-300">
-              <span className="inline-block w-4 border-t border-dotted border-sky-400" />
-              <span>매장 60일 평균 {storeCostRatioAvg60.toFixed(1)}%</span>
+        <div className="space-y-1.5 px-1">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-4 border-t border-dashed border-slate-400" />
+              <span>일반 참고 {COST_RATIO_THRESHOLDS.INDUSTRY_REFERENCE_PCT}%</span>
             </span>
-          )}
+            {storeCostRatioAvg60 != null && (
+              <span className="inline-flex items-center gap-1.5 text-sky-300">
+                <span className="inline-block w-4 border-t border-dotted border-sky-400" />
+                <span>매장 60일 평균 {storeCostRatioAvg60.toFixed(1)}%</span>
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500">
+            재료는 며칠에 한 번 몰아 사기 때문에 짧은 기간 원가율은 크게 흔들립니다. 20일 이상 흐름을 보세요.
+          </p>
         </div>
       )}
 

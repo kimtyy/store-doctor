@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { isValidPurchaseCategory } from '@/lib/expenses';
 
 
 
@@ -46,7 +47,15 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('매입 저장:', { vendorName, date, totalAmount, category });
+    const resolvedCategory = category ?? 'other';
+    if (!isValidPurchaseCategory(resolvedCategory)) {
+      return NextResponse.json(
+        { error: '허용되지 않은 비용 카테고리입니다.' },
+        { status: 400 }
+      );
+    }
+
+    console.log('매입 저장:', { vendorName, date, totalAmount, category: resolvedCategory });
 
     const { data, error } = await supabase
       .from('purchase_records')
@@ -58,7 +67,7 @@ export async function POST(request: Request) {
         total_amount: totalAmount,
         tax_amount: taxAmount ?? 0,
         net_amount: netAmount ?? totalAmount,
-        category: category ?? 'other',
+        category: resolvedCategory,
         items: items ?? [],
         input_method: inputMethod ?? 'manual',
         note: note ?? null,

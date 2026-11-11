@@ -4,7 +4,7 @@ import TermTooltip from '@/components/ui/TermTooltip';
 import { formatCostRatioAlertSummary } from '@/lib/analytics/costRatio';
 
 export interface CostRatioAlertCardProps {
-  ma5: number | null;
+  ma20: number | null;
   ma60: number | null;
   operatingDaysCount: number;
 }
@@ -37,11 +37,11 @@ const STYLE_MAP = {
 } as const;
 
 export default function CostRatioAlertCard({
-  ma5,
+  ma20,
   ma60,
   operatingDaysCount,
 }: CostRatioAlertCardProps) {
-  const summary = formatCostRatioAlertSummary(ma5, ma60, operatingDaysCount);
+  const summary = formatCostRatioAlertSummary(ma20, ma60, operatingDaysCount);
   const style = STYLE_MAP[summary.level];
 
   return (
@@ -57,10 +57,10 @@ export default function CostRatioAlertCard({
           </span>
         </div>
 
-        {summary.level !== 'insufficient' && ma5 !== null && ma60 !== null && summary.deltaPp !== null && (
+        {summary.level !== 'insufficient' && ma20 !== null && ma60 !== null && summary.deltaPp !== null && (
           <div className="flex items-baseline gap-2 text-xs">
             <span className={`text-base font-bold ${style.accent}`}>
-              5일 {ma5.toFixed(1)}%
+              20일 {ma20.toFixed(1)}%
             </span>
             <span className="text-slate-400">
               vs 60일 {ma60.toFixed(1)}% (
