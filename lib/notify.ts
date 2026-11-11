@@ -47,7 +47,7 @@ async function sendEmailNotification(payload: AdminNotificationPayload): Promise
     const data = await res.json().catch(() => null);
 
     if (!res.ok) {
-      console.error('[Notify] Resend email send failed:', res.status, data);
+      console.error(`[Notify] Resend email send failed: HTTP ${res.status}: ${data?.message || 'Unknown error'}`);
       return {
         channel: 'email',
         success: false,
@@ -64,7 +64,7 @@ async function sendEmailNotification(payload: AdminNotificationPayload): Promise
       messageId: data?.id,
     };
   } catch (err: any) {
-    console.error('[Notify] Resend email request exception:', err);
+    console.error(`[Notify] Resend email request exception: ${err?.name || 'Error'}: ${err?.message || String(err)}`);
     return {
       channel: 'email',
       success: false,
@@ -105,9 +105,9 @@ const CHANNELS: NotificationChannel[] = [
 
 /**
  * 관리자 알림 전송 (이메일 및 향후 추가 채널 순회)
- * 환경변수 부재 또는 발송 실패 시에도 예외를 던지지 않고 결과를 반환하며 로그만 남깁니다.
+ * 환경변수 부재 또는 발송 실패 시에도 예외를 던지지 않고 발송 성공 여부(true/false)를 반환하며 로그만 남깁니다.
  */
-export async function notifyAdmin(payload: AdminNotificationPayload): Promise<NotificationResult[]> {
+export async function notifyAdmin(payload: AdminNotificationPayload): Promise<boolean> {
   const results: NotificationResult[] = [];
 
   for (const channel of CHANNELS) {
@@ -115,7 +115,7 @@ export async function notifyAdmin(payload: AdminNotificationPayload): Promise<No
       const result = await channel(payload);
       results.push(result);
     } catch (err: any) {
-      console.error('[Notify] Channel execution error:', err);
+      console.error(`[Notify] Channel execution error: ${err?.name || 'Error'}: ${err?.message || String(err)}`);
       results.push({
         channel: 'unknown',
         success: false,
@@ -124,6 +124,7 @@ export async function notifyAdmin(payload: AdminNotificationPayload): Promise<No
     }
   }
 
-  return results;
+  const isSuccess = results.some((r) => r.success);
+  return isSuccess;
 }
 
