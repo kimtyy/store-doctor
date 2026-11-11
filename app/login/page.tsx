@@ -20,7 +20,6 @@ function LoginForm({
   const LOGIN_ERROR_MESSAGES: Record<string, string> = {
     login_failed: '로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.',
     auth_required: '로그인이 필요한 서비스입니다.',
-    '로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.': '로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.',
   }
 
   const DEFAULT_LOGIN_ERROR_MESSAGE = '로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.'

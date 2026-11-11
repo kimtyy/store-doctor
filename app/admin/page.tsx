@@ -42,13 +42,13 @@ export default async function AdminPage() {
     console.error('subscription_extensions 조회 중 예외 발생:', err);
   }
 
-  // 안전하게 payment_attempts 조회 (테이블 미생성 대비)
+  // 안전하게 payment_attempts 조회 (테이블 미생성 대비, pending 및 processing 모두 조회)
   let paymentAttempts: any[] = [];
   try {
     const { data, error } = await adminClient
       .from('payment_attempts')
       .select('*')
-      .eq('status', 'pending')
+      .in('status', ['pending', 'processing'])
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -162,14 +162,15 @@ export default async function AdminPage() {
                   <th className="px-4 py-3 font-medium whitespace-nowrap">발생일시</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">사용자</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">주문번호</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap">보류 사유</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">상태</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">사유</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap text-center">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
                 {paymentAttemptList.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
                       현재 결제 대기 중인 사용자가 없습니다.
                     </td>
                   </tr>
@@ -185,6 +186,17 @@ export default async function AdminPage() {
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-amber-300 whitespace-nowrap">
                         {item.order_id}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-center">
+                        {item.status === 'processing' ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-xs bg-sky-950 text-sky-400 border border-sky-800">
+                            진행중
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 rounded text-xs bg-amber-950 text-amber-400 border border-amber-800">
+                            대기중
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs max-w-xs truncate" title={item.reason}>
                         {item.reason || '-'}

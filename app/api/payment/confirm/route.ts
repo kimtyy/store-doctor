@@ -93,32 +93,6 @@ export async function GET(request: Request) {
     return NextResponse.redirect(dashboardUrl);
   }
 
-  // 2-C. 결제 대기(pending) 상태 사용자 차단 (이중 결제 방지)
-  // payment_attempts 테이블에 status='pending' 레코드가 있으면 청구하지 않고 대기 안내로 리디렉션
-  try {
-    const { data: pendingAttempt, error: attemptCheckError } = await adminSupabase
-      .from('payment_attempts')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (attemptCheckError) {
-      // 테이블이 아직 없는 경우 (마이그레이션 전) 경고만 남기고 통과
-      console.warn('[Confirm] payment_attempts check failed (table might not exist yet):', attemptCheckError.message);
-    } else if (pendingAttempt) {
-      console.warn(`[Confirm] User ${user.id} has a pending payment attempt (${pendingAttempt.id}). Redirecting to payment_pending.`);
-      const pendingUrl = new URL('/payment', request.url);
-      pendingUrl.searchParams.set('plan', plan);
-      pendingUrl.searchParams.set('notice', 'payment_pending');
-      return NextResponse.redirect(pendingUrl);
-    }
-  } catch (checkErr: any) {
-    console.warn('[Confirm] payment_attempts check exception (table might not exist yet):', checkErr?.message);
-  }
-
   // 3. 토스페이먼츠 시크릿 키 체크 (폴백 없이 환경변수 미설정 시 즉시 에러)
   const tossSecretKey = process.env.TOSS_SECRET_KEY;
   if (!tossSecretKey) {
@@ -132,10 +106,93 @@ export async function GET(request: Request) {
   const encodedCredential = Buffer.from(`${tossSecretKey}:`).toString('base64');
 
   let paymentKey: string | null = null;
-  let orderId: string | null = null;
+  const orderId = `sub_${user.id.slice(0, 8)}_${Date.now()}`;
   let planDetail: (typeof BILLING_PLANS)[PlanKey] | null = null;
   let hasAttemptedCancel = false;
   let cancelResultCache: { success: boolean; error?: string } | null = null;
+  let attemptId: string | null = null;
+
+  // 2-C. 결제 대기 차단을 "먼저 잠그고 결제"로 변경 (fail-closed)
+  // 1) 409(기존 구독) 검사 후, 빌링키 발급 전에 status='processing' 행을 insert 한다.
+  const { data: attemptInsertData, error: attemptInsertError } = await adminSupabase
+    .from('payment_attempts')
+    .insert({
+      user_id: user.id,
+      order_id: orderId,
+      status: 'processing',
+      reason: '결제 진행 중',
+    })
+    .select('id')
+    .single();
+
+  if (attemptInsertError) {
+    // 2) insert 가 unique 위반이면 결제하지 않고 /payment?notice=payment_pending
+    const isUniqueViolation =
+      attemptInsertError.code === '23505' ||
+      attemptInsertError.message?.toLowerCase().includes('unique') ||
+      attemptInsertError.message?.toLowerCase().includes('duplicate key');
+
+    if (isUniqueViolation) {
+      console.warn(`[Confirm] User ${user.id} has an active payment attempt (unique lock). Redirecting to payment_pending.`);
+      const pendingUrl = new URL('/payment', request.url);
+      pendingUrl.searchParams.set('plan', plan);
+      pendingUrl.searchParams.set('notice', 'payment_pending');
+      return NextResponse.redirect(pendingUrl);
+    }
+
+    // 3) insert 가 다른 이유로 실패하면(테이블 없음 포함) 결제하지 않고 error=server_error + 긴급 알림. 잠금 없이 결제를 진행하지 않는다.
+    console.error(`[Confirm] Fail-closed: Failed to acquire processing lock for user ${user.id}: ${attemptInsertError.code} - ${attemptInsertError.message}`);
+    try {
+      const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+      const subjectPrefix = isTestMode ? '[테스트] ' : '';
+      await notifyAdmin({
+        subject: `${subjectPrefix}[긴급/결제 차단] 결제 선점 잠금(processing) 실패 - ${user.email}`,
+        text: `[매장닥터 결제 안전 차단 알림]
+
+사용자 ${user.id} (${user.email})의 결제 처리 중 payment_attempts 테이블 선점 잠금(status='processing') 생성에 실패하여 결제를 안전하게 차단(fail-closed)하였습니다.
+잠금 없이 결제가 진행되지 않도록 토스 API 호출을 일절 수행하지 않았습니다.
+
+■ 오류 내용
+- DB 에러 코드: ${attemptInsertError.code || 'N/A'}
+- 에러 메시지: ${attemptInsertError.message || 'N/A'}
+
+■ 조치 방법
+payment_attempts 테이블 및 유니크 인덱스 생성 마이그레이션(20261111_create_payment_attempts.sql)이 Supabase에 적용되었는지 확인해 주세요.`,
+      });
+    } catch (notifyErr: any) {
+      console.error(`[Confirm] Failed to send lock failure admin notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
+    }
+
+    const failUrl = new URL('/payment', request.url);
+    failUrl.searchParams.set('plan', plan);
+    failUrl.searchParams.set('error', 'server_error');
+    return NextResponse.redirect(failUrl);
+  }
+
+  attemptId = attemptInsertData.id;
+
+  // 4) attempt 상태 업데이트 헬퍼 (실패 시 processing 유지로 차단 유지)
+  async function updateAttemptStatus(newStatus: 'resolved' | 'pending', reason: string) {
+    if (!attemptId || !adminSupabase) return;
+    try {
+      const payload: Record<string, any> = {
+        status: newStatus,
+        reason,
+      };
+      if (newStatus === 'resolved') {
+        payload.resolved_at = new Date().toISOString();
+      }
+      const { error: updErr } = await adminSupabase
+        .from('payment_attempts')
+        .update(payload)
+        .eq('id', attemptId);
+      if (updErr) {
+        console.error(`[Confirm] Failed to update payment_attempt ${attemptId} to ${newStatus}:`, updErr.message);
+      }
+    } catch (err: any) {
+      console.error(`[Confirm] Exception updating payment_attempt ${attemptId}:`, err?.message);
+    }
+  }
 
   // 알림 본문용 paymentKey 마스킹 (마지막 6자리만 노출)
   function maskPaymentKey(key: string | null | undefined): string {
@@ -220,6 +277,7 @@ export async function GET(request: Request) {
 
     if (!issueResponse.ok || !issueData.billingKey) {
       console.error(`Toss billing authorizations issue failed: ${issueData?.code || 'UNKNOWN'}: ${issueData?.message || '발급 실패'}`);
+      await updateAttemptStatus('resolved', issueData?.message || '카드 등록 및 빌링키 발급 실패');
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
       failUrl.searchParams.set('error', 'card_auth_failed');
@@ -230,7 +288,6 @@ export async function GET(request: Request) {
 
     // 5. 첫 결제 실행 (POST /v1/billing/{billingKey})
     planDetail = BILLING_PLANS[plan];
-    orderId = `sub_${user.id.slice(0, 8)}_${Date.now()}`;
 
     let chargeInput: ChargeResponseInput;
     try {
@@ -285,6 +342,7 @@ export async function GET(request: Request) {
 
     if (outcomeResult.outcome === 'SYSTEM_ERROR') {
       console.error(`[Confirm] SYSTEM_ERROR during charge for user ${user.id}, orderId ${orderId}. Status: ${chargeInput.status}, Code: ${chargeInput.data?.code}`);
+      await updateAttemptStatus('resolved', outcomeResult.errorMessage || '결제 시스템 인증/설정 오류');
 
       try {
         const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
@@ -317,30 +375,10 @@ export async function GET(request: Request) {
     }
 
     if (outcomeResult.outcome === 'UNCONFIRMED') {
-      // payment_attempts 테이블에 status='pending' 행 기록
-      let attemptId: string | null = null;
-      try {
-        const { data: attemptData, error: attemptInsertError } = await adminSupabase
-          .from('payment_attempts')
-          .insert({
-            user_id: user.id,
-            order_id: orderId!,
-            status: 'pending',
-            reason: outcomeResult.unconfirmedReason || outcomeResult.errorMessage || '첫 결제 결과 미확인',
-          })
-          .select('id')
-          .single();
+      // 4) UNCONFIRMED -> payment_attempts 행을 'pending'으로 업데이트
+      await updateAttemptStatus('pending', outcomeResult.unconfirmedReason || outcomeResult.errorMessage || '첫 결제 결과 미확인');
 
-        if (attemptInsertError) {
-          console.warn('[Confirm] Failed to record payment_attempts (table might not exist yet):', attemptInsertError.message);
-        } else if (attemptData) {
-          attemptId = attemptData.id;
-        }
-      } catch (insertErr: any) {
-        console.warn('[Confirm] Exception recording payment_attempts (table might not exist yet):', insertErr?.message);
-      }
-
-      // UNCONFIRMED 이면 구독은 저장하지 않고 [수동 확인 필요] 긴급 알림 전송 (payment_attempts.id 및 수동 해제 방법 포함)
+      // UNCONFIRMED 이면 구독은 저장하지 않고 [수동 확인 필요] 긴급 알림 전송 (attemptId 및 수동 해제 방법 포함)
       const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
       const subjectPrefix = isTestMode ? '[테스트] ' : '';
       try {
@@ -354,7 +392,7 @@ export async function GET(request: Request) {
 ■ 결제 및 사용자 정보
 - 구독 사용자 ID: ${user.id} (${user.email})
 - 주문번호: ${orderId}
-- 결제 시도 대기 ID (payment_attempts.id): ${attemptId || '기록 실패 (테이블 미생성)'}
+- 결제 시도 대기 ID (payment_attempts.id): ${attemptId || '기록 실패'}
 - 결제키(paymentKey 끝 6자리): ${maskPaymentKey(outcomeResult.paymentKey)}
 - 플랜: ${planDetail.name} (${planDetail.price.toLocaleString()}원)
 - 불확실 사유: ${outcomeResult.unconfirmedReason || outcomeResult.errorMessage || '상태 미확인'}
@@ -362,7 +400,7 @@ export async function GET(request: Request) {
 ■ 조치 방법 (결제 확인 및 대기 해제)
 1. 토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId})로 검색하여 결제 완료 여부를 확인합니다.
 2. 대기 해제는 관리자 대시보드(/admin)의 '결제 대기 관리'에서 [대기 해제]를 클릭하거나, Supabase SQL 편집기에서 다음 쿼리를 실행합니다:
-   UPDATE payment_attempts SET status = 'resolved', resolved_at = now() WHERE user_id = '${user.id}' AND status = 'pending';`,
+   UPDATE payment_attempts SET status = 'resolved', resolved_at = now() WHERE user_id = '${user.id}' AND status IN ('pending', 'processing');`,
         });
       } catch (notifyErr: any) {
         console.error(`[Confirm] Failed to send admin notification for unconfirmed outcome: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
@@ -375,7 +413,7 @@ export async function GET(request: Request) {
     }
 
     if (outcomeResult.outcome === 'FAILURE') {
-      // FAILURE 면 알림 없이 "결제가 완료되지 않았습니다. 다시 시도해 주세요"
+      await updateAttemptStatus('resolved', outcomeResult.errorMessage || '결제 승인 실패');
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
       failUrl.searchParams.set('error', 'payment_failed');
@@ -389,6 +427,7 @@ export async function GET(request: Request) {
     // 응답 유실 건이므로 즉시 자동 취소하고 사용자에게 재시도 안내
     if (!chargeInput.ok) {
       const cancelResult = await cancelChargedPayment('응답 유실 확인 후 자동 취소');
+      await updateAttemptStatus('resolved', '응답 유실 확인 후 자동 취소');
       const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
       const subjectPrefix = isTestMode ? '[테스트] ' : '';
       try {
@@ -471,6 +510,7 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
       console.error('Database subscription saving failed after charge:', dbError.message);
 
       const cancelResult = await cancelChargedPayment('구독 저장 실패로 인한 자동 취소');
+      await updateAttemptStatus('resolved', '구독 저장 실패로 인한 자동 취소');
       const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
       const subjectPrefix = isTestMode ? '[테스트] ' : '';
 
@@ -524,6 +564,7 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
     }
 
     // 7. 결제 및 정기구독 활성화 완료 -> 대시보드로 이동
+    await updateAttemptStatus('resolved', 'success');
     const successUrl = new URL('/dashboard', request.url);
     return NextResponse.redirect(successUrl);
   } catch (error: any) {
@@ -539,8 +580,10 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
 
       if (outcomeResult.outcome === 'SUCCESS') {
         paymentKey = outcomeResult.paymentKey;
+        await updateAttemptStatus('resolved', '예외 후 주문 조회 DONE 확인');
         console.log(`[Confirm] OrderId ${orderId} verified DONE via order lookup. Proceeding to auto-cancel.`);
       } else if (outcomeResult.outcome === 'UNCONFIRMED') {
+        await updateAttemptStatus('pending', outcomeResult.unconfirmedReason || '결제 결과 미확인');
         console.error(`[Confirm] CRITICAL: Payment status unconfirmed for orderId ${orderId}, user ${user.email}. Reason: ${outcomeResult.unconfirmedReason}`);
         const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
         const subjectPrefix = isTestMode ? '[테스트] ' : '';
@@ -590,6 +633,12 @@ ${cancelResult.success ? '결제는 즉시 전액 자동 취소되었습니다.'
       } catch (notifyErr: any) {
         console.error(`[Confirm] Exception handler notifyAdmin failed: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
       }
+    }
+
+    if (paymentKey) {
+      await updateAttemptStatus('resolved', '서버 예외 발생 후 자동 취소');
+    } else {
+      await updateAttemptStatus('resolved', `서버 예외 발생: ${error?.message || 'UNKNOWN'}`);
     }
 
     const failUrl = new URL('/payment', request.url);

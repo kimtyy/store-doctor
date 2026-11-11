@@ -10,7 +10,6 @@ export default function OnboardingPage({
   const ONBOARDING_ERROR_MESSAGES: Record<string, string> = {
     store_create_failed: '매장 등록에 실패했습니다. 다시 시도해 주세요.',
     missing_fields: '필수 매장 정보를 모두 입력해 주세요.',
-    '매장 등록에 실패했습니다.': '매장 등록에 실패했습니다. 다시 시도해 주세요.',
   }
 
   const DEFAULT_ONBOARDING_MESSAGE = '매장 등록에 실패했습니다. 다시 시도해 주세요.'

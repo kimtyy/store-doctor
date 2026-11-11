@@ -71,17 +71,17 @@ function PaymentContent() {
         setUser(user);
         setLoading(false);
 
-        // 서버 payment_attempts 테이블에서 현재 사용자의 pending 행 확인 (RLS: 본인 행만 조회)
+        // 서버 payment_attempts 테이블에서 현재 사용자의 pending 또는 processing 행 확인 (RLS: 본인 행만 조회)
         try {
-          const { data: pendingAttempt, error: attemptErr } = await supabase
+          const { data: activeAttempt, error: attemptErr } = await supabase
             .from('payment_attempts')
-            .select('id')
+            .select('id, status')
             .eq('user_id', user.id)
-            .eq('status', 'pending')
+            .in('status', ['pending', 'processing'])
             .limit(1)
             .maybeSingle();
 
-          if (!attemptErr && pendingAttempt) {
+          if (!attemptErr && activeAttempt) {
             setHasServerPending(true);
           }
         } catch (attemptCheckErr: any) {

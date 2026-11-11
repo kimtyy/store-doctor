@@ -33,38 +33,40 @@ export interface BillingOutcomeResult {
 
 /**
  * 청구 응답 분류:
- * - SYSTEM: HTTP 401, 403 및 토스 키·인증·상점 설정 오류 코드
+ * - SYSTEM: HTTP 401, 403 및 토스 키·인증·상점 설정 오류 코드 (5xx 제외)
  * - SUCCESS: 200 OK + 본문 status === 'DONE'
  * - RATE_LIMIT: 429 Too Many Requests
  * - DUPLICATE: 중복 주문번호 오류 (ALREADY_PROCESSED_PAYMENT, DUPLICATED_ORDER_ID)
  * - A (명확한 거절): 401·403·408·429·SYSTEM·중복을 제외한 4xx 이고 응답 본문 파싱 성공
- * - B (처리 중일 수 있음): 2xx 응답이지만 status !== 'DONE', 네트워크 예외, 타임아웃, 408, 5xx, 응답 본문 파싱 실패(상태 코드 무관)
+ * - B (처리 중일 수 있음): 2xx 응답이지만 status !== 'DONE', 5xx(상태 코드 무관), FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING, 네트워크 예외, 타임아웃, 408, 응답 본문 파싱 실패
  */
 export const TOSS_SYSTEM_ERROR_CODES = [
   'UNAUTHORIZED_KEY',
   'FORBIDDEN_REQUEST',
   'INCORRECT_BASIC_AUTH_FORMAT',
   'INVALID_API_KEY',
-  'INSECURE_KEY_USAGE',
   'NOT_FOUND_MERCHANT',
-  'INSUFFICIENT_PRIVILEGES',
-  'NOT_SUPPORTED_METHOD',
-  'NOT_AVAILABLE_PAYMENT_METHOD',
-  'FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING',
 ] as const;
 
 export function classifyChargeResponse(charge: ChargeResponseInput): ChargeCategory {
   const errorCode = charge.data?.code;
-  const isSystemErrorCode = Boolean(
-    errorCode && (TOSS_SYSTEM_ERROR_CODES as readonly string[]).includes(errorCode)
-  );
 
-  // 1. SYSTEM 오류: HTTP 401, 403 또는 키·인증·상점 설정 에러 코드
-  if (charge.status === 401 || charge.status === 403 || isSystemErrorCode) {
-    return 'SYSTEM';
+  // 1. 5xx 에러는 코드와 관계없이 무조건 B(처리 중일 수 있음, 주문 조회 경로)로 분류
+  if (
+    charge.error ||
+    charge.parseError ||
+    charge.status === 408 ||
+    (charge.status && charge.status >= 500)
+  ) {
+    return 'B';
   }
 
-  // 2. 2xx 응답 검증: 본문 status가 DONE이어야만 SUCCESS, 그 외(IN_PROGRESS 등)는 B로 분류해 조회
+  // 2. FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING은 상태 코드 무관 B로 분류
+  if (errorCode === 'FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING') {
+    return 'B';
+  }
+
+  // 3. 2xx 응답 검증: 본문 status가 DONE이어야만 SUCCESS, 그 외(IN_PROGRESS 등)는 B로 분류해 조회
   if (charge.ok && charge.data) {
     if (charge.data.status === 'DONE') {
       return 'SUCCESS';
@@ -72,12 +74,20 @@ export function classifyChargeResponse(charge: ChargeResponseInput): ChargeCateg
     return 'B';
   }
 
-  // 3. 429 Rate limit
+  // 4. 429 Rate limit
   if (charge.status === 429) {
     return 'RATE_LIMIT';
   }
 
-  // 4. 중복 주문번호 오류인지 확인
+  // 5. SYSTEM 오류: HTTP 401, 403 또는 명시된 시스템 에러 코드 5개 (5xx는 이미 위에서 B로 처리됨)
+  const isSystemErrorCode = Boolean(
+    errorCode && (TOSS_SYSTEM_ERROR_CODES as readonly string[]).includes(errorCode)
+  );
+  if (charge.status === 401 || charge.status === 403 || isSystemErrorCode) {
+    return 'SYSTEM';
+  }
+
+  // 6. 중복 주문번호 오류인지 확인
   const isDuplicateError =
     errorCode === 'ALREADY_PROCESSED_PAYMENT' ||
     errorCode === 'DUPLICATED_ORDER_ID';
@@ -86,18 +96,13 @@ export function classifyChargeResponse(charge: ChargeResponseInput): ChargeCateg
     return 'DUPLICATE';
   }
 
-  // 5. B: 네트워크 예외, 타임아웃, 408, 5xx, 응답 본문 파싱 실패
-  if (
-    charge.error ||
-    charge.parseError ||
-    charge.status === 408 ||
-    (charge.status && charge.status >= 500) ||
-    !charge.data
-  ) {
+  // 7. 본문 데이터가 없는 경우 B
+  if (!charge.data) {
     return 'B';
   }
 
-  // 6. A: 401·403·408·429·SYSTEM·중복을 제외한 4xx 이고 응답 본문 파싱 성공
+  // 8. A: 401·403·408·429·SYSTEM·중복을 제외한 4xx 이고 응답 본문 파싱 성공
+  // (NOT_SUPPORTED_METHOD, NOT_AVAILABLE_PAYMENT_METHOD 등 일반 4xx는 A로 분류)
   if (charge.status && charge.status >= 400 && charge.status < 500) {
     return 'A';
   }
