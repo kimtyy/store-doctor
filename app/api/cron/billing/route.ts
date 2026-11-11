@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient as createAdminSupabase } from '@supabase/supabase-js';
 import { BILLING_PLANS, PlanKey, decryptBillingKey } from '@/lib/billing';
+import { notifyAdmin } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -134,7 +135,7 @@ export async function GET(request: Request) {
           const currentNext = sub.next_billing_date ? new Date(sub.next_billing_date) : new Date(now);
           currentNext.setMonth(currentNext.getMonth() + 1);
 
-          await adminSupabase
+          const { error: updateError } = await adminSupabase
             .from('subscriptions')
             .update({
               status: 'active',
@@ -147,7 +148,44 @@ export async function GET(request: Request) {
             })
             .eq('id', sub.id);
 
-          results.push({ id: sub.id, user_id: sub.user_id, status: 'charged_successfully', nextBillingDate: currentNext });
+          if (updateError) {
+            console.error(`[Billing Cron] DB update failed for charged sub ${sub.id}:`, updateError.message);
+            try {
+              const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+              const subjectPrefix = isTestMode ? '[테스트] ' : '';
+              await notifyAdmin({
+                subject: `${subjectPrefix}[긴급] 정기결제 갱신 승인 후 DB 저장 실패 - ${sub.user_id}`,
+                text: `[매장닥터 정기결제 갱신 DB 오류 알림]
+
+정기결제 갱신 청구(토스 결제)는 성공하였으나, Supabase subscriptions 테이블 갱신에 실패하였습니다.
+다음 크론 실행 시 중복 결제가 발생하지 않도록 즉시 확인 및 수동 갱신이 필요합니다.
+
+■ 상세 정보
+- 구독 ID: ${sub.id}
+- 사용자 식별자: ${sub.user_id}
+- 토스 주문번호: ${orderId}
+- 결제 금액: ${planDetail.price.toLocaleString()}원
+- DB 에러 내용: ${updateError.message}
+- 다음 결제 예정일(갱신 대상): ${currentNext.toISOString()}
+
+■ 조치 방법
+토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId}) 결제 승인 내역을 확인하시고,
+Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${currentNext.toISOString()}으로 수동 업데이트해 주세요.`,
+              });
+            } catch (notifyErr) {
+              console.error('[Billing Cron] Failed to send admin notification for DB update error:', notifyErr);
+            }
+
+            results.push({
+              id: sub.id,
+              user_id: sub.user_id,
+              status: 'charged_but_db_update_failed',
+              error: updateError.message,
+              orderId,
+            });
+          } else {
+            results.push({ id: sub.id, user_id: sub.user_id, status: 'charged_successfully', nextBillingDate: currentNext });
+          }
         } else {
           // 결제 실패: retry_count + 1, last_retry_at 갱신, 상태 연체(또는 최종 실패 시 expired)
           const newRetryCount = retryCount + 1;
