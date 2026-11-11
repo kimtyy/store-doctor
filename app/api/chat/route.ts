@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreInfo } from '@/utils/supabase/getStore';
-import { calculateExpenseBreakdown } from '@/lib/expenses';
+import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses';
+import { calcComparisonMetricDelta } from '@/lib/analytics/periodComparison';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -100,10 +101,15 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
   const salesPrevMonth = sales60.filter(d => d.date >= prevRange.from && d.date <= prevRange.to);
   const salesLast30 = sales60.filter(d => d.date >= from30);
 
-  // Purchase maps
-  const purchaseByDate: Record<string, number> = {};
+  // Purchase maps (총비용 및 재료비 구분)
+  const totalExpenseByDate: Record<string, number> = {};
+  const ingredientByDate: Record<string, number> = {};
   for (const p of purchases) {
-    purchaseByDate[p.date] = (purchaseByDate[p.date] ?? 0) + (p.total_amount ?? 0);
+    const amt = p.total_amount ?? 0;
+    totalExpenseByDate[p.date] = (totalExpenseByDate[p.date] ?? 0) + amt;
+    if (isIngredientCategory(p.category)) {
+      ingredientByDate[p.date] = (ingredientByDate[p.date] ?? 0) + amt;
+    }
   }
 
   function monthPurchases(fromDate: string, toDate: string): PurchaseRow[] {
@@ -162,6 +168,15 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
       lines.push(`- 임대료율: ${thisBreakdown.rentRatio.toFixed(1)}%`);
       lines.push(`- 총비용률(총비용 ÷ 매출): ${thisBreakdown.totalCostRatio.toFixed(1)}%`);
       lines.push(`- 비용 그룹별 상세: ${thisBreakdown.groups.map(g => `${g.shortLabel} ${krw(g.amount)}(${g.ratioPct.toFixed(1)}%)`).join(', ')}`);
+      if (prevMthRevenue > 0) {
+        const revDelta = calcComparisonMetricDelta(thisMthRevenue, prevMthRevenue, 'amount', true).formatted;
+        const expDelta = calcComparisonMetricDelta(thisMthPurchase, prevMthPurchase, 'amount', true).formatted;
+        const crDelta = calcComparisonMetricDelta(thisBreakdown.costRatio, prevBreakdown.costRatio, 'ratio', true).formatted;
+        const lrDelta = calcComparisonMetricDelta(thisBreakdown.laborRatio, prevBreakdown.laborRatio, 'ratio', true).formatted;
+        const flDelta = calcComparisonMetricDelta(thisBreakdown.flRatio, prevBreakdown.flRatio, 'ratio', true).formatted;
+        lines.push(`- 전월 대비 금액 변화: 매출 ${revDelta}, 총비용 ${expDelta}`);
+        lines.push(`- 전월 대비 비율 변화(%p): 원가율 ${crDelta}, 인건비율 ${lrDelta}, FL비율 ${flDelta}`);
+      }
     }
   }
   lines.push('');
@@ -223,11 +238,12 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
   }
 
   // Daily table (last 30 days)
-  lines.push('[최근 30일 일별 매출 / 매입]');
+  lines.push('[최근 30일 일별 매출 / 총비용·재료비]');
   for (const d of salesLast30) {
-    const purchase = purchaseByDate[d.date];
-    const purchaseStr = purchase ? ` | 매입 ${krw(purchase)}` : '';
-    lines.push(`${d.date}: 매출 ${krw(d.net_revenue ?? 0)}${purchaseStr}`);
+    const exp = totalExpenseByDate[d.date] ?? 0;
+    const ing = ingredientByDate[d.date] ?? 0;
+    const costStr = exp > 0 ? ` | 총비용 ${krw(exp)} (재료비 ${krw(ing)})` : '';
+    lines.push(`${d.date}: 매출 ${krw(d.net_revenue ?? 0)}${costStr}`);
   }
 
   return lines.join('\n');
@@ -266,7 +282,11 @@ export async function POST(request: Request) {
 ${storeContext}
 
 === 답변 지침 ===
-- 사장님께 친근하고 실용적으로 답변해 주세요
+- 반드시 존댓말(~습니다)로 친근하고 실용적으로 답변해 주세요
+- 원가율은 반드시 재료비(주류+식자재) 합계 ÷ 매출 기준으로만 사용하고, 인건비·임대료·공과금 등 전체 총비용을 원가율로 부르지 마세요
+- 비율 지표(원가율, 인건비율, FL 비율, 임대료율, 총비용률, 영업이익률)의 전월 대비 변화는 %p 차이로 말하고, 금액 변화율(%)과 섞지 마세요
+- 프롬프트에 주어진 숫자만 사용하고, 직접 계산한 퍼센트를 만들지 마세요
+- 공과금(전기·가스·수도)은 납부 시점이 사용 월과 다를 수 있으므로 전월 대비 공과금 증감을 운영 문제로 단정하지 마세요
 - 위 데이터의 구체적인 수치를 인용하며 조언해 주세요
 - 한국어로 답변하고, 사장님을 "사장님"으로 호칭해 주세요
 - 핵심만 간결하게 답변해 주세요 (너무 길지 않게)

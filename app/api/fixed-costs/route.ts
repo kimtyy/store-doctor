@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { isValidFixedCostCategory, isValidPurchaseCategory } from '@/lib/expenses';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +46,12 @@ export async function POST(request: Request) {
     if (!name || amount == null || !category || !billingDay) {
       return NextResponse.json({ error: '항목명, 금액, 카테고리, 청구일이 필요합니다.' }, { status: 400 });
     }
+    if (!isValidPurchaseCategory(category)) {
+      return NextResponse.json({ error: '허용되지 않은 비용 카테고리입니다.' }, { status: 400 });
+    }
+    if (!isValidFixedCostCategory(category)) {
+      return NextResponse.json({ error: '재료비(식자재·주류)는 고정비로 등록할 수 없습니다.' }, { status: 400 });
+    }
 
     const { costType } = body;
 
@@ -74,6 +81,14 @@ export async function PATCH(request: Request) {
     if (!body?.id) return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
 
     const { id, name, amount, category, billingDay, isActive, costType } = body;
+    if (category !== undefined) {
+      if (!isValidPurchaseCategory(category)) {
+        return NextResponse.json({ error: '허용되지 않은 비용 카테고리입니다.' }, { status: 400 });
+      }
+      if (!isValidFixedCostCategory(category)) {
+        return NextResponse.json({ error: '재료비(식자재·주류)는 고정비로 등록할 수 없습니다.' }, { status: 400 });
+      }
+    }
     const fields: Record<string, unknown> = {};
     if (name !== undefined) fields.name = name;
     if (amount !== undefined) fields.amount = amount;

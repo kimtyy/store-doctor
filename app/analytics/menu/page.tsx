@@ -7,7 +7,10 @@ import BottomTabNav from '../../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue } from '../../../components/PeriodSelector';
 import TermTooltip from '@/components/ui/TermTooltip';
 import { PURCHASE_CATEGORY_LABELS } from '@/lib/expenses';
-import { costRatioStatus } from '@/lib/analytics/costRatio';
+import {
+  COST_RATIO_THRESHOLDS,
+  evaluateCostRatioRelativeAlert,
+} from '@/lib/analytics/costRatio';
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +66,8 @@ interface PurchaseAnalyticsData {
   totalPurchase: number;
   totalRevenue: number;
   costRatioPercent: number;
+  costRatio60Avg?: number | null;
+  baselineOperatingDays?: number;
   totalCostRatioPercent?: number;
   flRatioPercent?: number;
   categoryStats: CategoryStat[];
@@ -498,21 +503,27 @@ export default function AnalyticsPage() {
   }, [drillMenus.length, drillCategory]);
 
   const costRatio = purchaseData?.costRatioPercent ?? 0;
-  const crStatus = costRatioStatus(costRatio);
+  const crEval = evaluateCostRatioRelativeAlert(
+    purchaseData && purchaseData.totalRevenue > 0 ? costRatio : null,
+    purchaseData?.costRatio60Avg ?? null,
+    purchaseData?.baselineOperatingDays ?? 0
+  );
   const costRatioColor =
-    crStatus === 'excellent'
-      ? 'text-emerald-400'
-      : crStatus === 'good'
-      ? 'text-sky-400'
-      : crStatus === 'warning'
+    crEval.level === 'danger'
+      ? 'text-rose-400'
+      : crEval.level === 'caution'
       ? 'text-amber-400'
-      : 'text-rose-400';
+      : crEval.level === 'normal'
+      ? 'text-emerald-400'
+      : 'text-slate-200';
   const costRatioBarColor =
-    crStatus === 'critical'
+    crEval.level === 'danger'
       ? 'bg-rose-500'
-      : crStatus === 'warning'
+      : crEval.level === 'caution'
       ? 'bg-amber-500'
-      : 'bg-emerald-500';
+      : crEval.level === 'normal'
+      ? 'bg-emerald-500'
+      : 'bg-sky-500';
 
   if (!role) {
     return (
@@ -655,6 +666,16 @@ export default function AnalyticsPage() {
                       style={{ width: `${Math.min(costRatio, 100).toFixed(1)}%` }}
                     />
                   </div>
+                  <p className="mt-1.5 text-[11px] text-slate-500">
+                    일반 참고 {COST_RATIO_THRESHOLDS.INDUSTRY_REFERENCE_PCT}%
+                    {crEval.level !== 'insufficient' &&
+                    crEval.deltaPp !== null &&
+                    purchaseData.costRatio60Avg != null
+                      ? ` · 평소(60일) ${purchaseData.costRatio60Avg.toFixed(1)}% (${
+                          crEval.deltaPp >= 0 ? '+' : '−'
+                        }${Math.abs(crEval.deltaPp).toFixed(1)}%p)`
+                      : ` · 60일 비교 대기 (${purchaseData.baselineOperatingDays ?? 0}/30일)`}
+                  </p>
                 </div>
               )}
             </div>

@@ -5,6 +5,7 @@ import { getStoreInfo } from '@/utils/supabase/getStore';
 import {
   getComparisonPeriodBounds,
   calcPeriodStats,
+  calcComparisonMetricDelta,
   LOW_INPUT_RATE_THRESHOLD,
 } from '@/lib/analytics/periodComparison';
 import {
@@ -336,27 +337,54 @@ export async function GET(request: Request) {
 
     // AI Diagnosis (각 호출은 상호 의존성이 없으므로 Promise.allSettled 병렬 실행, 타임아웃 20초, maxTokens 600)
     const reportFormatRule =
-      '출력 형식: 평문 3~5문장. 존댓말(~습니다)로 쓴다. 제목, 표, 코드블록, 목록, 이모지, 마크다운 기호(**, #, |) 사용 금지. 화면에 이미 표시된 숫자를 표로 반복하지 말고, 해석과 실행할 조언만 쓴다. 값이 "없음"으로 표시된 항목에 대해서는 데이터 부재 경고문을 쓰지 말 것.';
+      '출력 형식: 평문 3~5문장. 존댓말(~습니다)로 쓴다. 제목, 표, 코드블록, 목록, 이모지, 마크다운 기호(**, #, |) 사용 금지. 화면에 이미 표시된 숫자를 표로 반복하지 말고, 해석과 실행할 조언만 쓴다. 값이 "없음"으로 표시된 항목에 대해서는 데이터 부재 경고문을 쓰지 말 것.\n' +
+      '[정확성 규칙]\n' +
+      '- 비율의 변화는 반드시 %p 로 말하고, 금액의 변화(%)와 섞지 말 것.\n' +
+      '- 프롬프트에 주어진 숫자만 사용하고, 직접 계산한 퍼센트를 만들지 말 것.\n' +
+      '- 공과금(전기·가스·수도)은 납부 시점이 사용 월과 다를 수 있으므로, 전월 대비 공과금 증감을 운영 문제로 단정하지 말 것.';
 
     const metricDefinitions =
       '[지표 정의] 원가율=재료비(식자재·주류)÷매출, 인건비율=인건비÷매출, FL비율=(재료비+인건비)÷매출, 임대료율=임대료÷매출, 총비용률=총비용÷매출, 남은돈(영업이익)=매출−총비용. "원가율"은 반드시 재료비 기준으로만 사용할 것.';
 
     const groupSummaryLines = currentStats.expenseGroups
       .map((g) => {
-        const momTxt =
-          prevStats.hasData && g.prevAmount > 0 && g.momChangePct !== null
-            ? `, 전월 대비 ${g.momChangePct >= 0 ? '+' : ''}${g.momChangePct.toFixed(1)}%`
-            : '';
-        return `${g.shortLabel} ${g.amount}원(${g.ratioPct.toFixed(1)}%${momTxt})`;
+        if (!prevStats.hasData) {
+          return `${g.shortLabel}: 이번달 금액 ${g.amount}원 (비율 ${g.ratioPct.toFixed(1)}%)`;
+        }
+        const prevAmt = g.prevAmount ?? 0;
+        const prevRatio = prevStats.totalRevenue > 0 ? (prevAmt / prevStats.totalRevenue) * 100 : 0;
+        const amtDelta = calcComparisonMetricDelta(g.amount, prevAmt, 'amount', true).formatted;
+        const ratioDelta = calcComparisonMetricDelta(g.ratioPct, prevRatio, 'ratio', true).formatted;
+        return `${g.shortLabel}: 금액 이번달 ${g.amount}원 / 전월 ${prevAmt}원 (${amtDelta}), 비율 이번달 ${g.ratioPct.toFixed(1)}% / 전월 ${prevRatio.toFixed(1)}% (${ratioDelta})`;
       })
-      .join(' / ');
+      .join(' | ');
+
+    const prevAmountSummary = prevStats.hasData
+      ? [
+          `매출 ${currentStats.totalRevenue}원 / 전월 ${prevStats.totalRevenue}원 (${calcComparisonMetricDelta(currentStats.totalRevenue, prevStats.totalRevenue, 'amount', true).formatted})`,
+          `총비용 ${currentStats.totalExpense}원 / 전월 ${prevStats.totalExpense}원 (${calcComparisonMetricDelta(currentStats.totalExpense, prevStats.totalExpense, 'amount', true).formatted})`,
+          `남은돈 ${currentStats.operatingProfit}원 / 전월 ${prevStats.operatingProfit}원 (${calcComparisonMetricDelta(currentStats.operatingProfit, prevStats.operatingProfit, 'amount', true).formatted})`,
+          `일평균매출 ${currentStats.avgDailySales}원 / 전월 ${prevStats.avgDailySales}원 (${calcComparisonMetricDelta(currentStats.avgDailySales, prevStats.avgDailySales, 'amount', true).formatted})`,
+        ].join(', ')
+      : '없음';
+
+    const prevRatioSummary = prevStats.hasData
+      ? [
+          `원가율 이번달 ${currentStats.costRatio.toFixed(1)}% / 전월 ${prevStats.costRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.costRatio, prevStats.costRatio, 'ratio', true).formatted})`,
+          `인건비율 이번달 ${currentStats.laborRatio.toFixed(1)}% / 전월 ${prevStats.laborRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.laborRatio, prevStats.laborRatio, 'ratio', true).formatted})`,
+          `FL비율 이번달 ${currentStats.flRatio.toFixed(1)}% / 전월 ${prevStats.flRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.flRatio, prevStats.flRatio, 'ratio', true).formatted})`,
+          `임대료율 이번달 ${currentStats.rentRatio.toFixed(1)}% / 전월 ${prevStats.rentRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.rentRatio, prevStats.rentRatio, 'ratio', true).formatted})`,
+          `총비용률 이번달 ${currentStats.totalCostRatio.toFixed(1)}% / 전월 ${prevStats.totalCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.totalCostRatio, prevStats.totalCostRatio, 'ratio', true).formatted})`,
+          `영업이익률 이번달 ${currentStats.operatingProfitRatio.toFixed(1)}% / 전월 ${prevStats.operatingProfitRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.operatingProfitRatio, prevStats.operatingProfitRatio, 'ratio', true).formatted})`,
+        ].join(', ')
+      : '없음';
 
     const prevMonthSummary = prevStats.hasData
-      ? `매출 ${prevStats.totalRevenue}원, 총비용 ${prevStats.totalExpense}원, 남은돈 ${prevStats.operatingProfit}원, 원가율 ${prevStats.costRatio.toFixed(1)}%, 인건비율 ${prevStats.laborRatio.toFixed(1)}%, FL ${prevStats.flRatio.toFixed(1)}%, 일평균 ${prevStats.avgDailySales}원 (상태: ${prevStats.dataStatus === 'partial' ? '일부 데이터' : '완전'})`
+      ? `금액 비교(전월 대비 변화율%): ${prevAmountSummary}\n전월 대비 비율 비교(차이 %p): ${prevRatioSummary}\n전월 데이터 상태: ${prevStats.dataStatus === 'partial' ? '일부 데이터' : '완전'}`
       : '없음';
 
     const lastYearSection = lastYearStats.hasData
-      ? `전년동월 실적(${lastYearStats.dataStatus === 'partial' ? '일부 데이터' : '비교 가능'}): 매출 ${lastYearStats.totalRevenue}원, 총비용 ${lastYearStats.totalExpense}원, 원가율 ${lastYearStats.costRatio.toFixed(1)}%, FL ${lastYearStats.flRatio.toFixed(1)}%, 일평균 ${lastYearStats.avgDailySales}원\n전년 동월 대비 해석 시 계절 요인과 실제 증감을 구분하여 설명할 것.`
+      ? `전년동월 비교(${lastYearStats.dataStatus === 'partial' ? '일부 데이터' : '비교 가능'}):\n- 금액: 매출 이번달 ${currentStats.totalRevenue}원 / 전년 ${lastYearStats.totalRevenue}원 (${calcComparisonMetricDelta(currentStats.totalRevenue, lastYearStats.totalRevenue, 'amount', true).formatted}), 총비용 이번달 ${currentStats.totalExpense}원 / 전년 ${lastYearStats.totalExpense}원 (${calcComparisonMetricDelta(currentStats.totalExpense, lastYearStats.totalExpense, 'amount', true).formatted})\n- 비율(%p): 원가율 이번달 ${currentStats.costRatio.toFixed(1)}% / 전년 ${lastYearStats.costRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.costRatio, lastYearStats.costRatio, 'ratio', true).formatted}), FL비율 이번달 ${currentStats.flRatio.toFixed(1)}% / 전년 ${lastYearStats.flRatio.toFixed(1)}% (${calcComparisonMetricDelta(currentStats.flRatio, lastYearStats.flRatio, 'ratio', true).formatted})\n전년 동월 대비 해석 시 계절 요인과 실제 증감을 구분하여 설명할 것.`
       : '';
 
     const lowInputDirective = isLowInputRate
@@ -365,15 +393,15 @@ export async function GET(request: Request) {
 
     const aiPrompt = `${metricDefinitions}
 이번달(${year}년 ${month}월) 실적: 매출 ${currentStats.totalRevenue}원, 총비용 ${currentStats.totalExpense}원, 남은돈(영업이익) ${currentStats.operatingProfit}원, 영업이익률 ${currentStats.operatingProfitRatio.toFixed(1)}%, 총비용률 ${currentStats.totalCostRatio.toFixed(1)}%, 원가율 ${currentStats.costRatio.toFixed(1)}%, 인건비율 ${currentStats.laborRatio.toFixed(1)}%, FL비율 ${currentStats.flRatio.toFixed(1)}%, 임대료율 ${currentStats.rentRatio.toFixed(1)}%, 일평균 ${currentStats.avgDailySales}원 (매출입력 ${currentStats.openDays}/${currentStats.expectedDays}일, 매입 ${currentStats.purchaseCount}건)
-비용 그룹별 상세: ${groupSummaryLines}
-전월 실적: ${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
-이 매장의 ${year}년 ${month}월 성과와 전월 대비 크게 늘어난 비용 그룹을 짚어 해석과 실행 조언을 작성해 주세요.${lowInputDirective}
+비용 그룹별 상세(금액 vs 비율 분리): ${groupSummaryLines}
+${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
+이 매장의 ${year}년 ${month}월 성과와 전월 대비 변화가 큰 비용 그룹(공과금 시차 주의)을 짚어 해석과 실행 조언을 작성해 주세요.${lowInputDirective}
 ${reportFormatRule}`;
 
     const predictionPrompt = `${metricDefinitions}
 이번달(${year}년 ${month}월) 실적: 매출 ${currentStats.totalRevenue}원, 총비용 ${currentStats.totalExpense}원, 원가율 ${currentStats.costRatio.toFixed(1)}%, FL비율 ${currentStats.flRatio.toFixed(1)}%, 일평균 매출 ${currentStats.avgDailySales}원 (영업일 ${currentStats.openDays}일)
-비용 그룹별 상세: ${groupSummaryLines}
-전월 실적: ${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
+비용 그룹별 상세(금액 vs 비율 분리): ${groupSummaryLines}
+${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
 다음달(${nextMonth}월) 예측 데이터: 예측 매출 범위 ${predictedMin}원 ~ ${predictedMax}원, 계절성: ${prediction.seasonality || '일반'}, 공휴일: ${prediction.holidays.length > 0 ? prediction.holidays.join(', ') : '없음'}, 주말 일수: ${weekendCount}일
 이번 달·전월 실적 및 비용 구조를 반영해 다음 달을 대비한 구체적인 운영 및 발주 조언을 작성해 주세요.${lowInputDirective}
 ${reportFormatRule}`;

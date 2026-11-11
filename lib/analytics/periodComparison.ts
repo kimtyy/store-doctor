@@ -203,3 +203,53 @@ export function calcPeriodStats(
     expenseBreakdown: breakdown,
   };
 }
+
+export type ComparisonMetricKind = 'amount' | 'ratio';
+
+export interface MetricDelta {
+  kind: ComparisonMetricKind;
+  diff: number;
+  pct: number | null;
+  formatted: string;
+}
+
+/**
+ * 기간 비교 지표의 증감 계산/포맷 공통 함수
+ * - amount: 변화율(%) — 예: +12.3%, −50.0%
+ * - ratio: %p 차이 — 예: +7.1%p, −5.7%p
+ */
+export function calcComparisonMetricDelta(
+  current: number,
+  base: number,
+  kind: ComparisonMetricKind,
+  hasBaseData = true
+): MetricDelta {
+  if (!hasBaseData) {
+    return { kind, diff: 0, pct: null, formatted: '-' };
+  }
+  if (kind === 'ratio') {
+    const c1 = Math.round(current * 10) / 10;
+    const b1 = Math.round(base * 10) / 10;
+    const rounded = Math.round((c1 - b1) * 10) / 10;
+    const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '';
+    return {
+      kind,
+      diff: rounded,
+      pct: null,
+      formatted: `${sign}${Math.abs(rounded).toFixed(1)}%p`,
+    };
+  }
+  const diff = current - base;
+  if (!base || base === 0) {
+    return { kind, diff, pct: null, formatted: '-' };
+  }
+  const pct = ((current - base) / base) * 100;
+  const rounded = Math.round(pct * 10) / 10;
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '';
+  return {
+    kind,
+    diff,
+    pct,
+    formatted: `${sign}${Math.abs(rounded).toFixed(1)}%`,
+  };
+}

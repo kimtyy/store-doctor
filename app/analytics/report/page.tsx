@@ -3,6 +3,10 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import TermTooltip from '@/components/ui/TermTooltip';
+import {
+  calcComparisonMetricDelta,
+  ComparisonMetricKind,
+} from '@/lib/analytics/periodComparison';
 
 const WEATHER_EMOJI: Record<string, string> = {
   '맑음': '☀️',
@@ -19,25 +23,37 @@ function fmtMan(n: number): string {
   return (n / 10000).toFixed(1) + '만';
 }
 
-function calcVariance(current: number, base: number) {
-  if (!base || base === 0) return 0;
-  return ((current - base) / base) * 100;
-}
-
-function ComparisonCell({ current, base, formatter = fmt, suffix = '원', invertColor = false }: { current: number, base: number, formatter?: any, suffix?: string, invertColor?: boolean }) {
-  const v = calcVariance(current, base);
+function ComparisonCell({
+  current,
+  base,
+  kind = 'amount',
+  hasBaseData = true,
+  formatter = fmt,
+  suffix = '원',
+  invertColor = false,
+}: {
+  current: number;
+  base: number;
+  kind?: ComparisonMetricKind;
+  hasBaseData?: boolean;
+  formatter?: (v: number) => string;
+  suffix?: string;
+  invertColor?: boolean;
+}) {
+  const delta = calcComparisonMetricDelta(current, base, kind, hasBaseData);
+  const deltaValue = kind === 'ratio' ? delta.diff : (delta.pct ?? 0);
   let colorClass = 'bg-slate-100 text-slate-500';
-  if (v > 0) {
+  if (deltaValue > 0.05) {
     colorClass = invertColor ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700';
-  } else if (v < 0) {
+  } else if (deltaValue < -0.05) {
     colorClass = invertColor ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
   }
   return (
     <div className="flex flex-col items-center sm:items-end justify-center">
       <span className="font-semibold text-slate-700 text-sm">{formatter(base)}{suffix}</span>
-      {base > 0 ? (
+      {delta.formatted !== '-' ? (
         <span className={`text-[10px] font-bold px-1 py-0.5 mt-0.5 rounded ${colorClass}`}>
-          {v > 0 ? '↑' : v < 0 ? '↓' : '-'} {Math.abs(v).toFixed(1)}%
+          {delta.formatted}
         </span>
       ) : (
         <span className="text-[10px] text-slate-400 mt-0.5">-</span>
@@ -143,19 +159,48 @@ function MonthlyReportContent() {
     csv += `실질 순이익,${data.profit.netProfit}\n\n`;
 
     if (data.comparison) {
+      const c = data.comparison.current;
+      const p = data.comparison.prev;
+      const l = data.comparison.lastYear;
+      const hasPrev = p?.dataStatus ? p.dataStatus !== 'none' : Boolean(p?.hasData);
+      const hasLast = l?.dataStatus ? l.dataStatus !== 'none' : Boolean(l?.hasData);
+      const csvRow = (
+        label: string,
+        currVal: number,
+        prevVal: number,
+        lastVal: number,
+        kind: ComparisonMetricKind,
+        isRatio = false,
+        suffix = ''
+      ) => {
+        const pDiff = calcComparisonMetricDelta(currVal, prevVal, kind, hasPrev).formatted;
+        const lDiff = calcComparisonMetricDelta(currVal, lastVal, kind, hasLast).formatted;
+        const f = (v: number) => (isRatio ? `${v.toFixed(1)}%` : `${v}${suffix}`);
+        return `${label},${f(currVal)},${hasPrev ? f(prevVal) : '데이터 없음'},${pDiff},${hasLast ? f(lastVal) : '데이터 없음'},${lDiff}\n`;
+      };
+
       csv += `[기간 비교 분석]\n`;
-      csv += `항목,이번달,전월,전년동월\n`;
-      csv += `총매출,${data.comparison.current.totalRevenue},${data.comparison.prev.totalRevenue},${data.comparison.lastYear.totalRevenue}\n`;
-      csv += `총비용,${data.comparison.current.totalExpense ?? data.comparison.current.totalPurchase},${data.comparison.prev.totalExpense ?? data.comparison.prev.totalPurchase},${data.comparison.lastYear.totalExpense ?? data.comparison.lastYear.totalPurchase}\n`;
-      csv += `남은 돈(영업이익),${data.comparison.current.operatingProfit},${data.comparison.prev.operatingProfit},${data.comparison.lastYear.operatingProfit}\n`;
-      csv += `원가율(재료비),${data.comparison.current.costRatio.toFixed(1)}%,${data.comparison.prev.costRatio.toFixed(1)}%,${data.comparison.lastYear.costRatio.toFixed(1)}%\n`;
-      csv += `인건비율,${(data.comparison.current.laborRatio ?? 0).toFixed(1)}%,${(data.comparison.prev.laborRatio ?? 0).toFixed(1)}%,${(data.comparison.lastYear.laborRatio ?? 0).toFixed(1)}%\n`;
-      csv += `FL 비율,${(data.comparison.current.flRatio ?? 0).toFixed(1)}%,${(data.comparison.prev.flRatio ?? 0).toFixed(1)}%,${(data.comparison.lastYear.flRatio ?? 0).toFixed(1)}%\n`;
-      csv += `임대료율,${(data.comparison.current.rentRatio ?? 0).toFixed(1)}%,${(data.comparison.prev.rentRatio ?? 0).toFixed(1)}%,${(data.comparison.lastYear.rentRatio ?? 0).toFixed(1)}%\n`;
-      csv += `총비용률,${(data.comparison.current.totalCostRatio ?? 0).toFixed(1)}%,${(data.comparison.prev.totalCostRatio ?? 0).toFixed(1)}%,${(data.comparison.lastYear.totalCostRatio ?? 0).toFixed(1)}%\n`;
-      csv += `일평균매출,${data.comparison.current.avgDailySales},${data.comparison.prev.avgDailySales},${data.comparison.lastYear.avgDailySales}\n`;
-      csv += `객단가,${data.comparison.current.avgSpend},${data.comparison.prev.avgSpend},${data.comparison.lastYear.avgSpend}\n`;
-      csv += `영업일수,${data.comparison.current.openDays}일,${data.comparison.prev.openDays}일,${data.comparison.lastYear.openDays}일\n\n`;
+      csv += `항목,이번달,전월,전월 대비,전년동월,전년동월 대비\n`;
+      csv += csvRow('총매출', c.totalRevenue, p.totalRevenue, l.totalRevenue, 'amount');
+      csv += csvRow('총비용', c.totalExpense ?? c.totalPurchase, p.totalExpense ?? p.totalPurchase, l.totalExpense ?? l.totalPurchase, 'amount');
+      (c.expenseGroups ?? []).forEach((g: any) => {
+        const pAmt = p.groupTotals?.[g.key] ?? 0;
+        const lAmt = l.groupTotals?.[g.key] ?? 0;
+        if (g.amount > 0 || pAmt > 0 || lAmt > 0) {
+          csv += csvRow(`  ${g.label}`, g.amount, pAmt, lAmt, 'amount');
+        }
+      });
+      csv += csvRow('남은 돈(영업이익)', c.operatingProfit, p.operatingProfit, l.operatingProfit, 'amount');
+      csv += csvRow('원가율(재료비)', c.costRatio, p.costRatio, l.costRatio, 'ratio', true);
+      csv += csvRow('인건비율', c.laborRatio ?? 0, p.laborRatio ?? 0, l.laborRatio ?? 0, 'ratio', true);
+      csv += csvRow('FL 비율', c.flRatio ?? 0, p.flRatio ?? 0, l.flRatio ?? 0, 'ratio', true);
+      csv += csvRow('임대료율', c.rentRatio ?? 0, p.rentRatio ?? 0, l.rentRatio ?? 0, 'ratio', true);
+      csv += csvRow('총비용률', c.totalCostRatio ?? 0, p.totalCostRatio ?? 0, l.totalCostRatio ?? 0, 'ratio', true);
+      csv += csvRow('영업이익률', c.operatingProfitRatio ?? 0, p.operatingProfitRatio ?? 0, l.operatingProfitRatio ?? 0, 'ratio', true);
+      csv += csvRow('일평균매출', c.avgDailySales, p.avgDailySales, l.avgDailySales, 'amount');
+      csv += csvRow('객단가', c.avgSpend, p.avgSpend, l.avgSpend, 'amount');
+      csv += csvRow('영업일수', c.openDays, p.openDays, l.openDays, 'amount', false, '일');
+      csv += `\n`;
     }
 
     if (data.prediction) {
@@ -581,6 +626,7 @@ function MonthlyReportContent() {
                         key: 'totalRevenue',
                         label: '총매출',
                         tooltip: '총매출',
+                        kind: 'amount' as ComparisonMetricKind,
                         curr: data.comparison.current.totalRevenue,
                         prev: data.comparison.prev.totalRevenue,
                         last: data.comparison.lastYear.totalRevenue,
@@ -592,6 +638,7 @@ function MonthlyReportContent() {
                         key: 'totalExpense',
                         label: '총비용',
                         tooltip: '총비용',
+                        kind: 'amount' as ComparisonMetricKind,
                         curr: data.comparison.current.totalExpense ?? data.comparison.current.totalPurchase,
                         prev: data.comparison.prev.totalExpense ?? data.comparison.prev.totalPurchase,
                         last: data.comparison.lastYear.totalExpense ?? data.comparison.lastYear.totalPurchase,
@@ -599,10 +646,30 @@ function MonthlyReportContent() {
                         suffix: '원',
                         invertColor: true,
                       },
+                      ...(data.comparison.current.expenseGroups ?? [])
+                        .filter((g: any) => {
+                          const pAmt = data.comparison.prev.groupTotals?.[g.key] ?? 0;
+                          const lAmt = data.comparison.lastYear.groupTotals?.[g.key] ?? 0;
+                          return g.amount > 0 || pAmt > 0 || lAmt > 0;
+                        })
+                        .map((g: any) => ({
+                          key: `group-${g.key}`,
+                          label: `· ${g.label}`,
+                          tooltip: undefined,
+                          kind: 'amount' as ComparisonMetricKind,
+                          curr: g.amount,
+                          prev: data.comparison.prev.groupTotals?.[g.key] ?? 0,
+                          last: data.comparison.lastYear.groupTotals?.[g.key] ?? 0,
+                          formatter: fmt,
+                          suffix: '원',
+                          invertColor: true,
+                          isSubRow: true,
+                        })),
                       {
                         key: 'operatingProfit',
                         label: '남은 돈(영업이익)',
                         tooltip: '남은 돈',
+                        kind: 'amount' as ComparisonMetricKind,
                         curr: data.comparison.current.operatingProfit,
                         prev: data.comparison.prev.operatingProfit,
                         last: data.comparison.lastYear.operatingProfit,
@@ -614,6 +681,7 @@ function MonthlyReportContent() {
                         key: 'costRatio',
                         label: '원가율(재료비)',
                         tooltip: '원가율',
+                        kind: 'ratio' as ComparisonMetricKind,
                         curr: data.comparison.current.costRatio,
                         prev: data.comparison.prev.costRatio,
                         last: data.comparison.lastYear.costRatio,
@@ -625,6 +693,7 @@ function MonthlyReportContent() {
                         key: 'laborRatio',
                         label: '인건비율',
                         tooltip: '인건비율',
+                        kind: 'ratio' as ComparisonMetricKind,
                         curr: data.comparison.current.laborRatio ?? 0,
                         prev: data.comparison.prev.laborRatio ?? 0,
                         last: data.comparison.lastYear.laborRatio ?? 0,
@@ -636,6 +705,7 @@ function MonthlyReportContent() {
                         key: 'flRatio',
                         label: 'FL 비율',
                         tooltip: 'FL 비율',
+                        kind: 'ratio' as ComparisonMetricKind,
                         curr: data.comparison.current.flRatio ?? 0,
                         prev: data.comparison.prev.flRatio ?? 0,
                         last: data.comparison.lastYear.flRatio ?? 0,
@@ -647,6 +717,7 @@ function MonthlyReportContent() {
                         key: 'rentRatio',
                         label: '임대료율',
                         tooltip: '임대료율',
+                        kind: 'ratio' as ComparisonMetricKind,
                         curr: data.comparison.current.rentRatio ?? 0,
                         prev: data.comparison.prev.rentRatio ?? 0,
                         last: data.comparison.lastYear.rentRatio ?? 0,
@@ -658,6 +729,7 @@ function MonthlyReportContent() {
                         key: 'totalCostRatio',
                         label: '총비용률',
                         tooltip: '총비용률',
+                        kind: 'ratio' as ComparisonMetricKind,
                         curr: data.comparison.current.totalCostRatio ?? 0,
                         prev: data.comparison.prev.totalCostRatio ?? 0,
                         last: data.comparison.lastYear.totalCostRatio ?? 0,
@@ -666,8 +738,21 @@ function MonthlyReportContent() {
                         invertColor: true,
                       },
                       {
+                        key: 'operatingProfitRatio',
+                        label: '영업이익률',
+                        tooltip: '남은 돈',
+                        kind: 'ratio' as ComparisonMetricKind,
+                        curr: data.comparison.current.operatingProfitRatio ?? 0,
+                        prev: data.comparison.prev.operatingProfitRatio ?? 0,
+                        last: data.comparison.lastYear.operatingProfitRatio ?? 0,
+                        formatter: (v: number) => v.toFixed(1),
+                        suffix: '%',
+                        invertColor: false,
+                      },
+                      {
                         key: 'avgDailySales',
                         label: '일평균매출',
+                        kind: 'amount' as ComparisonMetricKind,
                         curr: data.comparison.current.avgDailySales,
                         prev: data.comparison.prev.avgDailySales,
                         last: data.comparison.lastYear.avgDailySales,
@@ -675,9 +760,15 @@ function MonthlyReportContent() {
                         suffix: '원',
                         invertColor: false,
                       },
-                    ].map((row) => (
-                      <tr key={row.key}>
-                        <td className="p-3 text-left font-semibold text-slate-700 whitespace-nowrap">
+                    ].map((row: any) => (
+                      <tr key={row.key} className={row.isSubRow ? 'bg-slate-50/30 text-xs' : undefined}>
+                        <td
+                          className={`p-3 text-left whitespace-nowrap ${
+                            row.isSubRow
+                              ? 'pl-5 font-medium text-slate-500'
+                              : 'font-semibold text-slate-700'
+                          }`}
+                        >
                           {row.label} {row.tooltip ? <TermTooltip term={row.tooltip} /> : null}
                         </td>
                         <td className="p-3 font-bold text-slate-900 whitespace-nowrap">
@@ -688,6 +779,8 @@ function MonthlyReportContent() {
                             <ComparisonCell
                               current={row.curr}
                               base={row.prev}
+                              kind={row.kind}
+                              hasBaseData={hasPrevData}
                               formatter={row.formatter}
                               suffix={row.suffix}
                               invertColor={row.invertColor}
@@ -701,6 +794,8 @@ function MonthlyReportContent() {
                             <ComparisonCell
                               current={row.curr}
                               base={row.last}
+                              kind={row.kind}
+                              hasBaseData={hasLastYearData}
                               formatter={row.formatter}
                               suffix={row.suffix}
                               invertColor={row.invertColor}
@@ -776,6 +871,9 @@ function MonthlyReportContent() {
         <section>
           <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">손익분기점 분석</h2>
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+            <p className="text-xs text-slate-500">
+              11월부터 변동비는 재료비·수수료로, 나머지는 고정비로 계산합니다(이전 보고서와 값이 다를 수 있음).
+            </p>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">고정비 합계</span>
               <span className="font-semibold text-slate-800">{fmt(data.bep.fixedCostsSum)}원</span>

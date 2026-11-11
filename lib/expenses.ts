@@ -146,6 +146,16 @@ export function isKnownPurchaseCategory(category?: string | null): category is P
   return category in CATEGORY_TO_GROUP_MAP;
 }
 
+const FIXED_COST_CATEGORY_SET = new Set<string>(FIXED_COST_CATEGORY_OPTIONS.map((o) => o.value));
+
+export function isValidPurchaseCategory(category: unknown): category is PurchaseCategory {
+  return typeof category === 'string' && category in CATEGORY_TO_GROUP_MAP;
+}
+
+export function isValidFixedCostCategory(category: unknown): category is PurchaseCategory {
+  return typeof category === 'string' && FIXED_COST_CATEGORY_SET.has(category);
+}
+
 export function isIngredientCategory(category?: string | null): boolean {
   return mapCategoryToExpenseGroup(category) === 'ingredients';
 }

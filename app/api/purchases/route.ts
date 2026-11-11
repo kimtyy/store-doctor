@@ -4,6 +4,7 @@ import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { getUserRole } from '@/utils/supabase/getUserRole';
 import { applyFixedCostsForStore } from '@/lib/fixedCosts';
+import { isValidPurchaseCategory } from '@/lib/expenses';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,7 +110,12 @@ export async function PATCH(request: Request) {
     const updatePayload: Record<string, unknown> = { items: items ?? [], total_amount: totalAmount };
     if (date) updatePayload.date = date;
     if (vendorName !== undefined) updatePayload.vendor_name = vendorName;
-    if (category) updatePayload.category = category;
+    if (category !== undefined) {
+      if (!isValidPurchaseCategory(category)) {
+        return NextResponse.json({ error: '허용되지 않은 비용 카테고리입니다.' }, { status: 400 });
+      }
+      updatePayload.category = category;
+    }
     if (memo !== undefined) updatePayload.memo = memo;
 
     const { error } = await supabase

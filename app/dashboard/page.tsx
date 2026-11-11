@@ -9,7 +9,11 @@ import PeriodSelector, { PeriodValue, MonthSelection } from '@/components/Period
 import OnboardingGuideModal from '@/components/OnboardingGuideModal';
 import TermTooltip from '@/components/ui/TermTooltip';
 import { isIngredientCategory } from '@/lib/expenses';
-import { COST_RATIO_THRESHOLDS } from '@/lib/analytics/costRatio';
+import {
+  calculateCostRatioMovingAverage,
+  getLatestCostRatioBaseline60,
+} from '@/lib/analytics/costRatio';
+import CostRatioAlertCard from '@/components/diagnosis/CostRatioAlertCard';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 
@@ -301,6 +305,16 @@ export default function DashboardPage() {
     [salesData]
   );
 
+  const costRatioDays = useMemo(
+    () =>
+      nonEventSalesData.map((d) => ({
+        date: d.date,
+        revenue: d.netRevenue,
+        ingredientCost: ingredientByDate[d.date] ?? 0,
+      })),
+    [nonEventSalesData, ingredientByDate]
+  );
+
   const chartData = useMemo((): MAChartDataPoint[] => {
     if (nonEventSalesData.length === 0) return [];
     const revenues = nonEventSalesData.map((d) => d.netRevenue);
@@ -323,15 +337,11 @@ export default function DashboardPage() {
     const profitMa60  = calcNullableMA(profitValues, 60);
     const profitMa120 = calcNullableMA(profitValues, 120);
 
-    // 원가율 추세: 전체 총비용이 아니라 재료비(식자재·주류)만 사용해 1일 고정비 급등 왜곡 차단
-    const crValues = nonEventSalesData.map((d) => {
-      const ingCost = ingredientByDate[d.date];
-      return ingCost !== undefined && d.netRevenue > 0 ? (ingCost / d.netRevenue) * 100 : null;
-    });
-    const crMa5   = calcNullableMA(crValues, 5);
-    const crMa20  = calcNullableMA(crValues, 20);
-    const crMa60  = calcNullableMA(crValues, 60);
-    const crMa120 = calcNullableMA(crValues, 120);
+    // 원가율 추세: N일간 재료비 합계 ÷ N일간 매출 합계 (공통 lib 함수)
+    const crMa5   = calculateCostRatioMovingAverage(costRatioDays, 5);
+    const crMa20  = calculateCostRatioMovingAverage(costRatioDays, 20);
+    const crMa60  = calculateCostRatioMovingAverage(costRatioDays, 60);
+    const crMa120 = calculateCostRatioMovingAverage(costRatioDays, 120);
 
     return nonEventSalesData.map((d, i) => ({
       date: d.date.slice(-5),
@@ -340,16 +350,15 @@ export default function DashboardPage() {
       profitMa5: profitMa5[i], profitMa20: profitMa20[i], profitMa60: profitMa60[i], profitMa120: profitMa120[i],
       costRatioMa5: crMa5[i],  costRatioMa20: crMa20[i],  costRatioMa60: crMa60[i],  costRatioMa120: crMa120[i],
     }));
-  }, [nonEventSalesData, purchaseByDate, ingredientByDate]);
+  }, [nonEventSalesData, purchaseByDate, costRatioDays]);
 
-  const storeCostRatioAvg60 = useMemo(() => {
-    if (nonEventSalesData.length < COST_RATIO_THRESHOLDS.MIN_DAYS_FOR_RELATIVE_ALERT) return null;
-    const recent60 = nonEventSalesData.slice(-60);
-    const revSum = recent60.reduce((s, d) => s + (d.netRevenue || 0), 0);
-    if (revSum <= 0) return null;
-    const ingSum = recent60.reduce((s, d) => s + (ingredientByDate[d.date] ?? 0), 0);
-    return (ingSum / revSum) * 100;
-  }, [nonEventSalesData, ingredientByDate]);
+  const costRatioBaseline60 = useMemo(
+    () => getLatestCostRatioBaseline60(costRatioDays),
+    [costRatioDays]
+  );
+  const storeCostRatioAvg60 = costRatioBaseline60.costRatio;
+  const latestCostRatioMa5 =
+    chartData.length > 0 ? chartData[chartData.length - 1].costRatioMa5 : null;
 
   const dataAvailability = useMemo((): DataAvailability => ({
     ma5: nonEventSalesData.length >= 5,
@@ -831,6 +840,15 @@ export default function DashboardPage() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* ── 원가율 경고 카드 ──────────────────────────────────── */}
+              {!isRoleLoading && canViewAnalytics && (
+                <CostRatioAlertCard
+                  ma5={latestCostRatioMa5}
+                  ma60={storeCostRatioAvg60}
+                  operatingDaysCount={costRatioBaseline60.operatingDaysCount}
+                />
               )}
 
               {/* ── 이동평균선 차트 ────────────────────────────────────── */}
