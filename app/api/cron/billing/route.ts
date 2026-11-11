@@ -111,7 +111,22 @@ export async function GET(request: Request) {
       }
 
       const planDetail = BILLING_PLANS[(sub.plan as PlanKey)] || BILLING_PLANS.basic;
-      const orderId = `recur_${sub.user_id.slice(0, 8)}_${Date.now()}`;
+
+      // 1. 주문번호(orderId) 결정론적 생성 규칙:
+      // rc_${subscription.id}_${next_billing_date YYYYMMDD}_${retry_count}
+      // 토스 orderId 허용 규격: 영문 대소문자, 숫자, 특수문자 -, _ (6자 이상 64자 이하)
+      // 길이: rc_(3) + UUID(36) + _(1) + YYYYMMDD(8) + _(1) + retryCount(1~2) ≈ 49~50자 (규격 완벽 부합)
+      const billingDateObj = sub.next_billing_date ? new Date(sub.next_billing_date) : now;
+      const ymd = billingDateObj.toISOString().slice(0, 10).replace(/-/g, '');
+      const orderId = `rc_${sub.id}_${ymd}_${retryCount}`;
+
+      // 다음 결제 예정일 계산 (+1개월)
+      const currentNext = sub.next_billing_date ? new Date(sub.next_billing_date) : new Date(now);
+      currentNext.setMonth(currentNext.getMonth() + 1);
+
+      let isPaymentDone = false;
+      let isDuplicateResolved = false;
+      let paymentErrorMessage = '';
 
       try {
         const tossRes = await fetch(`https://api.tosspayments.com/v1/billing/${plainBillingKey}`, {
@@ -128,13 +143,78 @@ export async function GET(request: Request) {
           }),
         });
 
-        const tossData = await tossRes.json();
+        const tossData = await tossRes.json().catch(() => ({}));
 
         if (tossRes.ok) {
-          // 결제 성공: 다음 결제일 +1개월, status: active, retry_count: 0
-          const currentNext = sub.next_billing_date ? new Date(sub.next_billing_date) : new Date(now);
-          currentNext.setMonth(currentNext.getMonth() + 1);
+          isPaymentDone = true;
+        } else {
+          paymentErrorMessage = tossData?.message || `HTTP ${tossRes.status}`;
 
+          // 토스 중복 주문번호/이미 처리됨 에러 처리:
+          // 토스 공식 에러 코드: ALREADY_PROCESSED_PAYMENT, DUPLICATED_ORDER_ID
+          // 토스 주문 조회 API: GET https://api.tosspayments.com/v1/payments/orders/{orderId}
+          const isDuplicateError =
+            tossData?.code === 'ALREADY_PROCESSED_PAYMENT' ||
+            tossData?.code === 'DUPLICATED_ORDER_ID' ||
+            String(tossData?.message || '').includes('이미') ||
+            String(tossData?.message || '').includes('중복');
+
+          if (isDuplicateError) {
+            console.warn(`[Billing Cron] Toss duplicate order detected for sub ${sub.id}, orderId ${orderId}. Checking payment status...`);
+            try {
+              const lookupRes = await fetch(`https://api.tosspayments.com/v1/payments/orders/${encodeURIComponent(orderId)}`, {
+                method: 'GET',
+                headers: {
+                  Authorization: `Basic ${encodedCredential}`,
+                },
+              });
+              if (lookupRes.ok) {
+                const lookupData = await lookupRes.json();
+                if (lookupData.status === 'DONE') {
+                  // 이미 결제 완료된 건이므로 재청구 없이 DB 갱신만 수행
+                  isPaymentDone = true;
+                  isDuplicateResolved = true;
+                  console.log(`[Billing Cron] OrderId ${orderId} confirmed DONE via order lookup. Proceeding to DB update without re-charge.`);
+                }
+              } else {
+                console.error(`[Billing Cron] Order lookup failed with status ${lookupRes.status} for orderId ${orderId}`);
+              }
+            } catch (lookupErr) {
+              console.error(`[Billing Cron] Order lookup network exception for orderId ${orderId}:`, lookupErr);
+            }
+          }
+        }
+      } catch (chargeErr: any) {
+        console.error(`Toss recurring charge network exception for sub ${sub.id}:`, chargeErr);
+        paymentErrorMessage = chargeErr?.message || '네트워크 예외';
+
+        // 네트워크 예외 발생 시에도 토스에 이미 승인되었는지 확인 시도
+        try {
+          const lookupRes = await fetch(`https://api.tosspayments.com/v1/payments/orders/${encodeURIComponent(orderId)}`, {
+            method: 'GET',
+            headers: {
+              Authorization: `Basic ${encodedCredential}`,
+            },
+          });
+          if (lookupRes.ok) {
+            const lookupData = await lookupRes.json();
+            if (lookupData.status === 'DONE') {
+              isPaymentDone = true;
+              isDuplicateResolved = true;
+              console.log(`[Billing Cron] OrderId ${orderId} confirmed DONE after network exception. Proceeding to DB update.`);
+            }
+          }
+        } catch (lookupErr) {
+          console.error(`[Billing Cron] Order lookup after network exception failed for ${orderId}:`, lookupErr);
+        }
+      }
+
+      // 2. 결제 완료 건: DB 갱신 (최대 3회 재시도)
+      if (isPaymentDone) {
+        let updateSuccess = false;
+        let lastDbError: any = null;
+
+        for (let attempt = 1; attempt <= 3; attempt++) {
           const { error: updateError } = await adminSupabase
             .from('subscriptions')
             .update({
@@ -148,16 +228,28 @@ export async function GET(request: Request) {
             })
             .eq('id', sub.id);
 
-          if (updateError) {
-            console.error(`[Billing Cron] DB update failed for charged sub ${sub.id}:`, updateError.message);
-            try {
-              const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
-              const subjectPrefix = isTestMode ? '[테스트] ' : '';
-              await notifyAdmin({
-                subject: `${subjectPrefix}[긴급] 정기결제 갱신 승인 후 DB 저장 실패 - ${sub.user_id}`,
-                text: `[매장닥터 정기결제 갱신 DB 오류 알림]
+          if (!updateError) {
+            updateSuccess = true;
+            break;
+          }
+          lastDbError = updateError;
+          console.error(`[Billing Cron] DB update attempt ${attempt}/3 failed for sub ${sub.id}:`, updateError.message);
+          if (attempt < 3) {
+            await new Promise((res) => setTimeout(res, 500));
+          }
+        }
 
-정기결제 갱신 청구(토스 결제)는 성공하였으나, Supabase subscriptions 테이블 갱신에 실패하였습니다.
+        if (!updateSuccess) {
+          // Vercel 로그 폴백: 알림 모듈 실패 여부와 무관하게 필수 정보 기록 (카드/키 제외)
+          console.error(`[Billing Cron] CRITICAL: DB update failed 3 times for charged sub ${sub.id}. OrderId: ${orderId}, User: ${sub.user_id}, Error: ${lastDbError?.message}`);
+          try {
+            const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+            const subjectPrefix = isTestMode ? '[테스트] ' : '';
+            await notifyAdmin({
+              subject: `${subjectPrefix}[긴급] 정기결제 갱신 승인 후 DB 저장 실패 - ${sub.user_id}`,
+              text: `[매장닥터 정기결제 갱신 DB 오류 알림]
+
+정기결제 갱신 청구(토스 결제)는 성공하였으나, Supabase subscriptions 테이블 3회 재시도 갱신에 모두 실패하였습니다.
 다음 크론 실행 시 중복 결제가 발생하지 않도록 즉시 확인 및 수동 갱신이 필요합니다.
 
 ■ 상세 정보
@@ -165,52 +257,36 @@ export async function GET(request: Request) {
 - 사용자 식별자: ${sub.user_id}
 - 토스 주문번호: ${orderId}
 - 결제 금액: ${planDetail.price.toLocaleString()}원
-- DB 에러 내용: ${updateError.message}
+- DB 에러 내용: ${lastDbError?.message}
 - 다음 결제 예정일(갱신 대상): ${currentNext.toISOString()}
 
 ■ 조치 방법
 토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId}) 결제 승인 내역을 확인하시고,
 Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${currentNext.toISOString()}으로 수동 업데이트해 주세요.`,
-              });
-            } catch (notifyErr) {
-              console.error('[Billing Cron] Failed to send admin notification for DB update error:', notifyErr);
-            }
-
-            results.push({
-              id: sub.id,
-              user_id: sub.user_id,
-              status: 'charged_but_db_update_failed',
-              error: updateError.message,
-              orderId,
             });
-          } else {
-            results.push({ id: sub.id, user_id: sub.user_id, status: 'charged_successfully', nextBillingDate: currentNext });
+          } catch (notifyErr) {
+            console.error('[Billing Cron] Fallback: notifyAdmin failed for DB update error:', notifyErr);
           }
-        } else {
-          // 결제 실패: retry_count + 1, last_retry_at 갱신, 상태 연체(또는 최종 실패 시 expired)
-          const newRetryCount = retryCount + 1;
-          const nextStatus = newRetryCount >= 3 ? 'expired' : 'past_due';
-
-          await adminSupabase
-            .from('subscriptions')
-            .update({
-              status: nextStatus,
-              retry_count: newRetryCount,
-              last_retry_at: now.toISOString(),
-            })
-            .eq('id', sub.id);
 
           results.push({
             id: sub.id,
             user_id: sub.user_id,
-            status: 'charge_failed',
-            newRetryCount,
-            nextStatus,
-            error: tossData.message,
+            status: 'charged_but_db_update_failed',
+            error: lastDbError?.message,
+            orderId,
+          });
+        } else {
+          results.push({
+            id: sub.id,
+            user_id: sub.user_id,
+            status: isDuplicateResolved ? 'already_charged_db_synced' : 'charged_successfully',
+            nextBillingDate: currentNext,
+            orderId,
           });
         }
-      } catch (chargeErr: any) {
-        console.error(`Toss recurring charge network exception for sub ${sub.id}:`, chargeErr);
+      } else {
+        // 결제 실패 처리: retry_count + 1, last_retry_at 갱신, 상태 연체(또는 최종 실패 시 expired)
+        // 결제 실패 시에만 retry_count가 증가하여 다음 시도 때 새 orderId가 생성됨
         const newRetryCount = retryCount + 1;
         const nextStatus = newRetryCount >= 3 ? 'expired' : 'past_due';
 
@@ -226,9 +302,11 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
         results.push({
           id: sub.id,
           user_id: sub.user_id,
-          status: 'charge_network_error',
+          status: 'charge_failed',
           newRetryCount,
           nextStatus,
+          error: paymentErrorMessage,
+          orderId,
         });
       }
     }

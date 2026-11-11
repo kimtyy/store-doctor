@@ -57,6 +57,38 @@ export async function GET(request: Request) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // 2-B. 이미 활성 구독 중인 사용자의 중복 결제 진입 차단 (토스 API 호출 전 검증)
+  // 조건: status IN ('active', 'cancelled', 'past_due') AND expires_at > now()
+  const adminSupabase = getAdminClient();
+  if (!adminSupabase) {
+    console.error('Database client initialization failed in confirm route');
+    const failUrl = new URL('/payment', request.url);
+    failUrl.searchParams.set('plan', plan);
+    failUrl.searchParams.set('error', 'true');
+    failUrl.searchParams.set('message', '결제 서버 데이터베이스 초기화 오류가 발생했습니다.');
+    return NextResponse.redirect(failUrl);
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: existingSub, error: existingSubError } = await adminSupabase
+    .from('subscriptions')
+    .select('id, status, expires_at')
+    .eq('user_id', user.id)
+    .in('status', ['active', 'cancelled', 'past_due'])
+    .gt('expires_at', nowIso)
+    .maybeSingle();
+
+  if (existingSubError) {
+    console.error('Failed to check existing subscription:', existingSubError.message);
+  }
+
+  if (existingSub) {
+    return NextResponse.json(
+      { error: '이미 이용 중인 구독이 있습니다.' },
+      { status: 409 }
+    );
+  }
+
   // 3. 토스페이먼츠 시크릿 키 체크 (폴백 없이 환경변수 미설정 시 즉시 에러)
   const tossSecretKey = process.env.TOSS_SECRET_KEY;
   if (!tossSecretKey) {
@@ -73,17 +105,44 @@ export async function GET(request: Request) {
   let paymentKey: string | null = null;
   let orderId: string | null = null;
   let planDetail: (typeof BILLING_PLANS)[PlanKey] | null = null;
+  let hasAttemptedCancel = false;
+  let cancelResultCache: { success: boolean; error?: string } | null = null;
+
+  // 토스 주문번호로 결제 조회 API: GET https://api.tosspayments.com/v1/payments/orders/{orderId}
+  async function lookupPaymentByOrderId(targetOrderId: string) {
+    try {
+      const res = await fetch(`https://api.tosspayments.com/v1/payments/orders/${encodeURIComponent(targetOrderId)}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Basic ${encodedCredential}`,
+        },
+      });
+      if (!res.ok) {
+        return { success: false, status: res.status };
+      }
+      const data = await res.json();
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err?.message || '네트워크 조회 실패' };
+    }
+  }
 
   async function cancelChargedPayment(reason: string) {
+    if (hasAttemptedCancel && cancelResultCache) {
+      return cancelResultCache;
+    }
     if (!paymentKey) {
       return { success: false, error: 'paymentKey 누락' };
     }
+    hasAttemptedCancel = true;
     try {
+      // 토스 결제 취소 API (Idempotency-Key로 네트워크 재시도로 인한 중복 취소 부작용 방지)
       const cancelResponse = await fetch(`https://api.tosspayments.com/v1/payments/${paymentKey}/cancel`, {
         method: 'POST',
         headers: {
           Authorization: `Basic ${encodedCredential}`,
           'Content-Type': 'application/json',
+          'Idempotency-Key': `cancel_${paymentKey}`,
         },
         body: JSON.stringify({
           cancelReason: reason,
@@ -91,11 +150,14 @@ export async function GET(request: Request) {
       });
       const cancelData = await cancelResponse.json().catch(() => null);
       if (cancelResponse.ok) {
-        return { success: true };
+        cancelResultCache = { success: true };
+        return cancelResultCache;
       }
-      return { success: false, error: cancelData?.message || `HTTP ${cancelResponse.status}` };
+      cancelResultCache = { success: false, error: cancelData?.message || `HTTP ${cancelResponse.status}` };
+      return cancelResultCache;
     } catch (err: any) {
-      return { success: false, error: err?.message || '네트워크 예외' };
+      cancelResultCache = { success: false, error: err?.message || '네트워크 예외' };
+      return cancelResultCache;
     }
   }
 
@@ -146,10 +208,43 @@ export async function GET(request: Request) {
       }),
     });
 
-    const chargeData = await chargeResponse.json();
+    const chargeData = await chargeResponse.json().catch(() => ({}));
 
     if (!chargeResponse.ok) {
       console.error('Toss first billing charge failed:', chargeData.message || chargeData);
+
+      // 토스 오류/실패 응답 시에도 혹시 승인되었는지 주문번호로 결제 조회 확인
+      const lookup = await lookupPaymentByOrderId(orderId);
+      if (lookup.success && lookup.data?.status === 'DONE') {
+        paymentKey = lookup.data.paymentKey;
+        const cancelResult = await cancelChargedPayment('응답 유실 확인 후 자동 취소');
+        const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+        const subjectPrefix = isTestMode ? '[테스트] ' : '';
+        try {
+          await notifyAdmin({
+            subject: `${subjectPrefix}[긴급${cancelResult.success ? '' : '/수동취소필요'}] 결제 응답 유실 건 자동 복구 (${cancelResult.success ? '자동취소완료' : '자동취소실패'}) - ${user.email}`,
+            text: `[매장닥터 결제 응답 유실 자동 복구 알림]
+
+첫 정기구독 결제 승인 요청 중 실패/오류 응답을 받았으나, 주문번호(${orderId}) 조회 결과 토스 결제가 완료(DONE)된 것으로 확인되었습니다.
+${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습니다.' : `자동 결제 취소에 실패하여 토스 상점관리자에서 수동 취소가 필요합니다.\n취소 실패 사유: ${cancelResult.error}`}
+
+■ 결제 및 사용자 정보
+- 주문번호: ${orderId}
+- 사용자 식별자: ${user.email} (ID: ${user.id})
+- 결제키(paymentKey): ${paymentKey}
+- 플랜: ${planDetail.name} (${planDetail.price.toLocaleString()}원)`,
+          });
+        } catch (notifyErr) {
+          console.error('[Confirm] Failed to send admin notification for loss recovery:', notifyErr);
+        }
+
+        const failUrl = new URL('/payment', request.url);
+        failUrl.searchParams.set('plan', plan);
+        failUrl.searchParams.set('error', 'true');
+        failUrl.searchParams.set('message', '결제가 취소되었습니다. 다시 시도해 주세요.');
+        return NextResponse.redirect(failUrl);
+      }
+
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
       failUrl.searchParams.set('error', 'true');
@@ -160,59 +255,54 @@ export async function GET(request: Request) {
     paymentKey = chargeData.paymentKey;
 
     // 6. Supabase에 구독 정보 저장 (billingKey는 암호화하여 저장)
-    const adminSupabase = getAdminClient();
     let dbError: { message: string } | null = null;
 
-    if (!adminSupabase) {
-      dbError = { message: '서버 데이터베이스 클라이언트 초기화 실패' };
-    } else {
-      const startedAt = new Date();
-      const nextBillingDate = new Date(startedAt);
-      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
-      const expiresAt = nextBillingDate;
+    const startedAt = new Date();
+    const nextBillingDate = new Date(startedAt);
+    nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+    const expiresAt = nextBillingDate;
 
-      const encryptedBillingKey = encryptBillingKey(billingKey);
+    const encryptedBillingKey = encryptBillingKey(billingKey);
 
-      const subscriptionPayload: Record<string, any> = {
+    const subscriptionPayload: Record<string, any> = {
+      user_id: user.id,
+      plan: plan,
+      status: 'active',
+      started_at: startedAt.toISOString(),
+      expires_at: expiresAt.toISOString(),
+      next_billing_date: nextBillingDate.toISOString(),
+      customer_key: customerKey,
+      billing_key: encryptedBillingKey,
+      retry_count: 0,
+      cancelled_at: null,
+      last_paid_at: startedAt.toISOString(),
+      last_order_id: orderId,
+    };
+
+    const { error: upsertError } = await adminSupabase
+      .from('subscriptions')
+      .upsert(subscriptionPayload, {
+        onConflict: 'user_id',
+      });
+
+    dbError = upsertError;
+
+    // DB에 빌링 확장 컬럼이 아직 반영되지 않은 경우 기본 컬럼으로 폴백 저장
+    if (dbError && dbError.message && dbError.message.includes('column')) {
+      console.warn('Subscription upsert failed with extended columns, attempting core columns:', dbError.message);
+      const fallbackPayload = {
         user_id: user.id,
         plan: plan,
         status: 'active',
         started_at: startedAt.toISOString(),
         expires_at: expiresAt.toISOString(),
-        next_billing_date: nextBillingDate.toISOString(),
-        customer_key: customerKey,
-        billing_key: encryptedBillingKey,
-        retry_count: 0,
-        cancelled_at: null,
-        last_paid_at: startedAt.toISOString(),
-        last_order_id: orderId,
       };
-
-      const { error: upsertError } = await adminSupabase
+      const { error: fallbackError } = await adminSupabase
         .from('subscriptions')
-        .upsert(subscriptionPayload, {
+        .upsert(fallbackPayload, {
           onConflict: 'user_id',
         });
-
-      dbError = upsertError;
-
-      // DB에 빌링 확장 컬럼이 아직 반영되지 않은 경우 기본 컬럼으로 폴백 저장
-      if (dbError && dbError.message && dbError.message.includes('column')) {
-        console.warn('Subscription upsert failed with extended columns, attempting core columns:', dbError.message);
-        const fallbackPayload = {
-          user_id: user.id,
-          plan: plan,
-          status: 'active',
-          started_at: startedAt.toISOString(),
-          expires_at: expiresAt.toISOString(),
-        };
-        const { error: fallbackError } = await adminSupabase
-          .from('subscriptions')
-          .upsert(fallbackPayload, {
-            onConflict: 'user_id',
-          });
-        dbError = fallbackError;
-      }
+      dbError = fallbackError;
     }
 
     // 첫 결제 성공 후 subscriptions 저장이 실패한 경우 안전장치 실행
@@ -279,8 +369,44 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error('Billing confirm exception occurred:', error);
 
-    // 승인 후 예외가 발생한 경우 자동 취소 및 알림 시도
-    if (paymentKey && user && orderId && planDetail) {
+    // 결제 승인 요청 후 응답 유실(네트워크 단절/타임아웃 등)로 paymentKey가 없는 경우
+    if (!paymentKey && orderId && user) {
+      console.warn(`[Confirm] paymentKey missing after exception for orderId ${orderId}. Querying Toss order lookup...`);
+      const lookup = await lookupPaymentByOrderId(orderId);
+      if (lookup.success && lookup.data?.status === 'DONE') {
+        paymentKey = lookup.data.paymentKey;
+        console.log(`[Confirm] OrderId ${orderId} verified DONE via order lookup. Proceeding to auto-cancel.`);
+      } else if (!lookup.success) {
+        // 토스 장애 등으로 조회가 실패하여 결제 여부 미확인 -> Vercel 로그 + 수동 확인 알림
+        console.error(`[Confirm] CRITICAL: Payment status unconfirmed for orderId ${orderId}, user ${user.email}. Lookup error: ${lookup.error || lookup.status}`);
+        const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+        const subjectPrefix = isTestMode ? '[테스트] ' : '';
+        try {
+          await notifyAdmin({
+            subject: `${subjectPrefix}[긴급/수동 확인 필요] 결제 상태 미확인 건 - ${user.email}`,
+            text: `[매장닥터 결제 상태 미확인 알림 - 수동 확인 필요]
+
+첫 정기구독 결제 승인 요청 중 네트워크 단절/예외가 발생하였고, 토스 주문번호 조회도 실패하여 결제 성패 여부를 확인할 수 없습니다.
+고객 카드가 결제되었을 가능성이 있으므로 토스 상점관리자에서 즉시 해당 주문번호를 확인해 주시기 바랍니다.
+
+■ 결제 및 사용자 정보
+- 주문번호: ${orderId}
+- 사용자 식별자: ${user.email} (ID: ${user.id})
+- 플랜: ${planDetail?.name || plan} (${planDetail?.price ? planDetail.price.toLocaleString() + '원' : ''})
+- 예외 내용: ${error?.message || String(error)}
+- 조회 실패 사유: ${lookup.error || `HTTP ${lookup.status}`}
+
+■ 조치 방법
+토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId})로 검색하여 결제 완료 여부를 확인하시고, 승인되어 있다면 즉시 취소 처리해 주세요.`,
+          });
+        } catch (notifyErr) {
+          console.error('[Confirm] Fallback: notifyAdmin failed for unconfirmed payment:', notifyErr);
+        }
+      }
+    }
+
+    // paymentKey가 확보된 경우(정상 승인 후 예외 또는 주문 조회로 승인 확인된 건) 자동 취소 및 관리자 알림 실행
+    if (paymentKey && user && orderId) {
       try {
         const cancelResult = await cancelChargedPayment('구독 처리 예외로 인한 자동 취소');
         const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
@@ -295,7 +421,7 @@ ${cancelResult.success ? '결제는 즉시 전액 자동 취소되었습니다.'
 ■ 결제 및 사용자 정보
 - 주문번호: ${orderId}
 - 사용자 식별자: ${user.email} (ID: ${user.id})
-- 플랜: ${planDetail.name} (${planDetail.price.toLocaleString()}원)
+- 플랜: ${planDetail?.name || plan} (${planDetail?.price ? planDetail.price.toLocaleString() + '원' : ''})
 - 예외 내용: ${error?.message || String(error)}`,
         });
       } catch (notifyErr) {
