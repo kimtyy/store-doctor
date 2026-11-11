@@ -17,7 +17,8 @@ export async function submitStore(formData: FormData) {
   const category = formData.get('category') as string
   const region = formData.get('region') as string
   const plan = (formData.get('plan') as string) || ''
-  const paymentRedirect = plan ? `/payment?plan=${encodeURIComponent(plan)}` : '/payment'
+  // 유료 플랜을 선택하고 들어온 경우에만 결제로, 아니면 무료 플랜으로 바로 대시보드
+  const paymentRedirect = plan ? `/payment?plan=${encodeURIComponent(plan)}` : '/dashboard'
 
   // 중복 생성 방지: 이미 owner_id 에 매핑된 매장이 존재하는지 사전 체크
   const { data: existingStore } = await supabase

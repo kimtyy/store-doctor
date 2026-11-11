@@ -1,10 +1,18 @@
 import crypto from 'crypto';
+import { PLANS, type PaidPlanKey } from '@/lib/plans';
+
+// 유료 플랜(basic/pro/premium)만 PLANS(단일 원천)에서 파생한다. 금액·문구는 lib/plans.ts 에서만 수정.
+const toBillingPlan = (key: PaidPlanKey) => ({
+  name: PLANS[key].name,
+  price: PLANS[key].price as number,
+  description: PLANS[key].description as string,
+});
 
 export const BILLING_PLANS = {
-  basic: { name: 'Basic', price: 9900, description: '1인 매장 및 기초 장부 자동화' },
-  pro: { name: 'Pro', price: 19900, description: '복수 매장 통합 및 정밀 손익 보고서' },
-  premium: { name: 'Premium', price: 29900, description: 'AI 심화 경영 진단 및 맞춤 리포트' },
-} as const;
+  basic: toBillingPlan('basic'),
+  pro: toBillingPlan('pro'),
+  premium: toBillingPlan('premium'),
+};
 
 export type PlanKey = keyof typeof BILLING_PLANS;
 

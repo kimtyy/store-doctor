@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
+import { ACTIVE_SUBSCRIPTION_STATUSES } from '@/lib/plans'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -120,12 +121,6 @@ export async function updateSession(request: NextRequest) {
     // (관리자 계정은 구독 체크 자체를 건너뛰고 모든 페이지에 자유롭게 접근)
     else if (!isAdmin) {
       const isPaymentPage = request.nextUrl.pathname.startsWith('/payment')
-      const isExemptPath =
-        request.nextUrl.pathname.startsWith('/auth/callback') ||
-        request.nextUrl.pathname.startsWith('/api/') ||
-        isTermsPage ||
-        isPrivacyPage
-
       // 구독을 조회할 타겟 user_id (본인이 스태프인 경우 스토어 Owner의 user_id로 조회)
       let targetUserIdForSub = user.id
       if (!ownedStore && memberStore) {
@@ -151,7 +146,7 @@ export async function updateSession(request: NextRequest) {
           .from('subscriptions')
           .select('id')
           .eq('user_id', targetUserIdForSub)
-          .in('status', ['active', 'cancelled', 'past_due'])
+          .in('status', [...ACTIVE_SUBSCRIPTION_STATUSES])
           .gt('expires_at', new Date().toISOString())
           .maybeSingle()
 
@@ -166,14 +161,15 @@ export async function updateSession(request: NextRequest) {
       }
 
       if (!subscription) {
-        // 2-B-1. 구독이 없는 사용자 -> 결제 페이지로 강제 유도 (루트/약관/개인정보는 허용)
-        if (!isRootPage && !isPaymentPage && !isExemptPath) {
+        // 2-B-1. 유효 구독이 없는 사용자 = 무료 플랜. 결제 없이 모든 화면 접근 허용.
+        //        /payment 는 업그레이드 경로로 허용. 이미 매장이 있으므로 로그인/온보딩만 대시보드로 보낸다.
+        if (isAuthPage || isOnboardingPage) {
           const url = request.nextUrl.clone()
-          url.pathname = '/payment'
+          url.pathname = '/dashboard'
           return NextResponse.redirect(url)
         }
       } else {
-        // 2-B-2. 구독이 있는 사용자 -> 로그인, 온보딩, 결제 접속 시 대시보드로 리디렉션 (루트/약관/개인정보는 허용)
+        // 2-B-2. 유효한 유료 구독자 -> 로그인, 온보딩, 결제 접속 시 대시보드로 리디렉션 (루트/약관/개인정보는 허용)
         if (isAuthPage || isOnboardingPage || isPaymentPage) {
           const url = request.nextUrl.clone()
           url.pathname = '/dashboard'

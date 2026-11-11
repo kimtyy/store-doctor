@@ -13,6 +13,7 @@ import { ScrambleIn } from '@/components/landing/ScrambleText';
 import { ConnectAILabLogo } from '@/components/landing/ConnectAILabLogo';
 import { SITE_CONFIG } from '@/config/landingContent';
 import { createClient } from '@/utils/supabase/client';
+import { PLANS, type PlanId } from '@/lib/plans';
 const MAIL_ORDER_LICENSE = '제2026-경기가평-274호';
 
 export default function LandingPage() {
@@ -28,9 +29,19 @@ export default function LandingPage() {
     });
   }, []);
 
-  const handlePlanSelect = async (plan: 'basic' | 'pro' | 'premium') => {
+  const handlePlanSelect = async (plan: PlanId) => {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
+
+    // 무료로 시작하기: 로그인 → 온보딩 → 대시보드 (이미 로그인 상태면 미들웨어가 온보딩/대시보드로 분기)
+    if (plan === 'free') {
+      if (!session) {
+        window.location.href = `/login?redirect=${encodeURIComponent('/onboarding')}`;
+      } else {
+        window.location.href = '/dashboard';
+      }
+      return;
+    }
 
     if (!session) {
       const redirectPath = encodeURIComponent(`/payment?plan=${plan}`);
@@ -502,161 +513,62 @@ export default function LandingPage() {
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
-            {/* ── Basic ── */}
-            <motion.div
-              className="border border-white/20 bg-black/75 backdrop-blur-md rounded-2xl p-6 sm:p-8 flex flex-col relative drop-shadow-lg"
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
-            >
-              <p 
-                className="text-white/80 text-[12px] tracking-[0.15em] uppercase mb-3 font-semibold"
-                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-              >
-                Basic
-              </p>
-              <div className="flex items-baseline gap-1 mb-2 whitespace-nowrap">
-                <span 
-                  className="text-white text-[32px] sm:text-[38px] font-semibold tracking-tight"
-                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-6">
+            {(Object.keys(PLANS) as PlanId[]).map((key, idx) => {
+              const plan = PLANS[key];
+              const isFeatured = key === 'pro';
+              const isFree = key === 'free';
+              return (
+                <motion.div
+                  key={key}
+                  className={`border ${isFeatured ? 'border-[#0064FF]/60 bg-black/80 drop-shadow-xl' : 'border-white/20 bg-black/75 drop-shadow-lg'} backdrop-blur-md rounded-2xl p-6 flex flex-col relative`}
+                  initial={{ opacity: 0, y: 30 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.8, delay: idx * 0.1 }}
+                  viewport={{ once: true, amount: 0.3 }}
                 >
-                  9,900원
-                </span>
-                <span className="text-white/80 text-[12px] sm:text-[14px]">/월</span>
-              </div>
-              <p 
-                className="text-white/95 text-[13px] leading-relaxed mb-8 font-medium drop-shadow-lg"
-                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-              >
-                매장 1개, OCR 월 100건
-              </p>
-              <ul className="flex flex-col gap-3 mb-10 flex-1">
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 영수증/POS 사진 분석
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 기초 매출·매입 장부 자동화
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 월간 기본 정산서 제공
-                </li>
-              </ul>
-              <button
-                onClick={() => handlePlanSelect('basic')}
-                className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
-              >
-                선택하기
-              </button>
-            </motion.div>
-
-            {/* ── Pro (Featured) ── */}
-            <motion.div
-              className="border border-[#0064FF]/60 bg-black/80 backdrop-blur-md rounded-2xl p-6 sm:p-8 flex flex-col relative drop-shadow-xl"
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.1 }}
-              viewport={{ once: true, amount: 0.3 }}
-            >
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                <span className="bg-[#0064FF] text-white text-[11px] font-bold tracking-[0.1em] uppercase px-4 py-1.5 rounded-full drop-shadow-md">
-                  Most Popular
-                </span>
-              </div>
-              <p 
-                className="text-white/80 text-[12px] tracking-[0.15em] uppercase mb-3 font-semibold"
-                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-              >
-                Pro
-              </p>
-              <div className="flex items-baseline gap-1 mb-2 whitespace-nowrap">
-                <span 
-                  className="text-white text-[32px] sm:text-[38px] font-semibold tracking-tight"
-                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-                >
-                  19,900원
-                </span>
-                <span className="text-white/80 text-[12px] sm:text-[14px]">/월</span>
-              </div>
-              <p 
-                className="text-white/95 text-[13px] leading-relaxed mb-8 font-medium drop-shadow-lg"
-                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-              >
-                매장 1개, OCR 월 300건 + AI 진단
-              </p>
-              <ul className="flex flex-col gap-3 mb-10 flex-1">
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> Basic의 모든 기능 제공
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> AI 영업 진단 분석
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 실시간 원가율 및 마진 추적
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 다음 달 예측 분석 보고서
-                </li>
-              </ul>
-              <button
-                onClick={() => handlePlanSelect('pro')}
-                className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-blue-500/20 drop-shadow-lg"
-              >
-                선택하기
-              </button>
-            </motion.div>
-
-            {/* ── Premium ── */}
-            <motion.div
-              className="border border-white/20 bg-black/75 backdrop-blur-md rounded-2xl p-6 sm:p-8 flex flex-col relative drop-shadow-lg"
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.2 }}
-              viewport={{ once: true, amount: 0.3 }}
-            >
-              <p 
-                className="text-white/80 text-[12px] tracking-[0.15em] uppercase mb-3 font-semibold"
-                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-              >
-                Premium
-              </p>
-              <div className="flex items-baseline gap-1 mb-2 whitespace-nowrap">
-                <span 
-                  className="text-white text-[32px] sm:text-[38px] font-semibold tracking-tight"
-                  style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-                >
-                  29,900원
-                </span>
-                <span className="text-white/80 text-[12px] sm:text-[14px]">/월</span>
-              </div>
-              <p 
-                className="text-white/95 text-[13px] leading-relaxed mb-8 font-medium drop-shadow-lg"
-                style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
-              >
-                AI 심화 경영 진단 및 맞춤 리포트 (OCR 월 1,000건)
-              </p>
-              <ul className="flex flex-col gap-3 mb-10 flex-1">
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> Pro의 모든 기능 제공
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> AI 심화 경영 진단 및 맞춤 리포트
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 대용량 영수증 우선 파싱
-                </li>
-                <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 무제한 데이터 보존 기능
-                </li>
-              </ul>
-              <button
-                onClick={() => handlePlanSelect('premium')}
-                className="w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 bg-[#0064FF] hover:bg-blue-600 text-white border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg"
-              >
-                선택하기
-              </button>
-            </motion.div>
+                  {isFeatured && (
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                      <span className="bg-[#0064FF] text-white text-[11px] font-bold tracking-[0.1em] uppercase px-4 py-1.5 rounded-full drop-shadow-md">
+                        Most Popular
+                      </span>
+                    </div>
+                  )}
+                  <p
+                    className="text-white/80 text-[12px] tracking-[0.15em] uppercase mb-3 font-semibold"
+                    style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                  >
+                    {plan.name}
+                  </p>
+                  <div className="flex items-baseline gap-1 mb-6 whitespace-nowrap">
+                    <span
+                      className="text-white text-[30px] sm:text-[34px] font-semibold tracking-tight"
+                      style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                    >
+                      {plan.price === 0 ? '0원' : `${plan.price.toLocaleString()}원`}
+                    </span>
+                    {plan.price > 0 && <span className="text-white/80 text-[12px] sm:text-[14px]">/월</span>}
+                  </div>
+                  <ul className="flex flex-col gap-3 mb-8 flex-1">
+                    {plan.description.split(', ').map((line) => (
+                      <li
+                        key={line}
+                        className="flex items-start gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg"
+                        style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}
+                      >
+                        <span className="text-[#0064FF] font-bold">✓</span> {line}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    onClick={() => handlePlanSelect(key)}
+                    className={`w-full h-[50px] rounded-lg font-semibold text-[15px] flex items-center justify-center gap-2 border-none active:scale-[0.98] transition-all cursor-pointer drop-shadow-lg ${isFree ? 'bg-white/15 hover:bg-white/25 text-white' : 'bg-[#0064FF] hover:bg-blue-600 text-white'}`}
+                  >
+                    {isFree ? '무료로 시작하기' : '선택하기'}
+                  </button>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </section>

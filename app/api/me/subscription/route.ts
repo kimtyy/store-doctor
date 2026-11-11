@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerSupabase } from '@/utils/supabase/server';
 import { createClient as createAdminSupabase } from '@supabase/supabase-js';
+import { getStoreId } from '@/utils/supabase/getStore';
+import { getPlanForStore, getPlanForUser } from '@/lib/getPlan';
+import { ACTIVE_SUBSCRIPTION_STATUSES } from '@/lib/plans';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +39,7 @@ export async function GET() {
       .eq('user_id', user.id)
       .maybeSingle();
 
+    let rawSub: any = sub;
     if (error && error.message && error.message.includes('column')) {
       // fallback without newer columns
       const { data: coreSub } = await adminSupabase
@@ -43,10 +47,23 @@ export async function GET() {
         .select('id, plan, status, started_at, expires_at')
         .eq('user_id', user.id)
         .maybeSingle();
-      return NextResponse.json({ subscription: coreSub || null });
+      rawSub = coreSub;
     }
 
-    return NextResponse.json({ subscription: sub || null });
+    // 만료되었거나 비활성 상태인 구독 행은 "구독 없음(무료)"으로 취급한다.
+    const isValid =
+      !!rawSub &&
+      (ACTIVE_SUBSCRIPTION_STATUSES as readonly string[]).includes(rawSub.status) &&
+      new Date(rawSub.expires_at).getTime() > Date.now();
+
+    // 플랜은 서버에서만 판정 (직원이면 매장 소유자의 플랜)
+    const storeId = await getStoreId();
+    const resolved = storeId ? await getPlanForStore(storeId) : await getPlanForUser(user.id);
+
+    return NextResponse.json({
+      subscription: isValid ? rawSub : null,
+      plan: resolved.plan,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || '조회 실패' }, { status: 500 });
   }

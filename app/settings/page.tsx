@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '../../utils/supabase/client';
 import BottomTabNav from '../../components/BottomTabNav';
+import { PLANS, type PlanId } from '@/lib/plans';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function SettingsPage() {
 
   // 구독 관리 상태
   const [subscription, setSubscription] = useState<any>(null);
+  const [plan, setPlan] = useState<PlanId>('free'); // 서버(/api/me/subscription)가 판정한 플랜
   const [loadingSubscription, setLoadingSubscription] = useState(true);
   const [cancellingSubscription, setCancellingSubscription] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -39,6 +41,7 @@ export default function SettingsPage() {
       .then(res => res.json())
       .then(data => {
         setSubscription(data.subscription || null);
+        setPlan(data.plan && data.plan in PLANS ? data.plan : 'free');
       })
       .catch(() => {})
       .finally(() => setLoadingSubscription(false));
@@ -52,7 +55,13 @@ export default function SettingsPage() {
       const res = await fetch('/api/payment/cancel', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '해지 처리 실패');
-      setMessage({ type: 'success', text: data.message || '구독이 정상적으로 해지되었습니다.' });
+      const endDate = data.expiresAt ? new Date(data.expiresAt).toLocaleDateString('ko-KR') : '';
+      setMessage({
+        type: 'success',
+        text: endDate
+          ? `${endDate}까지 현재 플랜을 이용하실 수 있으며, 이후에는 무료 플랜으로 전환됩니다. 기록한 데이터는 보존됩니다.`
+          : '구독이 해지되었습니다. 이용 기간 종료 후에는 무료 플랜으로 전환되며, 기록한 데이터는 보존됩니다.',
+      });
       const subRes = await fetch('/api/me/subscription');
       const subData = await subRes.json();
       setSubscription(subData.subscription || null);
@@ -210,7 +219,7 @@ export default function SettingsPage() {
               <div className="space-y-3 pt-2 text-sm border-t border-slate-800/80">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-400">이용 중인 플랜</span>
-                  <span className="font-bold text-white uppercase">{subscription.plan} 플랜</span>
+                  <span className="font-bold text-white">{PLANS[plan]?.name ?? subscription.plan} 플랜</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-400">
@@ -275,17 +284,34 @@ export default function SettingsPage() {
                     )}
                   </div>
                 )}
+
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  플랜 변경은 고객센터로 문의해 주세요 (031-5175-8887, kimtyy@naver.com)
+                </p>
               </div>
-            ) : (
-              <div className="pt-2 text-xs text-slate-400 space-y-2 border-t border-slate-800/80">
-                <p>활성화된 구독이 없습니다.</p>
+            ) : plan === 'free' ? (
+              <div className="pt-2 text-xs text-slate-400 space-y-3 border-t border-slate-800/80">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">이용 중인 플랜</span>
+                  <span className="font-bold text-white">{PLANS.free.name} 플랜</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">{PLANS.free.description}</p>
                 <button
                   type="button"
                   onClick={() => router.push('/payment')}
                   className="w-full py-3 bg-emerald-500 text-black font-bold rounded-2xl hover:bg-emerald-400 transition cursor-pointer"
                 >
-                  플랜 구독하러 가기
+                  유료 플랜 보기
                 </button>
+              </div>
+            ) : (
+              // 직원 계정: 매장 소유자의 플랜이 적용됨 (구독 결제·해지는 대표 계정만 가능)
+              <div className="pt-2 text-xs text-slate-400 space-y-2 border-t border-slate-800/80">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400">이용 중인 플랜</span>
+                  <span className="font-bold text-white">{PLANS[plan].name} 플랜</span>
+                </div>
+                <p className="text-[11px] text-slate-500">구독 관리는 대표 계정에서만 할 수 있습니다.</p>
               </div>
             )}
           </div>

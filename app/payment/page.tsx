@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { loadTossPayments } from '@tosspayments/tosspayments-sdk';
-import { BILLING_PLANS, PlanKey } from '@/lib/billing';
+import { PLANS, PAID_PLAN_KEYS, type PaidPlanKey as PlanKey } from '@/lib/plans';
 
 const TOSS_CLIENT_KEY = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
 
@@ -16,7 +16,7 @@ function PaymentContent() {
   const [supabase] = useState(() => createClient());
   const [user, setUser] = useState<any>(null);
   const [selectedPlan, setSelectedPlan] = useState<PlanKey>(
-    BILLING_PLANS[initialPlan] ? initialPlan : 'basic'
+    (PAID_PLAN_KEYS as readonly string[]).includes(initialPlan) ? initialPlan : 'basic'
   );
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -174,7 +174,7 @@ function PaymentContent() {
     );
   }
 
-  const currentPlan = BILLING_PLANS[selectedPlan];
+  const currentPlan = PLANS[selectedPlan];
 
   return (
     <div className="min-h-screen bg-[#010103] text-white py-12 px-4 sm:px-6 lg:px-8">
@@ -220,8 +220,8 @@ function PaymentContent() {
 
         {/* ── 요금제 선택기 ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {(Object.keys(BILLING_PLANS) as PlanKey[]).map((key) => {
-            const plan = BILLING_PLANS[key];
+          {PAID_PLAN_KEYS.map((key) => {
+            const plan = PLANS[key];
             const isSelected = selectedPlan === key;
             return (
               <button
