@@ -292,7 +292,7 @@ export async function GET(request: Request) {
       const failUrl = new URL('/payment', request.url);
       failUrl.searchParams.set('plan', plan);
       failUrl.searchParams.set('error', 'true');
-      failUrl.searchParams.set('message', '결제 확인이 지연되고 있습니다. 결제가 완료된 경우 확인 후 반영되며, 미완료 시 자동 취소됩니다. 문의: 031-5175-8887');
+      failUrl.searchParams.set('message', '결제 확인이 지연되고 있습니다. 확인 후 결제가 완료된 경우 구독을 반영하거나 취소해 드립니다. 다시 결제하지 마시고 잠시 후 확인해 주세요. 문의: 031-5175-8887');
       return NextResponse.redirect(failUrl);
     }
 
