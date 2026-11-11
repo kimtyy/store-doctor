@@ -11,6 +11,7 @@ export type PurchaseCategory =
   | 'pos_fee'
   | 'card_fee'
   | 'delivery_fee'
+  | 'tax_dues'
   | 'consumables'
   | 'fuel'
   | 'insurance'

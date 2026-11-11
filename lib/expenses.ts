@@ -7,6 +7,7 @@ export type ExpenseGroupKey =
   | 'utilities'
   | 'telecom_system'
   | 'fees'
+  | 'tax_dues'
   | 'other_ops';
 
 export interface ExpenseGroupMeta {
@@ -18,7 +19,7 @@ export interface ExpenseGroupMeta {
 }
 
 /**
- * 외식업 표준 비용 7개 그룹 단일 정의 상수
+ * 외식업 표준 비용 8개 그룹 단일 정의 상수
  * - 미분류/신규 카테고리는 모두 other_ops(기타 운영비)로 집계
  */
 export const EXPENSE_GROUPS: readonly ExpenseGroupMeta[] = [
@@ -65,6 +66,13 @@ export const EXPENSE_GROUPS: readonly ExpenseGroupMeta[] = [
     isVariable: true,
   },
   {
+    key: 'tax_dues',
+    label: '세금과공과',
+    shortLabel: '세금과공과',
+    categories: ['tax_dues'],
+    isVariable: false,
+  },
+  {
     key: 'other_ops',
     label: '기타 운영비',
     shortLabel: '기타 운영비',
@@ -86,6 +94,7 @@ export const PURCHASE_CATEGORY_LABELS: Record<PurchaseCategory, string> = {
   pos_fee: 'POS 사용료·관리비',
   card_fee: '카드 수수료',
   delivery_fee: '배달 수수료',
+  tax_dues: '세금과공과(주민세·면허세 등)',
   consumables: '소모품',
   fuel: '유류비',
   insurance: '보험료',
@@ -96,7 +105,7 @@ export const PURCHASE_CATEGORY_OPTIONS: PurchaseCategory[] = EXPENSE_GROUPS.flat
   (g) => g.categories
 );
 
-/** 고정비 설정 화면용 카테고리 목록 (재료비 제외, 수수료 포함) */
+/** 고정비 설정 화면용 카테고리 목록 (재료비 제외, 수수료·세금과공과 포함) */
 export const FIXED_COST_CATEGORY_OPTIONS: { value: PurchaseCategory; label: string }[] = [
   { value: 'rent', label: PURCHASE_CATEGORY_LABELS.rent },
   { value: 'management_fee', label: PURCHASE_CATEGORY_LABELS.management_fee },
@@ -108,6 +117,7 @@ export const FIXED_COST_CATEGORY_OPTIONS: { value: PurchaseCategory; label: stri
   { value: 'pos_fee', label: PURCHASE_CATEGORY_LABELS.pos_fee },
   { value: 'card_fee', label: PURCHASE_CATEGORY_LABELS.card_fee },
   { value: 'delivery_fee', label: PURCHASE_CATEGORY_LABELS.delivery_fee },
+  { value: 'tax_dues', label: PURCHASE_CATEGORY_LABELS.tax_dues },
   { value: 'insurance', label: PURCHASE_CATEGORY_LABELS.insurance },
   { value: 'fuel', label: PURCHASE_CATEGORY_LABELS.fuel },
   { value: 'other', label: PURCHASE_CATEGORY_LABELS.other },
@@ -171,6 +181,7 @@ export interface ExpenseBreakdown {
   utilitiesCost: number;
   telecomSystemCost: number;
   feesCost: number;
+  taxDuesCost: number;
   otherOpsCost: number;
   variableCost: number;
   fixedCostFromPurchases: number;
@@ -198,6 +209,7 @@ export function calculateExpenseBreakdown(
     utilities: 0,
     telecom_system: 0,
     fees: 0,
+    tax_dues: 0,
     other_ops: 0,
   };
   const unmappedSet = new Set<string>();
@@ -220,6 +232,7 @@ export function calculateExpenseBreakdown(
   const utilitiesCost = groupTotals.utilities;
   const telecomSystemCost = groupTotals.telecom_system;
   const feesCost = groupTotals.fees;
+  const taxDuesCost = groupTotals.tax_dues;
   const otherOpsCost = groupTotals.other_ops;
 
   const variableCost = EXPENSE_GROUPS.reduce(
@@ -258,6 +271,7 @@ export function calculateExpenseBreakdown(
     utilitiesCost,
     telecomSystemCost,
     feesCost,
+    taxDuesCost,
     otherOpsCost,
     variableCost,
     fixedCostFromPurchases,
@@ -273,3 +287,4 @@ export function calculateExpenseBreakdown(
     unmappedCategories: Array.from(unmappedSet),
   };
 }
+

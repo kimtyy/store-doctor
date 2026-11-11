@@ -122,6 +122,7 @@ const PURCHASE_CAT_COLORS: Record<string, string> = {
   pos_fee: '#e879f9',
   card_fee: '#fb7185',
   delivery_fee: '#f43f5e',
+  tax_dues: '#38bdf8',
   insurance: '#4ade80',
   other: '#64748b',
 };

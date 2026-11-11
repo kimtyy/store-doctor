@@ -21,7 +21,7 @@ export const TERMS_DICT: Record<string, { term: string; explanation: string }> =
   },
   총비용: {
     term: '총비용',
-    explanation: '재료비·인건비·임대료·공과금·통신·수수료·기타 운영비 등 가게에서 나간 모든 지출 합계.',
+    explanation: '재료비·인건비·임대료·공과금·통신·수수료·세금과공과·기타 운영비 등 가게에서 나간 모든 지출 합계.',
   },
   총비용률: {
     term: '총비용률',

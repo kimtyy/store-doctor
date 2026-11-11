@@ -322,7 +322,7 @@ export async function GET(request: Request) {
       recommendedFood
     };
 
-    // BEP Analysis (1-K 동일 분류 상수 사용: 변동비 = 재료비 + 수수료, 고정비 = 나머지 5개 그룹 + 영업외 지출)
+    // BEP Analysis (1-K 동일 분류 상수 사용: 변동비 = 재료비 + 수수료, 고정비 = 나머지 6개 그룹 + 영업외 지출)
     const variableCostsSum = currentStats.expenseBreakdown.variableCost;
     const fixedCostPurchases = currentStats.expenseBreakdown.fixedCostFromPurchases;
     const fixedCostsSum = fixedCostPurchases + nonOperatingExpenses;
