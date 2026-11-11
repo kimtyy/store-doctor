@@ -160,11 +160,29 @@ export function ExtendSubscriptionSection({ userId, userEmail }: { userId: strin
   );
 }
 
-export function ResolvePaymentAttemptButton({ attemptId }: { attemptId: string }) {
+export function ResolvePaymentAttemptButton({
+  attemptId,
+  status,
+  createdAt,
+}: {
+  attemptId: string;
+  status?: string;
+  createdAt?: string;
+}) {
   const [loading, setLoading] = useState(false);
 
+  const isRecentProcessing =
+    status === 'processing' &&
+    Boolean(createdAt) &&
+    Date.now() - new Date(createdAt!).getTime() < 30 * 60 * 1000;
+
   async function handleResolve() {
-    if (!window.confirm('이 결제 시도 대기를 해제하시겠습니까?\n\n해제 시 해당 사용자는 다시 결제 및 카드 등록을 진행할 수 있게 됩니다.')) return;
+    if (isRecentProcessing) {
+      alert('결제 진행 중일 수 있어 30분 후 해제 가능');
+      return;
+    }
+
+    if (!window.confirm('이 결제 대기 상태를 해제하시겠습니까?\n\n해제하면 사용자가 다시 결제할 수 있습니다.')) return;
 
     try {
       setLoading(true);
@@ -181,7 +199,12 @@ export function ResolvePaymentAttemptButton({ attemptId }: { attemptId: string }
     <button
       onClick={handleResolve}
       disabled={loading}
-      className="px-2.5 py-1 bg-amber-600/30 hover:bg-amber-600 text-amber-300 hover:text-white rounded text-xs transition border border-amber-500/50 whitespace-nowrap cursor-pointer disabled:opacity-50"
+      title={isRecentProcessing ? '결제 진행 중일 수 있어 30분 후 해제 가능' : undefined}
+      className={`px-2.5 py-1 rounded text-xs transition border whitespace-nowrap cursor-pointer disabled:opacity-50 ${
+        isRecentProcessing
+          ? 'bg-slate-800/50 text-slate-400 border-slate-700 hover:bg-slate-800'
+          : 'bg-amber-600/30 hover:bg-amber-600 text-amber-300 hover:text-white border-amber-500/50'
+      }`}
     >
       {loading ? '해제중...' : '대기 해제'}
     </button>

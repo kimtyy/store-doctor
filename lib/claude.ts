@@ -45,7 +45,19 @@ const samplePurchaseResponse = JSON.stringify({
   ]
 });
 
-export async function callClaudeVision(prompt: string, images?: string[]) {
+export interface CallClaudeOptions {
+  timeoutMs?: number;
+  maxTokens?: number;
+}
+
+export async function callClaudeVision(
+  prompt: string,
+  images?: string[],
+  options?: CallClaudeOptions
+) {
+  const timeoutMs = options?.timeoutMs ?? 60000;
+  const maxTokens = options?.maxTokens ?? 4096;
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     if (process.env.NODE_ENV === 'production') {
@@ -94,11 +106,11 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
+        max_tokens: maxTokens,
         temperature: 0,
         messages: messages
       }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!response.ok) {
@@ -132,7 +144,7 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-        throw new Error('Claude API 호출 시간이 초과되었습니다 (60초).');
+        throw new Error(`Claude API 호출 시간이 초과되었습니다 (${Math.round(timeoutMs / 1000)}초).`);
       }
       throw error;
     }

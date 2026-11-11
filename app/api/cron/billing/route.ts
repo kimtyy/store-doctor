@@ -58,29 +58,35 @@ export async function GET(request: Request) {
         console.warn(`[Billing Cron] Found ${staleProcessingAttempts.length} stale processing payment attempt(s). Converting to pending.`);
         const staleIds = staleProcessingAttempts.map((a) => a.id);
 
-        const { error: updateStaleErr } = await adminSupabase
+        const { data: updatedStaleRows, error: updateStaleErr } = await adminSupabase
           .from('payment_attempts')
           .update({
             status: 'pending',
             reason: '30분 이상 processing 상태 지속으로 인한 자동 pending 전환',
           })
-          .in('id', staleIds);
+          .in('id', staleIds)
+          .eq('status', 'processing')
+          .select('id');
 
         if (updateStaleErr) {
           console.error('[Billing Cron] Failed to update stale processing attempts:', updateStaleErr.message);
+        } else if (!updatedStaleRows || updatedStaleRows.length === 0) {
+          console.warn('[Billing Cron] Stale processing -> pending update matched 0 rows (already updated elsewhere).');
         } else {
+          const updatedIdSet = new Set(updatedStaleRows.map((r: any) => r.id));
+          const transitionedAttempts = staleProcessingAttempts.filter((a) => updatedIdSet.has(a.id));
           try {
             const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
             const subjectPrefix = isTestMode ? '[테스트] ' : '';
             await notifyAdmin({
-              subject: `${subjectPrefix}[긴급/수동 확인 필요] 30분 초과 미완료 결제 시도 ${staleProcessingAttempts.length}건 pending 전환`,
+              subject: `${subjectPrefix}[긴급/수동 확인 필요] 30분 초과 미완료 결제 시도 ${transitionedAttempts.length}건 pending 전환`,
               text: `[매장닥터 결제 대기 자동 전환 알림 - 수동 확인 필요]
 
-결제 시도 후 30분 이상 'processing' 상태로 남아 있던 결제 건 ${staleProcessingAttempts.length}건을 안전을 위해 'pending' 상태로 자동 전환하였습니다.
+결제 시도 후 30분 이상 'processing' 상태로 남아 있던 결제 건 ${transitionedAttempts.length}건을 안전을 위해 'pending' 상태로 자동 전환하였습니다.
 고객이 결제를 마쳤는지 토스 상점관리자에서 주문번호를 조회해 주시기 바랍니다.
 
-■ 전환된 결제 시도 목록 (${staleProcessingAttempts.length}건)
-${staleProcessingAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / user_id: ${a.user_id} / order_id: ${a.order_id} / 생성시각: ${a.created_at}`).join('\n')}
+■ 전환된 결제 시도 목록 (${transitionedAttempts.length}건)
+${transitionedAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / user_id: ${a.user_id} / order_id: ${a.order_id} / 생성시각: ${a.created_at}`).join('\n')}
 
 ■ 조치 방법:
 토스 상점관리자(https://dashboard.tosspayments.com)에서 해당 주문번호로 결제 승인 여부 확인 후,
@@ -117,6 +123,7 @@ ${staleProcessingAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / use
     const subscriptions = candidates || [];
     const results = [];
     const failedSubscriptionIds: string[] = [];
+    const processedSubIds = new Set<string>();
 
     for (const sub of subscriptions) {
       // 과거 단건 결제 방식 등 billing_key 또는 next_billing_date가 비어 있는 행 안전하게 건너뛰기
@@ -176,6 +183,7 @@ ${staleProcessingAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / use
 
       // 3회 초과 최종 실패 시 이용 제한 처리
       if (retryCount >= 3) {
+        processedSubIds.add(sub.id);
         await adminSupabase
           .from('subscriptions')
           .update({ status: 'expired' })
@@ -325,20 +333,32 @@ ${staleProcessingAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / use
           error: paymentErrorMessage,
         });
 
-        // 이번 실행에서 청구일이 도래한 구독 전체(실패한 구독과 break 로 시도하지 못한 구독 모두)의
-        // expires_at 을 max(현재 값, 현재 시각 + 2일)로 늘린다. next_billing_date·retry_count·orderId 는 바꾸지 않는다.
+        // 이번 실행에서 이미 처리된(SUCCESS/FAILURE/UNCONFIRMED) 구독을 제외하고,
+        // status = 'active' 인 미처리/실패 구독에 대해 DB 값 기준(expires_at < grace) 조건부 UPDATE 수행
         const systemGraceDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+        const graceIso = systemGraceDate.toISOString();
+        let graceTargetCount = 0;
+        let graceFailCount = 0;
+
         for (const candidateSub of subscriptions) {
+          if (processedSubIds.has(candidateSub.id)) continue;
+          if (candidateSub.status !== 'active') continue;
+          graceTargetCount++;
           try {
-            const currentExp = candidateSub.expires_at ? new Date(candidateSub.expires_at) : null;
-            if (!currentExp || currentExp < systemGraceDate) {
-              await adminSupabase
-                .from('subscriptions')
-                .update({ expires_at: systemGraceDate.toISOString() })
-                .eq('id', candidateSub.id);
+            const { error: graceError } = await adminSupabase
+              .from('subscriptions')
+              .update({ expires_at: graceIso })
+              .eq('id', candidateSub.id)
+              .eq('status', 'active')
+              .or(`expires_at.lt.${graceIso},expires_at.is.null`);
+
+            if (graceError) {
+              graceFailCount++;
+              console.error(`[Billing Cron] Failed to extend expires_at for sub ${candidateSub.id}:`, graceError.message);
             }
           } catch (extErr: any) {
-            console.error(`[Billing Cron] Failed to extend expires_at for sub ${candidateSub.id}:`, extErr?.message);
+            graceFailCount++;
+            console.error(`[Billing Cron] Exception extending expires_at for sub ${candidateSub.id}:`, extErr?.message);
           }
         }
 
@@ -347,10 +367,10 @@ ${staleProcessingAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / use
           const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
           const subjectPrefix = isTestMode ? '[테스트] ' : '';
           await notifyAdmin({
-            subject: `${subjectPrefix}[긴급/결제 시스템 오류] 키·상점 설정 오류로 오늘 청구 중단, 대상 ${subscriptions.length}건 이용 2일 유예`,
+            subject: `${subjectPrefix}[긴급/결제 시스템 오류] 키·상점 설정 오류로 오늘 청구 중단, 대상 ${graceTargetCount}건 이용 2일 유예`,
             text: `[매장닥터 정기결제 시스템 오류 알림]
 
-정기결제 갱신 배치 처리 중 토스페이먼츠 인증 또는 상점 설정 오류(SYSTEM_ERROR)가 발생하여 키·상점 설정 오류로 오늘 청구 중단, 대상 ${subscriptions.length}건 이용 2일 유예 처리를 완료하였습니다.
+정기결제 갱신 배치 처리 중 토스페이먼츠 인증 또는 상점 설정 오류(SYSTEM_ERROR)가 발생하여 키·상점 설정 오류로 오늘 청구 중단, 대상 ${graceTargetCount}건 이용 2일 유예 처리를 진행하였습니다.
 구독의 next_billing_date, retry_count, orderId는 변경되지 않았습니다.
 
 ■ 오류 내용 (보안을 위해 키 값은 제외됨)
@@ -358,11 +378,11 @@ ${staleProcessingAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / use
 - 토스 에러 코드: ${chargeInput?.data?.code || 'N/A'}
 - 에러 메시지: ${paymentErrorMessage || 'N/A'}
 - 발생 구독 ID: ${sub.id}
-- 유예 적용 구독: 총 ${subscriptions.length}건 (2일 유예 만료시점: ${systemGraceDate.toISOString()})
+- 유예 적용 대상: 총 ${graceTargetCount}건 (갱신 실패 ${graceFailCount}건 / 2일 유예 만료시점: ${graceIso})
 
 ■ 조치 방법
 1. Vercel 환경변수 TOSS_SECRET_KEY 설정 상태 확인 (공백, 앞뒤 특수문자, live/test 키 일치 여부)
-2. 토스 상점관리자 개발자센터에서 API 키 및 상점 상태 확인`,
+2. 토스 상점관리자 개발자센터에서 API 키 및 상점 상태 확인${graceFailCount > 0 ? `\n3. 유예 갱신 실패 ${graceFailCount}건에 대해 DB expires_at 수동 확인 필요` : ''}`,
           });
         } catch (notifyErr: any) {
           console.error(`[Billing Cron] Failed to send system error admin notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
@@ -373,6 +393,7 @@ ${staleProcessingAttempts.map((a, idx) => `${idx + 1}. attempt_id: ${a.id} / use
       }
 
       if (billingResult === 'CONFIRMED_SUCCESS') {
+        processedSubIds.add(sub.id);
         // 확정 성공: DB 갱신 (최대 3회 재시도)
         // 승인 시각(approvedAt)이 있으면 last_paid_at으로 반영, 없으면 현재 시각 사용 및 콘솔 기록
         let paidAtIso = now.toISOString();
@@ -486,6 +507,7 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
           });
         }
       } else if (billingResult === 'CONFIRMED_FAILURE') {
+        processedSubIds.add(sub.id);
         failedSubscriptionIds.push(sub.id);
         // 확정 실패: 카드 거절 등 명확한 실패인 경우에만 retry_count 증가, past_due/expired 처리
         const newRetryCount = retryCount + 1;
@@ -526,6 +548,7 @@ Supabase subscriptions 테이블의 next_billing_date와 expires_at을 ${current
         });
       } else {
         // billingResult === 'UNCONFIRMED'
+        processedSubIds.add(sub.id);
         // 결과 불확실: retry_count와 status를 변경하지 않음 (같은 orderId 유지, 연체/만료 처리 금지)
         const newUnconfirmedCount = unconfirmedCount + 1;
         const isNewUnconfirmedStreak = unconfirmedCount === 0;

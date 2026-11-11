@@ -81,20 +81,29 @@ function MonthlyReportContent() {
     if (!year || !month) return;
     
     setLoading(true);
+    setError(null);
     fetch(`/api/analytics/report?year=${year}&month=${month}&includeEvent=${includeEvent}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) throw new Error(d.error);
+      .then(async (r) => {
+        const text = await r.text();
+        let d: any = null;
+        try {
+          d = JSON.parse(text);
+        } catch {
+          throw new Error('보고서를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        }
+        if (!r.ok || !d || d.error) {
+          throw new Error('보고서를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        }
         setData(d);
       })
-      .catch(err => setError(err.message))
+      .catch(() => setError('보고서를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'))
       .finally(() => setLoading(false));
   }, [year, month, includeEvent, role]);
 
   if (!role) return <div className="p-8 text-center text-slate-400 animate-pulse">보고서 준비 중...</div>;
   if (!year || !month) return <div className="p-8 text-center text-slate-100">잘못된 접근입니다.</div>;
   if (loading) return <div className="p-8 text-center text-slate-400 animate-pulse">보고서 생성 중...</div>;
-  if (error) return <div className="p-8 text-center text-rose-400">오류: {error}</div>;
+  if (error) return <div className="p-8 text-center text-rose-400">{error}</div>;
   if (!data) return null;
 
   const handlePrint = () => {

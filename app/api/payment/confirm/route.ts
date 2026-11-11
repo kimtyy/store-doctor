@@ -158,7 +158,7 @@ export async function GET(request: Request) {
 - 에러 메시지: ${attemptInsertError.message || 'N/A'}
 
 ■ 조치 방법
-payment_attempts 테이블 및 유니크 인덱스 생성 마이그레이션(20261111_create_payment_attempts.sql)이 Supabase에 적용되었는지 확인해 주세요.`,
+payment_attempts 테이블 및 유니크 인덱스 생성 마이그레이션(20261111_create_payment_attempts.sql, 20261111_payment_attempts_processing.sql)이 Supabase에 적용되었는지 확인해 주세요.`,
       });
     } catch (notifyErr: any) {
       console.error(`[Confirm] Failed to send lock failure admin notification: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
@@ -172,8 +172,12 @@ payment_attempts 테이블 및 유니크 인덱스 생성 마이그레이션(202
 
   attemptId = attemptInsertData.id;
 
-  // 4) attempt 상태 업데이트 헬퍼 (실패 시 processing 유지로 차단 유지)
-  async function updateAttemptStatus(newStatus: 'resolved' | 'pending', reason: string) {
+  // 4) attempt 상태 업데이트 헬퍼 (실패 시 processing 유지로 차단 유지, confirm 경로는 expectedStatus='processing' 조건 강제)
+  async function updateAttemptStatus(
+    newStatus: 'resolved' | 'pending',
+    reason: string,
+    expectedStatus: 'processing' | 'pending' | null = 'processing'
+  ) {
     if (!attemptId || !adminSupabase) return;
     try {
       const payload: Record<string, any> = {
@@ -183,12 +187,18 @@ payment_attempts 테이블 및 유니크 인덱스 생성 마이그레이션(202
       if (newStatus === 'resolved') {
         payload.resolved_at = new Date().toISOString();
       }
-      const { error: updErr } = await adminSupabase
+      let query = adminSupabase
         .from('payment_attempts')
         .update(payload)
         .eq('id', attemptId);
+      if (expectedStatus) {
+        query = query.eq('status', expectedStatus);
+      }
+      const { data: updatedRows, error: updErr } = await query.select('id');
       if (updErr) {
         console.error(`[Confirm] Failed to update payment_attempt ${attemptId} to ${newStatus}:`, updErr.message);
+      } else if (!updatedRows || updatedRows.length === 0) {
+        console.warn(`[Confirm] payment_attempt ${attemptId} update to '${newStatus}' matched 0 rows (expectedStatus='${expectedStatus}'). Keeping current state.`);
       }
     } catch (err: any) {
       console.error(`[Confirm] Exception updating payment_attempt ${attemptId}:`, err?.message);

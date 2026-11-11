@@ -333,13 +333,6 @@ export async function GET(request: Request) {
       recommendedFood
     };
 
-    // AI Diagnosis
-    const aiPrompt = `보고서 데이터 요약:\n이번달 매출: ${currentStats.totalRevenue}\n전월 매출: ${prevStats.totalRevenue}\n전년동월 매출: ${lastYearStats.totalRevenue}\n이번달 원가율: ${currentStats.costRatio.toFixed(1)}%\n이번달 영업이익: ${currentStats.operatingProfit}\n실질순이익: ${netProfit}\n이 매장의 ${year}년 ${month}월 성과 및 전월/전년 대비 성장/하락 트렌드를 분석하는 진단 코멘트를 한줄로 작성해줘.`;
-    const aiDiagnosis = await callClaudeVision(aiPrompt).catch(() => '데이터 기반 진단을 생성하지 못했습니다.');
-
-    const predictionPrompt = `다음달(${nextMonth}월) 예측 데이터:\n예측 매출 범위: ${predictedMin} ~ ${predictedMax}\n계절성: ${prediction.seasonality}\n공휴일: ${prediction.holidays.join(', ')}\n주말 일수: ${weekendCount}일\n이번 달 실적 및 위 예측 데이터를 종합하여, 다음 달을 대비하기 위한 구체적인 운영 및 발주 전략을 포함한 AI 진단 코멘트를 작성해줘.`;
-    const predictionAiDiagnosis = await callClaudeVision(predictionPrompt).catch(() => '예측 진단을 생성하지 못했습니다.');
-
     // BEP Analysis
     const fixedCostCategories = new Set(['labor', 'rent', 'electricity', 'gas', 'water', 'telecom', 'pos_fee', 'insurance']);
     const fixedCostPurchases = purchases.reduce((sum, p) => fixedCostCategories.has(p.category || '') ? sum + (p.total_amount || 0) : sum, 0);
@@ -349,11 +342,36 @@ export async function GET(request: Request) {
     const bep = variableCostRatio < 1 ? Math.round(fixedCostsSum / (1 - variableCostRatio)) : 0;
     const bepShortfall = bep - totalRevenue; // Positive means shortfall, negative means excess
 
+    // AI Diagnosis (각 호출은 상호 의존성이 없으므로 Promise.allSettled 병렬 실행, 타임아웃 20초, maxTokens 400)
+    const aiPrompt = `보고서 데이터 요약:\n이번달 매출: ${currentStats.totalRevenue}\n전월 매출: ${prevStats.totalRevenue}\n전년동월 매출: ${lastYearStats.totalRevenue}\n이번달 원가율: ${currentStats.costRatio.toFixed(1)}%\n이번달 영업이익: ${currentStats.operatingProfit}\n실질순이익: ${netProfit}\n이 매장의 ${year}년 ${month}월 성과 및 전월/전년 대비 성장/하락 트렌드를 분석하는 진단 코멘트를 한줄로 작성해줘.`;
+    const predictionPrompt = `다음달(${nextMonth}월) 예측 데이터:\n예측 매출 범위: ${predictedMin} ~ ${predictedMax}\n계절성: ${prediction.seasonality}\n공휴일: ${prediction.holidays.join(', ')}\n주말 일수: ${weekendCount}일\n이번 달 실적 및 위 예측 데이터를 종합하여, 다음 달을 대비하기 위한 구체적인 운영 및 발주 전략을 포함한 AI 진단 코멘트를 작성해줘.`;
     const bepPrompt = `손익분기점 분석 데이터:\n고정비 합계: ${fixedCostsSum}\n평균 변동비율: ${Math.round(variableCostRatio * 100)}%\n손익분기점: ${bep}\n현재 월매출: ${totalRevenue}\n부족액: ${bepShortfall}\n영업일수: ${openDays}\n이 매장의 상황에 맞는 구체적인 조언(예: 하루 평균 얼마 추가 매출이 필요한지, 객단가를 높일지 등)을 포함한 손익분기점 진단 코멘트를 작성해줘.`;
-    const bepAiDiagnosis = await callClaudeVision(bepPrompt).catch(() => '손익분기점 진단을 생성하지 못했습니다.');
-
     const weatherPrompt = `날씨와 매출 상관관계 데이터:\n${weatherStats.map(w => `${w.condition} ${w.days}일: 평균 ${w.avgRevenue}`).join('\n')}\n이 매장의 날씨에 따른 매출 분석 및 재료/주류 발주 조절에 대한 구체적인 조언을 포함한 AI 진단 코멘트를 작성해줘.`;
-    const weatherAiDiagnosis = weatherStats.length > 0 ? await callClaudeVision(weatherPrompt).catch(() => '날씨 진단을 생성하지 못했습니다.') : null;
+
+    const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 400 };
+    const [aiRes, predRes, bepRes, weatherRes] = await Promise.allSettled([
+      callClaudeVision(aiPrompt, undefined, reportClaudeOptions),
+      callClaudeVision(predictionPrompt, undefined, reportClaudeOptions),
+      callClaudeVision(bepPrompt, undefined, reportClaudeOptions),
+      weatherStats.length > 0
+        ? callClaudeVision(weatherPrompt, undefined, reportClaudeOptions)
+        : Promise.resolve(null),
+    ]);
+
+    const aiDiagnosis = aiRes.status === 'fulfilled' && aiRes.value
+      ? aiRes.value
+      : '데이터 기반 진단을 생성하지 못했습니다.';
+    const predictionAiDiagnosis = predRes.status === 'fulfilled' && predRes.value
+      ? predRes.value
+      : '예측 진단을 생성하지 못했습니다.';
+    const bepAiDiagnosis = bepRes.status === 'fulfilled' && bepRes.value
+      ? bepRes.value
+      : '손익분기점 진단을 생성하지 못했습니다.';
+    const weatherAiDiagnosis = weatherStats.length === 0
+      ? null
+      : (weatherRes.status === 'fulfilled' && weatherRes.value
+          ? weatherRes.value
+          : '날씨 진단을 생성하지 못했습니다.');
 
     return NextResponse.json({
       storeName: storeInfo.name,

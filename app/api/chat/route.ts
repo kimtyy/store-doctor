@@ -3,9 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getStoreInfo } from '@/utils/supabase/getStore';
 
 export const dynamic = 'force-dynamic';
-
-
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+export const maxDuration = 60;
 
 function makeSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -288,6 +286,9 @@ ${storeContext}
 
     return NextResponse.json({ content });
   } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError' || error.message.includes('시간이 초과'))) {
+      return NextResponse.json({ error: '응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.' }, { status: 504 });
+    }
     const msg = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
     return NextResponse.json({ error: msg }, { status: 500 });
   }

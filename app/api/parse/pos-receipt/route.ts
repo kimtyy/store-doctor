@@ -3,6 +3,8 @@ import { callClaudeVision } from '../../../../lib/claude';
 import { parsePosReceiptResponse } from '../../../../lib/parsers/posReceipt';
 import { getStoreId } from '@/utils/supabase/getStore';
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -83,6 +85,13 @@ export async function POST(request: Request) {
     console.error('POS receipt parsing error:', error);
 
     if (error instanceof Error) {
+      // 타임아웃 에러
+      if (error.name === 'TimeoutError' || error.name === 'AbortError' || error.message.includes('시간이 초과')) {
+        return NextResponse.json({
+          error: '응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+        }, { status: 504 });
+      }
+
       // Claude API 관련 에러
       if (error.message.includes('Claude API')) {
         return NextResponse.json({

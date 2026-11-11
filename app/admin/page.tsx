@@ -202,7 +202,11 @@ export default async function AdminPage() {
                         {item.reason || '-'}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-center">
-                        <ResolvePaymentAttemptButton attemptId={item.id} />
+                        <ResolvePaymentAttemptButton
+                          attemptId={item.id}
+                          status={item.status}
+                          createdAt={item.created_at}
+                        />
                       </td>
                     </tr>
                   ))
