@@ -240,6 +240,20 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const notice = params.get('notice');
+      if (notice === 'already_subscribed') {
+        setNoticeMessage('이미 이용 중인 구독이 있습니다.');
+      } else if (params.get('message')) {
+        setNoticeMessage(params.get('message'));
+      }
+    }
+  }, []);
+
   useEffect(() => {
     async function fetchAll() {
       try {
@@ -496,6 +510,22 @@ export default function DashboardPage() {
 
       <main className="min-h-screen bg-slate-950 px-4 py-6 pb-32">
         <div className="mx-auto max-w-2xl space-y-5">
+
+          {noticeMessage && (
+            <div className="flex items-center justify-between rounded-2xl bg-amber-500/10 border border-amber-500/30 p-4 text-sm text-amber-200">
+              <div className="flex items-center gap-2">
+                <span>ℹ️</span>
+                <span>{noticeMessage}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNoticeMessage(null)}
+                className="text-amber-400 hover:text-amber-200 ml-4 font-bold text-lg leading-none cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-8 text-center">

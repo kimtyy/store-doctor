@@ -83,10 +83,10 @@ export async function GET(request: Request) {
   }
 
   if (existingSub) {
-    return NextResponse.json(
-      { error: '이미 이용 중인 구독이 있습니다.' },
-      { status: 409 }
-    );
+    // 이미 이용 중인 구독이 있는 경우 JSON 409 대신 대시보드로 이동시키고 안내 표시
+    const dashboardUrl = new URL('/dashboard', request.url);
+    dashboardUrl.searchParams.set('notice', 'already_subscribed');
+    return NextResponse.redirect(dashboardUrl);
   }
 
   // 3. 토스페이먼츠 시크릿 키 체크 (폴백 없이 환경변수 미설정 시 즉시 에러)
@@ -108,6 +108,13 @@ export async function GET(request: Request) {
   let hasAttemptedCancel = false;
   let cancelResultCache: { success: boolean; error?: string } | null = null;
 
+  // 알림 본문용 paymentKey 마스킹 (마지막 6자리만 노출)
+  function maskPaymentKey(key: string | null | undefined): string {
+    if (!key) return '(없음)';
+    if (key.length <= 6) return key;
+    return `${'*'.repeat(key.length - 6)}${key.slice(-6)}`;
+  }
+
   // 토스 주문번호로 결제 조회 API: GET https://api.tosspayments.com/v1/payments/orders/{orderId}
   async function lookupPaymentByOrderId(targetOrderId: string) {
     try {
@@ -121,7 +128,7 @@ export async function GET(request: Request) {
         return { success: false, status: res.status };
       }
       const data = await res.json();
-      return { success: true, data };
+      return { success: true, data, status: res.status };
     } catch (err: any) {
       return { success: false, error: err?.message || '네트워크 조회 실패' };
     }
@@ -231,7 +238,7 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
 ■ 결제 및 사용자 정보
 - 주문번호: ${orderId}
 - 사용자 식별자: ${user.email} (ID: ${user.id})
-- 결제키(paymentKey): ${paymentKey}
+- 결제키(paymentKey): ${maskPaymentKey(paymentKey)}
 - 플랜: ${planDetail.name} (${planDetail.price.toLocaleString()}원)`,
           });
         } catch (notifyErr) {
@@ -367,7 +374,7 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
     const successUrl = new URL('/dashboard', request.url);
     return NextResponse.redirect(successUrl);
   } catch (error: any) {
-    console.error('Billing confirm exception occurred:', error);
+    console.error(`Billing confirm exception occurred: ${error?.name || 'Error'}: ${error?.message || String(error)}`);
 
     // 결제 승인 요청 후 응답 유실(네트워크 단절/타임아웃 등)로 paymentKey가 없는 경우
     if (!paymentKey && orderId && user) {
@@ -377,14 +384,18 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
         paymentKey = lookup.data.paymentKey;
         console.log(`[Confirm] OrderId ${orderId} verified DONE via order lookup. Proceeding to auto-cancel.`);
       } else if (!lookup.success) {
-        // 토스 장애 등으로 조회가 실패하여 결제 여부 미확인 -> Vercel 로그 + 수동 확인 알림
-        console.error(`[Confirm] CRITICAL: Payment status unconfirmed for orderId ${orderId}, user ${user.email}. Lookup error: ${lookup.error || lookup.status}`);
-        const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
-        const subjectPrefix = isTestMode ? '[테스트] ' : '';
-        try {
-          await notifyAdmin({
-            subject: `${subjectPrefix}[긴급/수동 확인 필요] 결제 상태 미확인 건 - ${user.email}`,
-            text: `[매장닥터 결제 상태 미확인 알림 - 수동 확인 필요]
+        if (lookup.status === 404) {
+          // 주문 조회가 404(주문 없음)이면 "청구되지 않음"으로 간주 -> 긴급 알림 미발송
+          console.log(`[Confirm] OrderId ${orderId} returned 404 (not charged). Skipping admin alert.`);
+        } else {
+          // 404 이외의 조회 실패만 긴급 알림 발송
+          console.error(`[Confirm] CRITICAL: Payment status unconfirmed for orderId ${orderId}, user ${user.email}. Lookup error: ${lookup.error || lookup.status}`);
+          const isTestMode = Boolean(process.env.TOSS_SECRET_KEY?.startsWith('test_sk_'));
+          const subjectPrefix = isTestMode ? '[테스트] ' : '';
+          try {
+            await notifyAdmin({
+              subject: `${subjectPrefix}[긴급/수동 확인 필요] 결제 상태 미확인 건 - ${user.email}`,
+              text: `[매장닥터 결제 상태 미확인 알림 - 수동 확인 필요]
 
 첫 정기구독 결제 승인 요청 중 네트워크 단절/예외가 발생하였고, 토스 주문번호 조회도 실패하여 결제 성패 여부를 확인할 수 없습니다.
 고객 카드가 결제되었을 가능성이 있으므로 토스 상점관리자에서 즉시 해당 주문번호를 확인해 주시기 바랍니다.
@@ -398,9 +409,10 @@ ${cancelResult.success ? '해당 결제는 즉시 전액 자동 취소되었습�
 
 ■ 조치 방법
 토스 상점관리자(https://dashboard.tosspayments.com) 접속 → 결제조회 메뉴에서 주문번호(${orderId})로 검색하여 결제 완료 여부를 확인하시고, 승인되어 있다면 즉시 취소 처리해 주세요.`,
-          });
-        } catch (notifyErr) {
-          console.error('[Confirm] Fallback: notifyAdmin failed for unconfirmed payment:', notifyErr);
+            });
+          } catch (notifyErr: any) {
+            console.error(`[Confirm] Fallback: notifyAdmin failed for unconfirmed payment: ${notifyErr?.name || 'Error'}: ${notifyErr?.message || String(notifyErr)}`);
+          }
         }
       }
     }
@@ -432,7 +444,7 @@ ${cancelResult.success ? '결제는 즉시 전액 자동 취소되었습니다.'
     const failUrl = new URL('/payment', request.url);
     failUrl.searchParams.set('plan', plan);
     failUrl.searchParams.set('error', 'true');
-    failUrl.searchParams.set('message', paymentKey ? '결제가 취소되었습니다. 다시 시도해 주세요.' : '네트워크 통신 중 오류가 발생했습니다. 다시 시도해 주세요.');
+    failUrl.searchParams.set('message', paymentKey ? '결제가 취소되었습니다. 다시 시도해 주세요.' : '결제가 완료되지 않았습니다. 다시 시도해 주세요.');
     return NextResponse.redirect(failUrl);
   }
 }

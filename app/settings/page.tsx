@@ -25,6 +25,13 @@ export default function SettingsPage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('notice') === 'already_subscribed') {
+        setMessage({ type: 'error', text: '이미 이용 중인 구독이 있습니다.' });
+      }
+    }
+
     fetch('/api/stores/settings')
       .then(res => res.json())
       .then(data => {
