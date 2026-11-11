@@ -1,4 +1,5 @@
 import { detectGoldenCross, detectDeathCross } from './movingAverage';
+import { evaluateCostRatioRelativeAlert } from './costRatio';
 
 export type DiagnosisStatus = 'growth' | 'caution' | 'danger' | 'stable';
 
@@ -15,6 +16,8 @@ export function diagnoseDailySales(
   ma20: (number | null)[],
   costRatioMA5Series: (number | null)[],
   costRatioMA20Series: (number | null)[],
+  costRatioMA60Series: (number | null)[] = [],
+  operatingDaysCount = 0
 ): DiagnosisResult {
   void todayRevenue; // reserved for future use
   const alerts: string[] = [];
@@ -30,22 +33,31 @@ export function diagnoseDailySales(
     alerts.push('📉 5일선이 20일선 아래로 내려갔습니다. 하락세에 주의하세요.');
   }
 
-  // 원가율 5일 이평선 기준 경고
-  const latestCR5 = costRatioMA5Series.length > 0
-    ? costRatioMA5Series[costRatioMA5Series.length - 1]
-    : null;
+  // 재료비 기준 원가율 상대 경고: 5일 평균 vs 매장 자체 60일 평균 (+3%p 주의 / +5%p 위험)
+  // 60일 데이터(영업일 30일 미만) 부족 시에는 상대 경고를 띄우지 않음
+  const latestCR5 =
+    costRatioMA5Series.length > 0
+      ? costRatioMA5Series[costRatioMA5Series.length - 1]
+      : null;
+  const latestCR60 =
+    costRatioMA60Series.length > 0
+      ? costRatioMA60Series[costRatioMA60Series.length - 1]
+      : null;
 
-  if (latestCR5 !== null) {
-    if (latestCR5 > 70) {
-      if (status !== 'growth') status = 'danger';
-      alerts.push(`🚨 5일 평균 원가율 ${latestCR5.toFixed(1)}%로 위험 수준입니다. 즉시 점검하세요.`);
-    } else if (latestCR5 >= 55) {
-      if (status === 'stable') status = 'caution';
-      alerts.push(`⚠️  5일 평균 원가율 ${latestCR5.toFixed(1)}%입니다. 주의가 필요합니다.`);
-    }
+  const relEval = evaluateCostRatioRelativeAlert(latestCR5, latestCR60, operatingDaysCount);
+  if (relEval.level === 'danger' && latestCR5 !== null && latestCR60 !== null && relEval.deltaPp !== null) {
+    if (status !== 'growth') status = 'danger';
+    alerts.push(
+      `🚨 5일 평균 원가율 ${latestCR5.toFixed(1)}%로 매장 60일 평균(${latestCR60.toFixed(1)}%) 대비 +${relEval.deltaPp.toFixed(1)}%p 상승해 위험 수준입니다. 즉시 점검하세요.`
+    );
+  } else if (relEval.level === 'caution' && latestCR5 !== null && latestCR60 !== null && relEval.deltaPp !== null) {
+    if (status === 'stable') status = 'caution';
+    alerts.push(
+      `⚠️ 5일 평균 원가율 ${latestCR5.toFixed(1)}%로 매장 60일 평균(${latestCR60.toFixed(1)}%) 대비 +${relEval.deltaPp.toFixed(1)}%p 높아 주의가 필요합니다.`
+    );
   }
 
-  // 원가율 5일선이 20일선 위로 올라가면 → 상승 추세
+  // 원가율 5일선이 20일선 위로 올라가면 → 상승 추세 경고 유지
   if (costRatioMA5Series.length >= 2 && costRatioMA20Series.length >= 2) {
     const len5 = costRatioMA5Series.length;
     const len20 = costRatioMA20Series.length;
@@ -53,8 +65,14 @@ export function diagnoseDailySales(
     const prev5 = costRatioMA5Series[len5 - 2];
     const cur20 = costRatioMA20Series[len20 - 1];
     const prev20 = costRatioMA20Series[len20 - 2];
-    if (cur5 !== null && prev5 !== null && cur20 !== null && prev20 !== null
-      && prev5 <= prev20 && cur5 > cur20) {
+    if (
+      cur5 !== null &&
+      prev5 !== null &&
+      cur20 !== null &&
+      prev20 !== null &&
+      prev5 <= prev20 &&
+      cur5 > cur20
+    ) {
       if (status === 'stable') status = 'caution';
       alerts.push('🔴 원가율 5일선이 20일선을 넘었습니다. 원가율 상승 추세에 주의하세요.');
     }
@@ -69,7 +87,7 @@ export function diagnoseDailySales(
       description = '매출이 상승하고 있습니다. 좋은 추세입니다.';
       break;
     case 'caution':
-      title = '⚠️  주의';
+      title = '⚠️ 주의';
       description = '원가율이나 매출에 주의가 필요합니다.';
       break;
     case 'danger':

@@ -4,8 +4,8 @@
  */
 export function compressImage(
   file: File,
-  maxPx = 4096,
-  quality = 0.95
+  maxPx = 2048,
+  quality = 0.85
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);

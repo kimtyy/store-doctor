@@ -593,7 +593,7 @@ export default function LandingPage() {
                   <span className="text-[#0064FF] font-bold">✓</span> AI 영업 진단 분석
                 </li>
                 <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                  <span className="text-[#0064FF] font-bold">✓</span> 실시간 원가율 및 마진 추적
+                  <span className="text-[#0064FF] font-bold">✓</span> 실시간 재료비 원가율·FL 및 순이익 추적
                 </li>
                 <li className="flex items-center gap-3 text-white/90 text-[13px] font-medium drop-shadow-lg" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
                   <span className="text-[#0064FF] font-bold">✓</span> 다음 달 예측 분석 보고서

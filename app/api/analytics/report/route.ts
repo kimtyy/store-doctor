@@ -2,27 +2,20 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { callClaudeVisionWithMeta, sanitizeReportComment } from '@/lib/claude';
 import { getStoreInfo } from '@/utils/supabase/getStore';
+import {
+  getComparisonPeriodBounds,
+  calcPeriodStats,
+  LOW_INPUT_RATE_THRESHOLD,
+} from '@/lib/analytics/periodComparison';
+import {
+  EXPENSE_GROUP_META_MAP,
+  ExpenseGroupKey,
+  mapCategoryToExpenseGroup,
+  PURCHASE_CATEGORY_LABELS,
+} from '@/lib/expenses';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-
-
-const PURCHASE_CAT_LABELS: Record<string, string> = {
-  food_ingredients: '식자재',
-  alcohol: '주류',
-  consumables: '소모품',
-  labor: '인건비',
-  rent: '임대료',
-  electricity: '전기요금',
-  gas: '가스요금',
-  water: '수도요금',
-  telecom: '통신비',
-  pos_fee: 'POS 사용료',
-  insurance: '보험료',
-  fuel: '유류비',
-  other: '기타'
-};
 
 export async function GET(request: Request) {
   const storeInfo = await getStoreInfo();
@@ -52,57 +45,20 @@ export async function GET(request: Request) {
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
 
-  // 1. 한국 표준시 기준 오늘 구하기
-  const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-  const todayYear = today.getFullYear();
-  const todayMonth = today.getMonth() + 1;
-  const todayDay = today.getDate();
-
-  // Current month bounds
-  const fromStr = `${year}-${String(month).padStart(2, '0')}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  let dayLimit = lastDay;
-  if (year === todayYear && month === todayMonth) {
-    dayLimit = todayDay;
-  }
-  const toStr = `${year}-${String(month).padStart(2, '0')}-${String(dayLimit).padStart(2, '0')}`;
-
-  // Previous month bounds
-  const prevDate = new Date(year, month - 2, 1);
-  const prevYear = prevDate.getFullYear();
-  const prevMonth = prevDate.getMonth() + 1;
-  const prevFromStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`;
-  const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
-  let prevDayLimit = prevLastDay;
-  if (year === todayYear && month === todayMonth) {
-    prevDayLimit = Math.min(todayDay, prevLastDay);
-  }
-  const prevToStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(prevDayLimit).padStart(2, '0')}`;
-
-  // Last year bounds
-  const lastYear = year - 1;
-  const lastYearFromStr = `${lastYear}-${String(month).padStart(2, '0')}-01`;
-  const lastYearLastDay = new Date(lastYear, month, 0).getDate();
-  let lastYearDayLimit = lastYearLastDay;
-  if (year === todayYear && month === todayMonth) {
-    lastYearDayLimit = Math.min(todayDay, lastYearLastDay);
-  }
-  const lastYearToStr = `${lastYear}-${String(month).padStart(2, '0')}-${String(lastYearDayLimit).padStart(2, '0')}`;
-
-  // Past 6 months bounds for data sufficiency check and 3-month MoM
-  const past6MonthDate = new Date(year, month - 6, 1);
-  const past6MonthFromStr = `${past6MonthDate.getFullYear()}-${String(past6MonthDate.getMonth() + 1).padStart(2, '0')}-01`;
-
-  // Next month bounds (Current Year + Next Month)
-  const nextMonthDate = new Date(year, month, 1);
-  const nextMonthYear = nextMonthDate.getFullYear();
-  const nextMonth = nextMonthDate.getMonth() + 1;
-  const nextMonthLastDay = new Date(nextMonthYear, nextMonth, 0).getDate();
-
-  // Next month last year bounds
-  const nextMonthLastYearFromStr = `${nextMonthYear - 1}-${String(nextMonth).padStart(2, '0')}-01`;
-  const nextMonthLastYearLastDay = new Date(nextMonthYear - 1, nextMonth, 0).getDate();
-  const nextMonthLastYearToStr = `${nextMonthYear - 1}-${String(nextMonth).padStart(2, '0')}-${String(nextMonthLastYearLastDay).padStart(2, '0')}`;
+  // 1. 공통 기간 비교 경계 계산 (1-K)
+  const bounds = getComparisonPeriodBounds(year, month);
+  const fromStr = bounds.current.from;
+  const toStr = bounds.current.to;
+  const prevFromStr = bounds.prev.from;
+  const prevToStr = bounds.prev.to;
+  const lastYearFromStr = bounds.lastYear.from;
+  const lastYearToStr = bounds.lastYear.to;
+  const past6MonthFromStr = bounds.past6MonthFromStr;
+  const nextMonthYear = bounds.nextMonth.year;
+  const nextMonth = bounds.nextMonth.month;
+  const nextMonthLastDay = bounds.nextMonth.daysInMonth;
+  const nextMonthLastYearFromStr = bounds.nextMonth.lastYearFrom;
+  const nextMonthLastYearToStr = bounds.nextMonth.lastYearTo;
 
   try {
     let salesQuery = supabase.from('daily_sales').select('*').eq('store_id', STORE_ID).gte('date', fromStr).lte('date', toStr);
@@ -179,22 +135,22 @@ export async function GET(request: Request) {
     const loanRepayment = storeData?.loan_repayment || 0;
     const nonOperatingExpenses = ownerSalary + loanRepayment;
 
-    function calcStats(s: any[], p: any[]) {
-      const totalRev = s.reduce((sum, item) => sum + (item.net_revenue || 0), 0);
-      const totalPur = p.reduce((sum, item) => sum + (item.total_amount || 0), 0);
-      const opProfit = totalRev - totalPur;
-      const cRatio = totalRev > 0 ? (totalPur / totalRev) * 100 : 0;
-      const oDays = s.length;
-      const avgDaily = oDays > 0 ? Math.round(totalRev / oDays) : 0;
-      const totalTables = s.reduce((sum, item) => sum + (item.tables_used || 0), 0);
-      const avgSpend = totalTables > 0 ? Math.round(totalRev / totalTables) : 0;
-      const hasData = s.length > 0 || p.length > 0;
-      return { totalRevenue: totalRev, totalPurchase: totalPur, operatingProfit: opProfit, costRatio: cRatio, openDays: oDays, avgDailySales: avgDaily, avgSpend, guestCount: totalTables, hasData };
-    }
+    // 공통 기간 비교 계산 함수 사용 (1-K)
+    const lastYearStats = calcPeriodStats(lastYearSales, lastYearPurchases, bounds.lastYear.expectedDays);
+    const prevStats = calcPeriodStats(prevSales, prevPurchases, bounds.prev.expectedDays);
+    const currentStats = calcPeriodStats(
+      sales,
+      purchases,
+      bounds.current.expectedDays,
+      prevStats.groupTotals
+    );
 
-    const currentStats = calcStats(sales, purchases);
-    const prevStats = calcStats(prevSales, prevPurchases);
-    const lastYearStats = calcStats(lastYearSales, lastYearPurchases);
+    if (currentStats.expenseBreakdown.unmappedCategories.length > 0) {
+      console.info(
+        '[Report] Unmapped purchase categories grouped into 기타 운영비:',
+        currentStats.expenseBreakdown.unmappedCategories
+      );
+    }
 
     // Sales metrics (keep existing for backward compatibility)
     const totalRevenue = currentStats.totalRevenue;
@@ -221,25 +177,57 @@ export async function GET(request: Request) {
       return m.count > 0 ? Math.round(m.sum / m.count) : 0;
     });
 
-    // Purchase metrics
-    const totalPurchase = purchases.reduce((sum, p) => sum + (p.total_amount || 0), 0);
-    const costRatio = totalRevenue > 0 ? (totalPurchase / totalRevenue) * 100 : 0; // Excludes non-operating
+    // Expense & Purchase metrics (1-K 표준 분류 기준)
+    const totalPurchase = currentStats.totalExpense;
+    const totalExpense = currentStats.totalExpense;
+    const costRatio = currentStats.costRatio; // 재료비(원가) 기준 원가율
 
     const purchaseCategoriesMap: Record<string, number> = {};
-    const vendorMap: Record<string, number> = {};
+    const vendorMap: Record<string, { amount: number; groupAmounts: Partial<Record<ExpenseGroupKey, number>> }> = {};
     for (const p of purchases) {
       const cat = p.category || 'other';
-      purchaseCategoriesMap[cat] = (purchaseCategoriesMap[cat] || 0) + (p.total_amount || 0);
+      const amt = p.total_amount || 0;
+      purchaseCategoriesMap[cat] = (purchaseCategoriesMap[cat] || 0) + amt;
+
       const v = p.vendor_name || '미상';
-      vendorMap[v] = (vendorMap[v] || 0) + (p.total_amount || 0);
+      const gKey = mapCategoryToExpenseGroup(cat);
+      if (!vendorMap[v]) {
+        vendorMap[v] = { amount: 0, groupAmounts: {} };
+      }
+      vendorMap[v].amount += amt;
+      vendorMap[v].groupAmounts[gKey] = (vendorMap[v].groupAmounts[gKey] || 0) + amt;
     }
-    const purchaseCategories = Object.entries(purchaseCategoriesMap).map(([cat, amt]) => ({ name: PURCHASE_CAT_LABELS[cat] || cat, amount: amt })).sort((a,b)=>b.amount-a.amount);
-    const topVendors = Object.entries(vendorMap).map(([v, amt]) => ({ name: v, amount: amt })).sort((a,b)=>b.amount-a.amount).slice(0, 5);
+    const purchaseCategories = Object.entries(purchaseCategoriesMap)
+      .map(([cat, amt]) => ({
+        name: (PURCHASE_CATEGORY_LABELS as Record<string, string>)[cat] || cat,
+        amount: amt,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const topVendors = Object.entries(vendorMap)
+      .map(([v, info]) => {
+        let topGroupKey: ExpenseGroupKey = 'other_ops';
+        let topGroupAmt = -1;
+        for (const [gk, ga] of Object.entries(info.groupAmounts) as [ExpenseGroupKey, number][]) {
+          if (ga > topGroupAmt) {
+            topGroupAmt = ga;
+            topGroupKey = gk;
+          }
+        }
+        return {
+          name: v,
+          amount: info.amount,
+          groupKey: topGroupKey,
+          groupLabel: EXPENSE_GROUP_META_MAP[topGroupKey].shortLabel,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
 
     // Profit metrics
-    const operatingProfit = totalRevenue - totalPurchase;
+    const operatingProfit = currentStats.operatingProfit; // 매출 - 총비용 = 남은 돈
     const netProfit = operatingProfit - nonOperatingExpenses;
-    const totalCostRatio = totalRevenue > 0 ? ((totalPurchase + nonOperatingExpenses) / totalRevenue) * 100 : 0;
+    const totalCostRatio = currentStats.totalCostRatio; // 총비용 ÷ 매출 * 100
 
     // Menu metrics
     const menuMap: Record<string, number> = {};
@@ -334,48 +322,72 @@ export async function GET(request: Request) {
       recommendedFood
     };
 
-    // BEP Analysis
-    const fixedCostCategories = new Set(['labor', 'rent', 'electricity', 'gas', 'water', 'telecom', 'pos_fee', 'insurance']);
-    const fixedCostPurchases = purchases.reduce((sum, p) => fixedCostCategories.has(p.category || '') ? sum + (p.total_amount || 0) : sum, 0);
+    // BEP Analysis (1-K 동일 분류 상수 사용: 변동비 = 재료비 + 수수료, 고정비 = 나머지 5개 그룹 + 영업외 지출)
+    const variableCostsSum = currentStats.expenseBreakdown.variableCost;
+    const fixedCostPurchases = currentStats.expenseBreakdown.fixedCostFromPurchases;
     const fixedCostsSum = fixedCostPurchases + nonOperatingExpenses;
-    const variableCostsSum = totalPurchase - fixedCostPurchases;
     const variableCostRatio = totalRevenue > 0 ? variableCostsSum / totalRevenue : 0;
     const bep = variableCostRatio < 1 ? Math.round(fixedCostsSum / (1 - variableCostRatio)) : 0;
     const bepShortfall = bep - totalRevenue; // Positive means shortfall, negative means excess
 
+    // Data completeness check (< 80% 입력률 체크)
+    const isLowInputRate = currentStats.inputRate < LOW_INPUT_RATE_THRESHOLD;
+    const lowInputWarningText = '입력되지 않은 날이 있어 실제와 다를 수 있습니다.';
+
     // AI Diagnosis (각 호출은 상호 의존성이 없으므로 Promise.allSettled 병렬 실행, 타임아웃 20초, maxTokens 600)
     const reportFormatRule =
-      '평문 3~5문장. 제목, 표, 코드블록, 목록, 이모지, 마크다운 기호(**, #, |) 사용 금지. 화면에 이미 표시된 숫자를 표로 반복하지 말고, 해석과 실행할 조언만 쓴다. 값이 "없음"으로 표시된 항목에 대해서는 데이터 부재 경고문을 쓰지 말 것.';
+      '출력 형식: 평문 3~5문장. 존댓말(~습니다)로 쓴다. 제목, 표, 코드블록, 목록, 이모지, 마크다운 기호(**, #, |) 사용 금지. 화면에 이미 표시된 숫자를 표로 반복하지 말고, 해석과 실행할 조언만 쓴다. 값이 "없음"으로 표시된 항목에 대해서는 데이터 부재 경고문을 쓰지 말 것.';
+
+    const metricDefinitions =
+      '[지표 정의] 원가율=재료비(식자재·주류)÷매출, 인건비율=인건비÷매출, FL비율=(재료비+인건비)÷매출, 임대료율=임대료÷매출, 총비용률=총비용÷매출, 남은돈(영업이익)=매출−총비용. "원가율"은 반드시 재료비 기준으로만 사용할 것.';
+
+    const groupSummaryLines = currentStats.expenseGroups
+      .map((g) => {
+        const momTxt =
+          prevStats.hasData && g.prevAmount > 0 && g.momChangePct !== null
+            ? `, 전월 대비 ${g.momChangePct >= 0 ? '+' : ''}${g.momChangePct.toFixed(1)}%`
+            : '';
+        return `${g.shortLabel} ${g.amount}원(${g.ratioPct.toFixed(1)}%${momTxt})`;
+      })
+      .join(' / ');
 
     const prevMonthSummary = prevStats.hasData
-      ? `매출 ${prevStats.totalRevenue}원, 원가율 ${prevStats.costRatio.toFixed(1)}%, 일평균 ${prevStats.avgDailySales}원`
-      : '없음';
-    const lastYearSummary = lastYearStats.hasData
-      ? `매출 ${lastYearStats.totalRevenue}원, 원가율 ${lastYearStats.costRatio.toFixed(1)}%, 일평균 ${lastYearStats.avgDailySales}원`
+      ? `매출 ${prevStats.totalRevenue}원, 총비용 ${prevStats.totalExpense}원, 남은돈 ${prevStats.operatingProfit}원, 원가율 ${prevStats.costRatio.toFixed(1)}%, 인건비율 ${prevStats.laborRatio.toFixed(1)}%, FL ${prevStats.flRatio.toFixed(1)}%, 일평균 ${prevStats.avgDailySales}원 (상태: ${prevStats.dataStatus === 'partial' ? '일부 데이터' : '완전'})`
       : '없음';
 
-    const aiPrompt = `보고서 데이터 요약:
-이번달(${year}년 ${month}월) 매출: ${currentStats.totalRevenue}원, 원가율: ${currentStats.costRatio.toFixed(1)}%, 일평균: ${currentStats.avgDailySales}원, 영업이익: ${currentStats.operatingProfit}원, 실질순이익: ${netProfit}원
-전월 실적: ${prevMonthSummary}
-전년동월 실적: ${lastYearSummary}
-이 매장의 ${year}년 ${month}월 성과 및 성장/하락 흐름을 분석해 해석과 실행 조언을 작성해줘.
+    const lastYearSection = lastYearStats.hasData
+      ? `전년동월 실적(${lastYearStats.dataStatus === 'partial' ? '일부 데이터' : '비교 가능'}): 매출 ${lastYearStats.totalRevenue}원, 총비용 ${lastYearStats.totalExpense}원, 원가율 ${lastYearStats.costRatio.toFixed(1)}%, FL ${lastYearStats.flRatio.toFixed(1)}%, 일평균 ${lastYearStats.avgDailySales}원\n전년 동월 대비 해석 시 계절 요인과 실제 증감을 구분하여 설명할 것.`
+      : '';
+
+    const lowInputDirective = isLowInputRate
+      ? `\n주의: 이번 달 매출 입력일수가 ${currentStats.openDays}/${currentStats.expectedDays}일(80% 미만)입니다. 반드시 "${lowInputWarningText}"를 포함하고 전월 대비 급감·급증 판단을 단정하지 말 것.`
+      : '';
+
+    const aiPrompt = `${metricDefinitions}
+이번달(${year}년 ${month}월) 실적: 매출 ${currentStats.totalRevenue}원, 총비용 ${currentStats.totalExpense}원, 남은돈(영업이익) ${currentStats.operatingProfit}원, 영업이익률 ${currentStats.operatingProfitRatio.toFixed(1)}%, 총비용률 ${currentStats.totalCostRatio.toFixed(1)}%, 원가율 ${currentStats.costRatio.toFixed(1)}%, 인건비율 ${currentStats.laborRatio.toFixed(1)}%, FL비율 ${currentStats.flRatio.toFixed(1)}%, 임대료율 ${currentStats.rentRatio.toFixed(1)}%, 일평균 ${currentStats.avgDailySales}원 (매출입력 ${currentStats.openDays}/${currentStats.expectedDays}일, 매입 ${currentStats.purchaseCount}건)
+비용 그룹별 상세: ${groupSummaryLines}
+전월 실적: ${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
+이 매장의 ${year}년 ${month}월 성과와 전월 대비 크게 늘어난 비용 그룹을 짚어 해석과 실행 조언을 작성해 주세요.${lowInputDirective}
 ${reportFormatRule}`;
 
-    const predictionPrompt = `이번달(${year}년 ${month}월) 실적: 매출 ${currentStats.totalRevenue}원, 원가율 ${currentStats.costRatio.toFixed(1)}%, 일평균 매출 ${currentStats.avgDailySales}원 (영업일 ${currentStats.openDays}일)
-전월 실적: ${prevMonthSummary}
-전년동월 실적: ${lastYearSummary}
+    const predictionPrompt = `${metricDefinitions}
+이번달(${year}년 ${month}월) 실적: 매출 ${currentStats.totalRevenue}원, 총비용 ${currentStats.totalExpense}원, 원가율 ${currentStats.costRatio.toFixed(1)}%, FL비율 ${currentStats.flRatio.toFixed(1)}%, 일평균 매출 ${currentStats.avgDailySales}원 (영업일 ${currentStats.openDays}일)
+비용 그룹별 상세: ${groupSummaryLines}
+전월 실적: ${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
 다음달(${nextMonth}월) 예측 데이터: 예측 매출 범위 ${predictedMin}원 ~ ${predictedMax}원, 계절성: ${prediction.seasonality || '일반'}, 공휴일: ${prediction.holidays.length > 0 ? prediction.holidays.join(', ') : '없음'}, 주말 일수: ${weekendCount}일
-이번 달·전월 실적과 다음달 예측 데이터를 종합해, 다음 달을 대비한 구체적인 운영 및 발주 조언을 작성해줘.
+이번 달·전월 실적 및 비용 구조를 반영해 다음 달을 대비한 구체적인 운영 및 발주 조언을 작성해 주세요.${lowInputDirective}
 ${reportFormatRule}`;
 
-    const bepPrompt = `손익분기점 분석 데이터:
-고정비 합계: ${fixedCostsSum}원, 평균 변동비율: ${Math.round(variableCostRatio * 100)}%, 손익분기점: ${bep}원, 현재 월매출: ${totalRevenue}원, 부족액(초과 시 음수): ${bepShortfall}원, 영업일수: ${openDays}일
-이 매장의 손익분기점 달성과 수익 개선을 위한 구체적인 실행 조언(하루 추가 필요 매출 또는 객단가/비용 조정)을 작성해줘.
+    const bepPrompt = `${metricDefinitions}
+손익분기점 분석 데이터 (변동비=재료비+수수료, 고정비=나머지 그룹):
+변동비 합계: ${variableCostsSum}원 (변동비율 ${Math.round(variableCostRatio * 100)}%), 고정비 합계: ${fixedCostsSum}원, 손익분기점: ${bep}원, 현재 월매출: ${totalRevenue}원, 부족액(초과 시 음수): ${bepShortfall}원, 영업일수: ${openDays}일
+비용 그룹별 상세: ${groupSummaryLines}
+이 매장의 손익분기점 달성과 수익 개선을 위한 구체적인 실행 조언(하루 추가 필요 매출 또는 비용 그룹 조정)을 작성해 주세요.
 ${reportFormatRule}`;
 
     const weatherPrompt = `날씨와 매출 상관관계 데이터:
 ${weatherStats.map(w => `${w.condition} ${w.days}일: 일평균 ${w.avgRevenue}원`).join('\n')}
-이 매장의 날씨에 따른 매출 차이를 해석하고 식자재·주류 발주 조절 조언을 작성해줘.
+이 매장의 날씨에 따른 매출 차이를 해석하고 식자재·주류 발주 조절 조언을 작성해 주세요.
 ${reportFormatRule}`;
 
     const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 600 };
@@ -393,9 +405,13 @@ ${reportFormatRule}`;
     const bepFallback = '손익분기점 진단을 생성하지 못했습니다.';
     const weatherFallback = '날씨 진단을 생성하지 못했습니다.';
 
-    const aiDiagnosis = aiRes.status === 'fulfilled' && aiRes.value
+    let aiDiagnosis = aiRes.status === 'fulfilled' && aiRes.value
       ? sanitizeReportComment(aiRes.value.text, aiRes.value.stopReason, aiFallback)
       : aiFallback;
+    if (isLowInputRate && !aiDiagnosis.includes(lowInputWarningText)) {
+      aiDiagnosis = `${lowInputWarningText} ${aiDiagnosis}`;
+    }
+
     const predictionAiDiagnosis = predRes.status === 'fulfilled' && predRes.value
       ? sanitizeReportComment(predRes.value.text, predRes.value.stopReason, predictionFallback)
       : predictionFallback;
@@ -413,6 +429,13 @@ ${reportFormatRule}`;
       year,
       month,
       generatedAt: new Date().toISOString(),
+      dataCoverage: {
+        openDays: currentStats.openDays,
+        expectedDays: currentStats.expectedDays,
+        purchaseCount: currentStats.purchaseCount,
+        inputRate: currentStats.inputRate,
+        isLowInputRate,
+      },
       sales: {
         totalRevenue,
         serviceAmount,
@@ -426,11 +449,19 @@ ${reportFormatRule}`;
       },
       purchases: {
         totalPurchase,
+        totalExpense,
+        ingredientCost: currentStats.ingredientCost,
         costRatio,
+        laborRatio: currentStats.laborRatio,
+        flRatio: currentStats.flRatio,
+        rentRatio: currentStats.rentRatio,
+        totalCostRatio,
+        groups: currentStats.expenseGroups,
         categories: purchaseCategories
       },
       profit: {
         operatingProfit,
+        operatingProfitRatio: currentStats.operatingProfitRatio,
         ownerSalary,
         loanRepayment,
         nonOperatingExpenses,

@@ -469,6 +469,7 @@ export default function SalesInputPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: [dataUrl] }),
       });
+      if (res.status === 413) throw new Error('사진 용량이 너무 큽니다. 다시 촬영하거나 잠시 후 시도해 주세요.');
       const text = await res.text();
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       let body;
@@ -502,6 +503,7 @@ export default function SalesInputPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: [dataUrl] }),
       });
+      if (res.status === 413) throw new Error('사진 용량이 너무 큽니다. 다시 촬영하거나 잠시 후 시도해 주세요.');
       const text = await res.text();
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       let body;

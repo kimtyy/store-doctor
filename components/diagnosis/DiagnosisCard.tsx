@@ -1,16 +1,27 @@
 'use client';
 
 import { DiagnosisResult } from '../../lib/analytics/diagnosis';
+import { evaluateCostRatioRelativeAlert } from '../../lib/analytics/costRatio';
 
 export interface DiagnosisCardProps {
   diagnosis: DiagnosisResult;
   todayProfit: number;
   costRatio: number;
   costRatioMA5: number | null;
+  costRatioMA60?: number | null;
+  operatingDaysCount?: number;
   avgSpend: number;
 }
 
-export default function DiagnosisCard({ diagnosis, todayProfit, costRatio, costRatioMA5, avgSpend }: DiagnosisCardProps) {
+export default function DiagnosisCard({
+  diagnosis,
+  todayProfit,
+  costRatio,
+  costRatioMA5,
+  costRatioMA60 = null,
+  operatingDaysCount = 0,
+  avgSpend,
+}: DiagnosisCardProps) {
   const statusColors = {
     growth: 'from-emerald-500/20 to-emerald-500/10 border-emerald-500/30',
     caution: 'from-amber-500/20 to-amber-500/10 border-amber-500/30',
@@ -25,9 +36,10 @@ export default function DiagnosisCard({ diagnosis, todayProfit, costRatio, costR
     stable: 'text-sky-400',
   };
 
-  function ma5Color(v: number) {
-    if (v > 70) return 'text-rose-400';
-    if (v >= 55) return 'text-amber-400';
+  function ma5Color(ma5: number | null) {
+    const rel = evaluateCostRatioRelativeAlert(ma5, costRatioMA60, operatingDaysCount);
+    if (rel.level === 'danger') return 'text-rose-400';
+    if (rel.level === 'caution') return 'text-amber-400';
     return 'text-sky-400';
   }
 
@@ -48,13 +60,15 @@ export default function DiagnosisCard({ diagnosis, todayProfit, costRatio, costR
             </p>
           </div>
           <div>
-            <p className="text-sm text-slate-400">오늘 원가율</p>
-            <p className="mt-2 text-3xl font-bold text-slate-200">
-              {costRatio.toFixed(1)}%
+            <p className="text-sm text-slate-400">
+              {costRatioMA5 !== null ? '원가율 (5일 평균)' : '오늘 원가율'}
+            </p>
+            <p className={`mt-2 text-3xl font-bold ${costRatioMA5 !== null ? ma5Color(costRatioMA5) : 'text-slate-200'}`}>
+              {(costRatioMA5 !== null ? costRatioMA5 : costRatio).toFixed(1)}%
             </p>
             {costRatioMA5 !== null && (
-              <p className={`mt-1 text-xs font-medium ${ma5Color(costRatioMA5)}`}>
-                5일평균 {costRatioMA5.toFixed(1)}%
+              <p className="mt-1 text-xs font-medium text-slate-400">
+                오늘 {costRatio.toFixed(1)}%
               </p>
             )}
           </div>

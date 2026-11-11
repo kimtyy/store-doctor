@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PurchaseCategory, PurchaseRecord, PurchaseItem } from '../../types/purchase';
+import {
+  EXPENSE_GROUPS,
+  PURCHASE_CATEGORY_LABELS,
+  PURCHASE_CATEGORY_OPTIONS,
+} from '../../lib/expenses';
 import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
@@ -77,37 +82,8 @@ function NumericTextInput({
   );
 }
 
-const categoryOptions: PurchaseCategory[] = [
-  'food_ingredients',
-  'alcohol',
-  'consumables',
-  'labor',
-  'rent',
-  'electricity',
-  'gas',
-  'water',
-  'telecom',
-  'pos_fee',
-  'insurance',
-  'fuel',
-  'other',
-];
-
-const categoryLabels: Record<PurchaseCategory, string> = {
-  food_ingredients: '식자재',
-  alcohol: '주류',
-  consumables: '소모품',
-  labor: '인건비',
-  rent: '임대료',
-  electricity: '전기요금',
-  gas: '가스요금',
-  water: '수도요금',
-  telecom: '통신비',
-  pos_fee: 'POS 사용료',
-  insurance: '보험료',
-  fuel: '유류비',
-  other: '기타',
-};
+const categoryOptions: PurchaseCategory[] = PURCHASE_CATEGORY_OPTIONS;
+const categoryLabels: Record<PurchaseCategory, string> = PURCHASE_CATEGORY_LABELS;
 
 type EditablePurchase = Omit<PurchaseRecord, 'id' | 'storeId' | 'createdAt'> & {
   category: PurchaseCategory | '';
@@ -186,6 +162,7 @@ export default function PurchasesInputPage() {
   const [draftItems, setDraftItems] = useState<Record<string, PurchaseHistoryItem[]>>({});
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
   const [draftVendorNames, setDraftVendorNames] = useState<Record<string, string>>({});
+  const [draftCategories, setDraftCategories] = useState<Record<string, string>>({});
   const [draftMemos, setDraftMemos] = useState<Record<string, string>>({});
   const [draftTotalAmounts, setDraftTotalAmounts] = useState<Record<string, number>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -270,6 +247,7 @@ export default function PurchasesInputPage() {
       setDraftItems((prev) => ({ ...prev, [record.id]: (record.items ?? []).map((i) => ({ ...i })) }));
       setDraftDates((prev) => ({ ...prev, [record.id]: record.date }));
       setDraftVendorNames((prev) => ({ ...prev, [record.id]: record.vendor_name }));
+      setDraftCategories((prev) => ({ ...prev, [record.id]: record.category }));
       setDraftMemos((prev) => ({ ...prev, [record.id]: record.memo ?? '' }));
       setDraftTotalAmounts((prev) => ({ ...prev, [record.id]: record.total_amount }));
     }
@@ -321,6 +299,7 @@ export default function PurchasesInputPage() {
     const computedSum = items.reduce((s, i) => s + i.amount, 0);
     const totalAmount = items.length > 0 ? computedSum : (draftTotalAmounts[record.id] ?? record.total_amount);
     const vendorName = draftVendorNames[record.id] ?? record.vendor_name;
+    const category = draftCategories[record.id] ?? record.category;
     setSavingId(record.id);
     setError(null);
     try {
@@ -333,6 +312,7 @@ export default function PurchasesInputPage() {
           totalAmount,
           date: draftDates[record.id],
           vendorName,
+          category,
           memo: draftMemos[record.id],
         }),
       });
@@ -346,6 +326,7 @@ export default function PurchasesInputPage() {
                 items,
                 total_amount: totalAmount,
                 vendor_name: vendorName,
+                category,
                 date: draftDates[record.id] ?? r.date,
                 memo: draftMemos[record.id] ?? r.memo,
               }
@@ -523,6 +504,9 @@ export default function PurchasesInputPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: [dataUrl] }),
       });
+      if (response.status === 413) {
+        throw new Error('사진 용량이 너무 큽니다. 다시 촬영하거나 잠시 후 시도해 주세요.');
+      }
       const rawText = await response.text();
       let body: any = null;
       try {
@@ -835,6 +819,24 @@ export default function PurchasesInputPage() {
                                 </div>
                               </div>
                               <div>
+                                <p className="text-xs text-slate-500 mb-1">비용 항목</p>
+                                <select
+                                  value={draftCategories[record.id] ?? record.category}
+                                  onChange={(e) => setDraftCategories((prev) => ({ ...prev, [record.id]: e.target.value }))}
+                                  className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+                                >
+                                  {EXPENSE_GROUPS.map((group) => (
+                                    <optgroup key={group.key} label={group.label}>
+                                      {group.categories.map((cat) => (
+                                        <option key={cat} value={cat}>
+                                          {PURCHASE_CATEGORY_LABELS[cat]}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
                                 <p className="text-xs text-slate-500 mb-1">메모 (선택)</p>
                                 <input
                                   type="text"
@@ -1018,20 +1020,27 @@ export default function PurchasesInputPage() {
                     <p className="text-xs text-slate-400 mb-2">
                       카테고리 <span className="text-rose-400">*필수</span>
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      {categoryOptions.map((cat) => (
-                        <button
-                          key={cat}
-                          type="button"
-                          onClick={() => setEditableResult((c) => c ? { ...c, category: cat } : c)}
-                          className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                            editableResult.category === cat
-                              ? 'bg-sky-500 text-slate-950'
-                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                          }`}
-                        >
-                          {categoryLabels[cat]}
-                        </button>
+                    <div className="space-y-2.5">
+                      {EXPENSE_GROUPS.map((group) => (
+                        <div key={group.key} className="space-y-1">
+                          <p className="text-[11px] font-semibold text-slate-500">{group.label}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {group.categories.map((cat) => (
+                              <button
+                                key={cat}
+                                type="button"
+                                onClick={() => setEditableResult((c) => c ? { ...c, category: cat } : c)}
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                                  editableResult.category === cat
+                                    ? 'bg-sky-500 text-slate-950'
+                                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                }`}
+                              >
+                                {categoryLabels[cat]}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -1216,20 +1225,27 @@ export default function PurchasesInputPage() {
 
                 <div>
                   <label className="text-sm font-medium text-slate-300">카테고리</label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {categoryOptions.map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setManualRecord({ ...manualRecord, category: cat })}
-                        className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                          manualRecord.category === cat
-                            ? 'bg-sky-500 text-slate-950'
-                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                        }`}
-                      >
-                        {categoryLabels[cat]}
-                      </button>
+                  <div className="mt-2 space-y-2.5">
+                    {EXPENSE_GROUPS.map((group) => (
+                      <div key={group.key} className="space-y-1">
+                        <p className="text-[11px] font-semibold text-slate-500">{group.label}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {group.categories.map((cat) => (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => setManualRecord({ ...manualRecord, category: cat })}
+                              className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                                manualRecord.category === cat
+                                  ? 'bg-sky-500 text-slate-950'
+                                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                              }`}
+                            >
+                              {categoryLabels[cat]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>

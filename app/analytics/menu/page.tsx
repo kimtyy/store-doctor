@@ -6,6 +6,8 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recha
 import BottomTabNav from '../../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue } from '../../../components/PeriodSelector';
 import TermTooltip from '@/components/ui/TermTooltip';
+import { PURCHASE_CATEGORY_LABELS } from '@/lib/expenses';
+import { costRatioStatus } from '@/lib/analytics/costRatio';
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -61,6 +63,8 @@ interface PurchaseAnalyticsData {
   totalPurchase: number;
   totalRevenue: number;
   costRatioPercent: number;
+  totalCostRatioPercent?: number;
+  flRatioPercent?: number;
   categoryStats: CategoryStat[];
   itemsByAmount: ItemRankingStat[];
   itemsByCount: ItemRankingStat[];
@@ -110,30 +114,19 @@ const PURCHASE_CAT_COLORS: Record<string, string> = {
   fuel: '#f97316',
   labor: '#f472b6',
   rent: '#a78bfa',
+  management_fee: '#c084fc',
   electricity: '#facc15',
   gas: '#f97316',
   water: '#60a5fa',
   telecom: '#2dd4bf',
   pos_fee: '#e879f9',
+  card_fee: '#fb7185',
+  delivery_fee: '#f43f5e',
   insurance: '#4ade80',
   other: '#64748b',
 };
 
-const PURCHASE_CAT_LABELS: Record<string, string> = {
-  food_ingredients: '식자재',
-  alcohol: '주류',
-  consumables: '소모품',
-  labor: '인건비',
-  rent: '임대료',
-  electricity: '전기요금',
-  gas: '가스요금',
-  water: '수도요금',
-  telecom: '통신비',
-  pos_fee: 'POS 사용료',
-  insurance: '보험료',
-  fuel: '유류비',
-  other: '기타',
-};
+const PURCHASE_CAT_LABELS: Record<string, string> = PURCHASE_CATEGORY_LABELS;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -504,8 +497,21 @@ export default function AnalyticsPage() {
   }, [drillMenus.length, drillCategory]);
 
   const costRatio = purchaseData?.costRatioPercent ?? 0;
+  const crStatus = costRatioStatus(costRatio);
   const costRatioColor =
-    costRatio < 30 ? 'text-emerald-400' : costRatio < 55 ? 'text-amber-400' : 'text-rose-400';
+    crStatus === 'excellent'
+      ? 'text-emerald-400'
+      : crStatus === 'good'
+      ? 'text-sky-400'
+      : crStatus === 'warning'
+      ? 'text-amber-400'
+      : 'text-rose-400';
+  const costRatioBarColor =
+    crStatus === 'critical'
+      ? 'bg-rose-500'
+      : crStatus === 'warning'
+      ? 'bg-amber-500'
+      : 'bg-emerald-500';
 
   if (!role) {
     return (
@@ -598,7 +604,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 mb-1 flex items-center justify-center">
-                    총매입 <TermTooltip term="총매입" />
+                    총비용 <TermTooltip term="총비용" />
                   </p>
                   <p className="text-base font-bold text-rose-400">{formatAmount(purchaseData.totalPurchase)}원</p>
                   {prevPurchaseData && (
@@ -607,7 +613,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 mb-1 flex items-center justify-center">
-                    순이익 <TermTooltip term="순이익" />
+                    남은 돈 <TermTooltip term="남은 돈" />
                   </p>
                   {(() => {
                     const profit = purchaseData.totalRevenue - purchaseData.totalPurchase;
@@ -631,13 +637,20 @@ export default function AnalyticsPage() {
                 <div className="mt-4">
                   <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                     <span className="flex items-center">
-                      원가율 <TermTooltip term="원가율" />
+                      원가율(재료비) <TermTooltip term="원가율" />
                     </span>
-                    <span className={costRatioColor}>{costRatio.toFixed(1)}%</span>
+                    <span className={costRatioColor}>
+                      {costRatio.toFixed(1)}%
+                      {purchaseData.totalCostRatioPercent != null && (
+                        <span className="text-slate-500 font-normal ml-2">
+                          (총비용률 {purchaseData.totalCostRatioPercent.toFixed(1)}%)
+                        </span>
+                      )}
+                    </span>
                   </div>
                   <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${costRatio > 70 ? 'bg-rose-500' : costRatio >= 55 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                      className={`h-full rounded-full ${costRatioBarColor}`}
                       style={{ width: `${Math.min(costRatio, 100).toFixed(1)}%` }}
                     />
                   </div>
@@ -991,13 +1004,13 @@ export default function AnalyticsPage() {
                   <section className="mb-6">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                        <p className="text-xs text-slate-500 mb-1">기간 총 매입</p>
+                        <p className="text-xs text-slate-500 mb-1">기간 총비용</p>
                         <p className="text-lg font-bold text-rose-400">
                           {formatAmount(purchaseData.totalPurchase)}원
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-                        <p className="text-xs text-slate-500 mb-1">매출 대비 원가율</p>
+                        <p className="text-xs text-slate-500 mb-1">재료비 원가율</p>
                         <p className={`text-lg font-bold ${costRatioColor}`}>
                           {purchaseData.totalRevenue > 0 ? `${costRatio.toFixed(1)}%` : '—'}
                         </p>

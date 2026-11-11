@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { calculateExpenseBreakdown } from '@/lib/expenses';
 
 export const dynamic = 'force-dynamic';
 
@@ -113,10 +114,11 @@ export async function GET(request: Request) {
 
     const records = purchaseData ?? [];
 
-    // ── Summary ────────────────────────────────────────────────────────────────
-    const totalPurchase = records.reduce((s, r) => s + (r.total_amount ?? 0), 0);
+    // ── Summary (표준 비용 분류 상수 기준) ──────────────────────────────────────
     const totalRevenue = (salesData ?? []).reduce((s, r) => s + (r.net_revenue ?? 0), 0);
-    const costRatioPercent = totalRevenue > 0 ? (totalPurchase / totalRevenue) * 100 : 0;
+    const breakdown = calculateExpenseBreakdown(records, totalRevenue);
+    const totalPurchase = breakdown.totalExpense;
+    const costRatioPercent = breakdown.costRatio; // 재료비(원가) 기준 원가율
 
     // ── Category stats ─────────────────────────────────────────────────────────
     const categoryMap: Record<string, number> = {};
@@ -183,8 +185,13 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       totalPurchase,
+      totalExpense: breakdown.totalExpense,
+      ingredientCost: breakdown.ingredientCost,
       totalRevenue,
       costRatioPercent,
+      totalCostRatioPercent: breakdown.totalCostRatio,
+      flRatioPercent: breakdown.flRatio,
+      expenseGroups: breakdown.groups,
       categoryStats,
       itemsByAmount,
       itemsByCount,

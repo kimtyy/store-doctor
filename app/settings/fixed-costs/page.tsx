@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BottomTabNav from '../../../components/BottomTabNav';
 import { PurchaseCategory } from '../../../types/purchase';
+import { FIXED_COST_CATEGORY_OPTIONS } from '../../../lib/expenses';
 
 type CostType = 'fixed_amount' | 'manual_input';
 
@@ -34,18 +35,7 @@ const emptyForm: FormValues = {
   costType: 'fixed_amount',
 };
 
-const categoryOptions: { value: PurchaseCategory; label: string }[] = [
-  { value: 'rent', label: '임대료' },
-  { value: 'labor', label: '인건비' },
-  { value: 'electricity', label: '전기요금' },
-  { value: 'gas', label: '가스요금' },
-  { value: 'water', label: '수도요금' },
-  { value: 'telecom', label: '통신비' },
-  { value: 'pos_fee', label: 'POS 사용료' },
-  { value: 'insurance', label: '보험료' },
-  { value: 'fuel', label: '유류비' },
-  { value: 'other', label: '기타' },
-];
+const categoryOptions = FIXED_COST_CATEGORY_OPTIONS;
 
 // Defined outside the page component so React never unmounts it on re-render
 // (defining inside causes keyboard focus loss on every keystroke)
@@ -92,7 +82,7 @@ function FormFields({
         <p className="mt-1 text-xs text-slate-500">
           {form.costType === 'fixed_amount'
             ? '매월 같은 금액으로 자동 삽입 (임대료·보험료 등)'
-            : '항목만 자동 생성, 금액은 0원 → 직접 수정 (전기·가스 등)'}
+            : '항목만 자동 생성, 금액은 0원 → 직접 수정 (전기·가스·카드/배달 수수료 등)'}
         </p>
       </div>
 
@@ -147,7 +137,15 @@ function FormFields({
             <button
               key={opt.value}
               type="button"
-              onClick={() => onChange({ ...form, category: opt.value })}
+              onClick={() =>
+                onChange({
+                  ...form,
+                  category: opt.value,
+                  ...(opt.value === 'card_fee' || opt.value === 'delivery_fee'
+                    ? { costType: 'manual_input' }
+                    : {}),
+                })
+              }
               className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                 form.category === opt.value
                   ? 'bg-sky-500 text-slate-950'

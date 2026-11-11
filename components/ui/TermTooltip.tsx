@@ -4,12 +4,36 @@ import { useState } from 'react';
 
 export const TERMS_DICT: Record<string, { term: string; explanation: string }> = {
   원가율: {
-    term: '원가율',
-    explanation: '매출 100원 벌 때 재료·주류값으로 나간 돈의 비율. 낮을수록 남는 게 많아요.',
+    term: '원가율 (재료비 기준)',
+    explanation: '매출에서 식자재·주류(재료비)가 차지하는 비율(재료비 ÷ 매출). 인건비·임대료 등 고정비는 포함하지 않습니다.',
+  },
+  'FL 비율': {
+    term: 'FL 비율 (Food + Labor)',
+    explanation: '매출 대비 재료비(Food)와 인건비(Labor)를 합친 핵심 비용 비율((재료비 + 인건비) ÷ 매출). 외식업 수익성 핵심 지표입니다.',
+  },
+  인건비율: {
+    term: '인건비율',
+    explanation: '매출에서 인건비(알바비 포함)가 차지하는 비율(인건비 ÷ 매출).',
+  },
+  임대료율: {
+    term: '임대료율',
+    explanation: '매출에서 임대료·관리비가 차지하는 비율((임대료 + 관리비) ÷ 매출).',
+  },
+  총비용: {
+    term: '총비용',
+    explanation: '재료비·인건비·임대료·공과금·통신·수수료·기타 운영비 등 가게에서 나간 모든 지출 합계.',
+  },
+  총비용률: {
+    term: '총비용률',
+    explanation: '매출에서 전체 지출(총비용)이 차지하는 비율(총비용 ÷ 매출). 100%에서 총비용률을 빼면 영업이익률입니다.',
+  },
+  '남은 돈': {
+    term: '남은 돈 (영업이익)',
+    explanation: '매출에서 총비용(전체 지출)을 빼고 가게에 남은 돈.',
   },
   순이익: {
-    term: '순이익',
-    explanation: '번 돈에서 재료값·인건비·월세 등을 다 빼고 실제로 남은 돈.',
+    term: '남은 돈 (영업이익)',
+    explanation: '번 돈에서 재료비·인건비·임대료·공과금·수수료 등 모든 비용을 빼고 실제로 남은 돈.',
   },
   순매출: {
     term: '순매출',
@@ -21,11 +45,11 @@ export const TERMS_DICT: Record<string, { term: string; explanation: string }> =
   },
   'BEP(손익분기점)': {
     term: 'BEP (손익분기점)',
-    explanation: '이만큼은 팔아야 본전. 이 금액을 넘으면 그때부터 남는 겁니다.',
+    explanation: '이만큼은 팔아야 본전. 변동비(재료비·수수료)와 고정비(인건비·임대료·공과금 등)를 감안한 최소 매출입니다.',
   },
   BEP: {
     term: 'BEP (손익분기점)',
-    explanation: '이만큼은 팔아야 본전. 이 금액을 넘으면 그때부터 남는 겁니다.',
+    explanation: '이만큼은 팔아야 본전. 변동비(재료비·수수료)와 고정비(인건비·임대료·공과금 등)를 감안한 최소 매출입니다.',
   },
   손익분기점: {
     term: '손익분기점',
@@ -37,15 +61,15 @@ export const TERMS_DICT: Record<string, { term: string; explanation: string }> =
   },
   객단가: {
     term: '객단가',
-    explanation: '손님 한 분이 평균 얼마를 쓰고 가는지.',
+    explanation: '손님 한 분(또는 테이블)이 평균 얼마를 쓰고 가는지.',
   },
   총매출: {
     term: '총매출',
     explanation: '가게에서 거래된 전체 매출 금액.',
   },
   총매입: {
-    term: '총매입',
-    explanation: '재료·주류·물품 구입을 포함해 나간 전체 매입 금액.',
+    term: '총비용',
+    explanation: '재료비·인건비·임대료·공과금·수수료·물품 구입을 포함해 나간 전체 지출 금액.',
   },
 };
 

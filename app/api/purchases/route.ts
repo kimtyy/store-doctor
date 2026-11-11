@@ -74,12 +74,13 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '요청 본문을 파싱할 수 없습니다.' }, { status: 400 });
     }
 
-    const { id, items, totalAmount, date, vendorName, memo } = body as {
+    const { id, items, totalAmount, date, vendorName, category, memo } = body as {
       id: string;
       items: { name: string; quantity: number; unitPrice: number; amount: number }[];
       totalAmount: number;
       date?: string;
       vendorName?: string;
+      category?: string;
       memo?: string;
     };
 
@@ -108,6 +109,7 @@ export async function PATCH(request: Request) {
     const updatePayload: Record<string, unknown> = { items: items ?? [], total_amount: totalAmount };
     if (date) updatePayload.date = date;
     if (vendorName !== undefined) updatePayload.vendor_name = vendorName;
+    if (category) updatePayload.category = category;
     if (memo !== undefined) updatePayload.memo = memo;
 
     const { error } = await supabase

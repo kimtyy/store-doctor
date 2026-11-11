@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreInfo } from '@/utils/supabase/getStore';
+import { calculateExpenseBreakdown } from '@/lib/expenses';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -36,7 +37,7 @@ function krw(n: number): string {
 }
 
 interface SaleRow { date: string; net_revenue: number; }
-interface PurchaseRow { date: string; total_amount: number; }
+interface PurchaseRow { date: string; total_amount: number; category?: string | null; }
 interface MenuItemRow { name: string; quantity: number; amount: number; }
 interface SaleWithMenus { id: string; date: string; sales_menu_items: MenuItemRow[]; }
 
@@ -79,7 +80,7 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
       .gte('date', from60)
       .order('date', { ascending: true }),
     supabase.from('purchase_records')
-      .select('date, total_amount')
+      .select('date, total_amount, category')
       .eq('store_id', STORE_ID)
       .gte('date', prevRange.from),
     // Fetch 2 months of menu data in one query
@@ -105,17 +106,24 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
     purchaseByDate[p.date] = (purchaseByDate[p.date] ?? 0) + (p.total_amount ?? 0);
   }
 
-  function monthPurchase(fromDate: string, toDate: string): number {
-    return purchases
-      .filter(p => p.date >= fromDate && p.date <= toDate)
-      .reduce((s, p) => s + (p.total_amount ?? 0), 0);
+  function monthPurchases(fromDate: string, toDate: string): PurchaseRow[] {
+    return purchases.filter(p => p.date >= fromDate && p.date <= toDate);
   }
 
-  // Monthly totals
+  // Monthly totals & standard expense breakdown
   const thisMthRevenue = salesThisMonth.reduce((s, d) => s + (d.net_revenue ?? 0), 0);
-  const thisMthPurchase = monthPurchase(thisRange.from, thisRange.to);
+  const thisMthPurchaseRows = monthPurchases(thisRange.from, thisRange.to);
   const prevMthRevenue = salesPrevMonth.reduce((s, d) => s + (d.net_revenue ?? 0), 0);
-  const prevMthPurchase = monthPurchase(prevRange.from, prevRange.to);
+  const prevMthPurchaseRows = monthPurchases(prevRange.from, prevRange.to);
+
+  const prevBreakdown = calculateExpenseBreakdown(prevMthPurchaseRows, prevMthRevenue);
+  const thisBreakdown = calculateExpenseBreakdown(
+    thisMthPurchaseRows,
+    thisMthRevenue,
+    prevBreakdown.groupTotals
+  );
+  const thisMthPurchase = thisBreakdown.totalExpense;
+  const prevMthPurchase = prevBreakdown.totalExpense;
 
   // MA5 / MA20 from 60-day window
   const rev60 = sales60.map(d => d.net_revenue ?? 0);
@@ -143,22 +151,33 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
   // This month
   lines.push(`[${thisYear}년 ${thisMonth}월 현황] (${salesThisMonth.length}일 영업)`);
   lines.push(`- 총매출: ${krw(thisMthRevenue)}`);
-  lines.push(`- 총매입: ${krw(thisMthPurchase)}${thisMthPurchase === 0 ? ' (매입 미기록)' : ''}`);
+  lines.push(`- 총비용(전체 지출): ${krw(thisMthPurchase)}${thisMthPurchase === 0 ? ' (지출 미기록)' : ''}`);
   if (thisMthRevenue > 0) {
-    lines.push(`- 순이익 추정: ${krw(thisMthRevenue - thisMthPurchase)}`);
+    lines.push(`- 남은 돈(영업이익 = 매출 − 총비용): ${krw(thisBreakdown.operatingProfit)} (영업이익률 ${thisBreakdown.operatingProfitRatio.toFixed(1)}%)`);
     lines.push(`- 일평균 매출: ${krw(Math.round(thisMthRevenue / Math.max(salesThisMonth.length, 1)))}`);
-    if (thisMthPurchase > 0) lines.push(`- 원가율: ${((thisMthPurchase / thisMthRevenue) * 100).toFixed(1)}%`);
+    if (thisMthPurchase > 0) {
+      lines.push(`- 원가율(재료비 기준 = 식자재·주류 ÷ 매출): ${thisBreakdown.costRatio.toFixed(1)}%`);
+      lines.push(`- 인건비율: ${thisBreakdown.laborRatio.toFixed(1)}%`);
+      lines.push(`- FL 비율((재료비+인건비) ÷ 매출): ${thisBreakdown.flRatio.toFixed(1)}%`);
+      lines.push(`- 임대료율: ${thisBreakdown.rentRatio.toFixed(1)}%`);
+      lines.push(`- 총비용률(총비용 ÷ 매출): ${thisBreakdown.totalCostRatio.toFixed(1)}%`);
+      lines.push(`- 비용 그룹별 상세: ${thisBreakdown.groups.map(g => `${g.shortLabel} ${krw(g.amount)}(${g.ratioPct.toFixed(1)}%)`).join(', ')}`);
+    }
   }
   lines.push('');
 
   // Prev month
   lines.push(`[${prevYear}년 ${prevMonth}월 현황] (${salesPrevMonth.length}일 영업)`);
   lines.push(`- 총매출: ${krw(prevMthRevenue)}`);
-  lines.push(`- 총매입: ${krw(prevMthPurchase)}${prevMthPurchase === 0 ? ' (매입 미기록)' : ''}`);
+  lines.push(`- 총비용(전체 지출): ${krw(prevMthPurchase)}${prevMthPurchase === 0 ? ' (지출 미기록)' : ''}`);
   if (prevMthRevenue > 0) {
-    lines.push(`- 순이익 추정: ${krw(prevMthRevenue - prevMthPurchase)}`);
+    lines.push(`- 남은 돈(영업이익): ${krw(prevBreakdown.operatingProfit)} (영업이익률 ${prevBreakdown.operatingProfitRatio.toFixed(1)}%)`);
     lines.push(`- 일평균 매출: ${krw(Math.round(prevMthRevenue / Math.max(salesPrevMonth.length, 1)))}`);
-    if (prevMthPurchase > 0) lines.push(`- 원가율: ${((prevMthPurchase / prevMthRevenue) * 100).toFixed(1)}%`);
+    if (prevMthPurchase > 0) {
+      lines.push(`- 원가율(재료비 기준): ${prevBreakdown.costRatio.toFixed(1)}%`);
+      lines.push(`- FL 비율: ${prevBreakdown.flRatio.toFixed(1)}%`);
+      lines.push(`- 총비용률: ${prevBreakdown.totalCostRatio.toFixed(1)}%`);
+    }
   }
   lines.push('');
 

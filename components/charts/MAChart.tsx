@@ -5,6 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
+import { COST_RATIO_THRESHOLDS } from '@/lib/analytics/costRatio';
 
 export interface MAChartDataPoint {
   date: string;
@@ -36,6 +37,7 @@ export interface DataAvailability {
 export interface MAChartProps {
   data: MAChartDataPoint[];
   availability: DataAvailability;
+  storeCostRatioAvg60?: number | null;
 }
 
 type TabKey = 'revenue' | 'cost' | 'profit' | 'costRatio';
@@ -63,7 +65,7 @@ const TABS: TabConfig[] = [
   },
   {
     key: 'cost',
-    label: '매입',
+    label: '총비용',
     keys: ['costMa5', 'costMa20', 'costMa60', 'costMa120'],
     colors: LINE_COLORS,
     activeClass: 'bg-amber-600 text-white',
@@ -111,7 +113,7 @@ function detectCrosses(
 
 type MAKey = 'ma5' | 'ma20' | 'ma60' | 'ma120';
 
-export default function MAChart({ data, availability }: MAChartProps) {
+export default function MAChart({ data, availability, storeCostRatioAvg60 = null }: MAChartProps) {
   const [tab, setTab] = useState<TabKey>('revenue');
   const cfg = TABS.find((t) => t.key === tab)!;
   const [visibleMAs, setVisibleMAs] = useState<Record<MAKey, boolean>>({
@@ -201,8 +203,30 @@ export default function MAChart({ data, availability }: MAChartProps) {
             />
             {cfg.isCostRatio && (
               <>
-                <ReferenceLine y={55} stroke="#f59e0b" strokeDasharray="4 3" label={{ value: '주의 55%', fill: '#f59e0b', fontSize: 9, position: 'insideTopRight' }} />
-                <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="4 3" label={{ value: '위험 70%', fill: '#f43f5e', fontSize: 9, position: 'insideTopRight' }} />
+                <ReferenceLine
+                  y={COST_RATIO_THRESHOLDS.INDUSTRY_REFERENCE_PCT}
+                  stroke="#94a3b8"
+                  strokeDasharray="4 3"
+                  label={{
+                    value: `일반 참고 ${COST_RATIO_THRESHOLDS.INDUSTRY_REFERENCE_PCT}%`,
+                    fill: '#94a3b8',
+                    fontSize: 9,
+                    position: 'insideTopRight',
+                  }}
+                />
+                {storeCostRatioAvg60 != null && (
+                  <ReferenceLine
+                    y={storeCostRatioAvg60}
+                    stroke="#38bdf8"
+                    strokeDasharray="2 2"
+                    label={{
+                      value: `매장 60일 평균 ${storeCostRatioAvg60.toFixed(1)}%`,
+                      fill: '#38bdf8',
+                      fontSize: 9,
+                      position: 'insideBottomRight',
+                    }}
+                  />
+                )}
               </>
             )}
             {visibleMAs.ma5 && (

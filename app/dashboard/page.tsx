@@ -8,6 +8,8 @@ import BottomTabNav from '@/components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '@/components/PeriodSelector';
 import OnboardingGuideModal from '@/components/OnboardingGuideModal';
 import TermTooltip from '@/components/ui/TermTooltip';
+import { isIngredientCategory } from '@/lib/expenses';
+import { COST_RATIO_THRESHOLDS } from '@/lib/analytics/costRatio';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 
@@ -86,6 +88,7 @@ function buildSalesApiUrl(pv: PeriodValue): string {
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<DailySales[]>([]);
   const [purchaseByDate, setPurchaseByDate] = useState<Record<string, number>>({});
+  const [ingredientByDate, setIngredientByDate] = useState<Record<string, number>>({});
   const [eventPurchaseByDate, setEventPurchaseByDate] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -265,17 +268,22 @@ export default function DashboardPage() {
 
         if (purchaseRes.ok) {
           const purchaseBody = await purchaseRes.json().catch(() => null);
-          const records: { date: string; total_amount: number; is_event?: boolean }[] = purchaseBody?.data ?? [];
+          const records: { date: string; total_amount: number; category?: string | null; is_event?: boolean }[] = purchaseBody?.data ?? [];
           const byDate: Record<string, number> = {};
+          const ingByDate: Record<string, number> = {};
           const eventByDate: Record<string, number> = {};
           for (const r of records) {
             if (!r.is_event) {
               byDate[r.date] = (byDate[r.date] ?? 0) + (r.total_amount ?? 0);
+              if (isIngredientCategory(r.category)) {
+                ingByDate[r.date] = (ingByDate[r.date] ?? 0) + (r.total_amount ?? 0);
+              }
             } else {
               eventByDate[r.date] = (eventByDate[r.date] ?? 0) + (r.total_amount ?? 0);
             }
           }
           setPurchaseByDate(byDate);
+          setIngredientByDate(ingByDate);
           setEventPurchaseByDate(eventByDate);
         }
       } catch (err) {
@@ -315,9 +323,10 @@ export default function DashboardPage() {
     const profitMa60  = calcNullableMA(profitValues, 60);
     const profitMa120 = calcNullableMA(profitValues, 120);
 
+    // 원가율 추세: 전체 총비용이 아니라 재료비(식자재·주류)만 사용해 1일 고정비 급등 왜곡 차단
     const crValues = nonEventSalesData.map((d) => {
-      const cost = purchaseByDate[d.date];
-      return cost !== undefined && d.netRevenue > 0 ? (cost / d.netRevenue) * 100 : null;
+      const ingCost = ingredientByDate[d.date];
+      return ingCost !== undefined && d.netRevenue > 0 ? (ingCost / d.netRevenue) * 100 : null;
     });
     const crMa5   = calcNullableMA(crValues, 5);
     const crMa20  = calcNullableMA(crValues, 20);
@@ -331,7 +340,16 @@ export default function DashboardPage() {
       profitMa5: profitMa5[i], profitMa20: profitMa20[i], profitMa60: profitMa60[i], profitMa120: profitMa120[i],
       costRatioMa5: crMa5[i],  costRatioMa20: crMa20[i],  costRatioMa60: crMa60[i],  costRatioMa120: crMa120[i],
     }));
-  }, [nonEventSalesData, purchaseByDate]);
+  }, [nonEventSalesData, purchaseByDate, ingredientByDate]);
+
+  const storeCostRatioAvg60 = useMemo(() => {
+    if (nonEventSalesData.length < COST_RATIO_THRESHOLDS.MIN_DAYS_FOR_RELATIVE_ALERT) return null;
+    const recent60 = nonEventSalesData.slice(-60);
+    const revSum = recent60.reduce((s, d) => s + (d.netRevenue || 0), 0);
+    if (revSum <= 0) return null;
+    const ingSum = recent60.reduce((s, d) => s + (ingredientByDate[d.date] ?? 0), 0);
+    return (ingSum / revSum) * 100;
+  }, [nonEventSalesData, ingredientByDate]);
 
   const dataAvailability = useMemo((): DataAvailability => ({
     ma5: nonEventSalesData.length >= 5,
@@ -775,8 +793,8 @@ export default function DashboardPage() {
 
                     <div className="rounded-2xl bg-slate-950/80 px-2 py-3.5 text-center flex flex-col justify-between">
                       <p className="text-xs text-slate-400 mb-1 flex items-center justify-center whitespace-nowrap">
-                        <span>총매입</span>
-                        <TermTooltip term="총매입" />
+                        <span>총비용</span>
+                        <TermTooltip term="총비용" />
                       </p>
                       <p className="text-lg sm:text-xl font-bold text-amber-400">
                         {Math.round(monthSummary.totalCost / 10000)}만
@@ -796,7 +814,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                   </div>
-                  {/* 행사 매출/매입 별도 표시 (includeEvent ON + 데이터 있을 때) */}
+                  {/* 행사 매출/비용 별도 표시 (includeEvent ON + 데이터 있을 때) */}
                   {includeEvent && (monthSummary.eventRevenue > 0 || monthSummary.eventCost > 0) && (
                     <div className="mt-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 px-4 py-3 flex flex-wrap gap-3">
                       <span className="text-xs font-semibold text-purple-300">🎪 행사 포함</span>
@@ -807,7 +825,7 @@ export default function DashboardPage() {
                       )}
                       {monthSummary.eventCost > 0 && (
                         <span className="text-xs text-purple-200">
-                          행사 매입 <span className="font-bold">+{Math.round(monthSummary.eventCost / 10000)}만원</span>
+                          행사 비용 <span className="font-bold">+{Math.round(monthSummary.eventCost / 10000)}만원</span>
                         </span>
                       )}
                     </div>
@@ -828,7 +846,11 @@ export default function DashboardPage() {
                     이동평균선 <TermTooltip term="이동평균선" />
                   </h3>
                   <div className="mt-4">
-                    <MAChart data={chartData} availability={dataAvailability} />
+                    <MAChart
+                      data={chartData}
+                      availability={dataAvailability}
+                      storeCostRatioAvg60={storeCostRatioAvg60}
+                    />
                   </div>
                 </div>
               )}

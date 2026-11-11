@@ -57,8 +57,8 @@ export interface ClaudeVisionResult {
 
 /**
  * 보고서 AI 코멘트 후처리:
- * - 잔여 마크다운 기호(**, #, 코드펜스, 파이프 표 행) 제거
- * - stop_reason === 'max_tokens' 이면 마지막 완결 문장(., 다., 요.)까지만 유지, 없으면 폴백 반환
+ * - 잔여 마크다운 기호(**, 줄 시작 # 제목 기호, 코드펜스, 파이프 표 행) 제거
+ * - stop_reason === 'max_tokens' 이면 마지막 완결 문장(., ?, ! 및 닫는 괄호/따옴표 포함)까지만 유지, 없으면 폴백 반환
  */
 export function sanitizeReportComment(
   rawText: string,
@@ -67,7 +67,7 @@ export function sanitizeReportComment(
 ): string {
   if (!rawText || !rawText.trim()) return fallback;
 
-  // 마크다운 표(| ...) 행 및 코드블록 표식 제거, ** 및 # 제거
+  // 마크다운 표(| ...) 행 및 코드블록 표식 제거, ** 및 줄 시작 # 제목 기호 제거
   const cleanedLines = rawText
     .replace(/```[^\n]*/g, '')
     .split(/\r?\n/)
@@ -75,7 +75,7 @@ export function sanitizeReportComment(
     .map((line) =>
       line
         .replace(/\*\*/g, '')
-        .replace(/#/g, '')
+        .replace(/^\s*#{1,6}\s*/, '')
         .replace(/^\s*[-*•]\s+/, '')
         .trim()
     )
@@ -85,8 +85,8 @@ export function sanitizeReportComment(
   if (!text) return fallback;
 
   if (stopReason === 'max_tokens') {
-    // 마지막 완결 문장(., 다., 요.) 찾기 (소수점 숫자 내부의 '.' 제외)
-    const sentenceEndRegex = /(?:다\.|요\.|(?<!\d)\.(?!\d))(?=\s|$)/g;
+    // 마지막 완결 문장(., ?, ! + 선택적 닫는 괄호/따옴표) 찾기 (소수점 숫자 내부의 '.' 제외)
+    const sentenceEndRegex = /(?:[?!]|(?<!\d)\.(?!\d))[\)"'”’\]\u300d\u300f]*(?=\s|$)/g;
     let lastEnd = -1;
     let match: RegExpExecArray | null;
     while ((match = sentenceEndRegex.exec(text)) !== null) {
