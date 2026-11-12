@@ -5,6 +5,11 @@
 export const MENU_RAW_CATEGORIES = ['주류', '안주', '식사', '세트', '음료'] as const;
 export type MenuRawCategory = (typeof MENU_RAW_CATEGORIES)[number];
 
+/**
+ * 메뉴 외 매출 항목 (매출 합계·기타 대분류에는 포함하되, 메뉴 순위·미분류·유사 제안에서는 제외)
+ */
+export const NON_MENU_ITEMS: readonly string[] = ['배달비', '배달팁', '배달료', '배달대행료'];
+
 export type MajorMenuGroupKey = 'liquor' | 'food' | 'other';
 
 export interface MajorMenuGroupMeta {
@@ -114,6 +119,16 @@ export function normalizeMenuDisplayName(name: string): string {
     .replace(/[\u200B-\u200D\uFEFF\u2060]/g, '')
     .replace(/[\s\u00A0\u3000]+/g, ' ')
     .trim();
+}
+
+const NON_MENU_CANONICAL_KEYS = NON_MENU_ITEMS.map((item) => normalizeMenuCanonicalKey(item));
+const NON_MENU_CANONICAL_SET = new Set<string>(NON_MENU_CANONICAL_KEYS);
+
+export function isNonMenuItem(name: string): boolean {
+  const k = normalizeMenuCanonicalKey(name);
+  if (!k) return false;
+  if (NON_MENU_CANONICAL_SET.has(k)) return true;
+  return NON_MENU_CANONICAL_KEYS.some((kw) => k.startsWith(kw));
 }
 
 export interface MenuMasterRecord {
@@ -322,8 +337,15 @@ export interface SimilarMenuSuggestion {
   similarity: number;
 }
 
+function extractNumberTokens(canonicalKey: string): string {
+  const matches = canonicalKey.match(/\d+/g);
+  return matches ? matches.join('|') : '';
+}
+
 /**
  * 오탈자 자동 합산은 하지 않고, 기존 Levenshtein >= 0.80 기준 유사 이름 쌍을 제안 목록으로 반환
+ * - 두 이름에서 추출한 숫자열이 다르면 제외 (예: 피쳐 2700cc vs 피쳐1700CC, 단위 대소문자 무시)
+ * - 메뉴 외 매출(배달비 등) 제외
  */
 export function findSimilarMenuPairs(
   entries: Array<{ name: string; count: number; isMaster?: boolean }>,
@@ -333,12 +355,15 @@ export function findSimilarMenuPairs(
   const seen = new Set<string>();
 
   for (let i = 0; i < entries.length; i++) {
+    if (isNonMenuItem(entries[i].name)) continue;
     for (let j = i + 1; j < entries.length; j++) {
       const a = entries[i];
       const b = entries[j];
+      if (isNonMenuItem(b.name)) continue;
       const ka = normalizeMenuCanonicalKey(a.name);
       const kb = normalizeMenuCanonicalKey(b.name);
       if (!ka || !kb || ka === kb) continue;
+      if (extractNumberTokens(ka) !== extractNumberTokens(kb)) continue;
       if (Math.abs(ka.length - kb.length) > Math.max(2, Math.floor(Math.max(ka.length, kb.length) * 0.35))) {
         continue;
       }

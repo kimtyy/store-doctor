@@ -65,11 +65,11 @@ export const TERMS_DICT: Record<string, { term: string; explanation: string }> =
   },
   '결제 1건당 매출': {
     term: '결제 1건당 매출',
-    explanation: '결제 1건당 평균 얼마를 결제했는지 나타냅니다. (매출 ÷ 결제 건수)',
+    explanation: '결제 1건당 평균 얼마를 결제했는지 나타냅니다. (순매출 ÷ 결제 건수)',
   },
   객단가: {
     term: '결제 1건당 매출',
-    explanation: '결제 1건당 평균 얼마를 결제했는지 나타냅니다. (매출 ÷ 결제 건수)',
+    explanation: '결제 1건당 평균 얼마를 결제했는지 나타냅니다. (순매출 ÷ 결제 건수)',
   },
   총매출: {
     term: '총매출',

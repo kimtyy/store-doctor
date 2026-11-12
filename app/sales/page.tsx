@@ -9,6 +9,7 @@ import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '../../components/PeriodSelector';
 import TermTooltip from '../../components/ui/TermTooltip';
+import { getPaymentCount } from '../../lib/analytics/periodComparison';
 
 type Tab = 'input' | 'history';
 type ParseMode = 'full' | 'menu_only' | 'manual';
@@ -357,8 +358,8 @@ export default function SalesInputPage() {
           tax: record.tax ?? 0,
           cashAmount: record.cashAmount ?? 0,
           cardAmount: record.cardAmount ?? 0,
-          tablesUsed: record.tablesUsed || record.guestCount || 0,
-          guestCount: record.guestCount || record.tablesUsed || 0,
+          tablesUsed: getPaymentCount(record) ?? 0,
+          guestCount: getPaymentCount(record) ?? 0,
           avgSpend: record.avgSpend ?? 0,
           menuItems: record.menuItems ? [...record.menuItems] : [],
         },
@@ -1125,7 +1126,7 @@ export default function SalesInputPage() {
                               {(record.serviceAmount ?? 0) > 0 && ` · 서비스 ${((record.serviceAmount ?? 0) / 10000).toFixed(1)}만원`}
                             </p>
                             <p className="mt-0.5 text-xs text-slate-600">
-                              현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {(record.tablesUsed || record.guestCount) ? `결제 ${record.tablesUsed || record.guestCount}건` : '결제 건수 미입력'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
+                              현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
                             </p>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">

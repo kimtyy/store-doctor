@@ -8,6 +8,7 @@ import BottomTabNav from '@/components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '@/components/PeriodSelector';
 import OnboardingGuideModal from '@/components/OnboardingGuideModal';
 import TermTooltip from '@/components/ui/TermTooltip';
+import { getPaymentCount } from '@/lib/analytics/periodComparison';
 import { isIngredientCategory } from '@/lib/expenses';
 import {
   calculateCostRatioMovingAverage,
@@ -939,7 +940,10 @@ export default function DashboardPage() {
                               })}
                             </p>
                             <p className="mt-1 text-sm text-slate-400">
-                              {day.tablesUsed > 0 ? `결제 ${day.tablesUsed}건` : '결제 건수 미입력'}
+                              {(() => {
+                                const cnt = getPaymentCount(day);
+                                return cnt !== null ? `결제 ${cnt}건` : '결제 건수 미입력';
+                              })()}
                             </p>
                           </div>
                           <div className="text-right">

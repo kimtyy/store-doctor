@@ -141,6 +141,8 @@ export interface PeriodStats {
   avgDailySales: number;
   avgSpend: number;
   tablesUsed: number;
+  paymentDaysCount: number;
+  paymentDataStatus: PeriodDataStatus;
   hasData: boolean;
   dataStatus: PeriodDataStatus;
   expenseGroups: ExpenseGroupSummary[];
@@ -150,8 +152,31 @@ export interface PeriodStats {
 
 export const LOW_INPUT_RATE_THRESHOLD = 0.8;
 
+/**
+ * 결제 건수(tables_used) 읽기 폴백 단일 공통 함수 (1-L 후속)
+ * - DB 과거 행을 수정하지 않고, tables_used 우선 → 없으면 guest_count 폴백 → 둘 다 0/없으면 null
+ */
+export function getPaymentCount(row: {
+  tables_used?: number | null;
+  guest_count?: number | null;
+  tablesUsed?: number | null;
+  guestCount?: number | null;
+}): number | null {
+  const tables = row.tables_used ?? row.tablesUsed ?? 0;
+  if (tables > 0) return tables;
+  const guests = row.guest_count ?? row.guestCount ?? 0;
+  if (guests > 0) return guests;
+  return null;
+}
+
 export function calcPeriodStats(
-  sales: Array<{ net_revenue?: number | null; tables_used?: number | null }>,
+  sales: Array<{
+    net_revenue?: number | null;
+    tables_used?: number | null;
+    guest_count?: number | null;
+    tablesUsed?: number | null;
+    guestCount?: number | null;
+  }>,
   purchases: Array<{ category?: string | null; total_amount?: number | null }>,
   expectedDays = 30,
   prevGroupTotals?: Partial<Record<ExpenseGroupKey, number>> | null
@@ -162,8 +187,27 @@ export function calcPeriodStats(
   const openDays = sales.length;
   const purchaseCount = purchases.length;
   const avgDailySales = openDays > 0 ? Math.round(totalRevenue / openDays) : 0;
-  const tablesUsed = sales.reduce((sum, item) => sum + (item.tables_used || 0), 0);
-  const avgSpend = tablesUsed > 0 ? Math.round(totalRevenue / tablesUsed) : 0;
+
+  // 결제 건수가 있는 날만 분자(매출)·분모(결제 건수)에 모두 포함 (건수 없는 날 제외)
+  let tablesUsed = 0;
+  let paymentRevSum = 0;
+  let paymentDaysCount = 0;
+  for (const item of sales) {
+    const cnt = getPaymentCount(item);
+    if (cnt !== null) {
+      tablesUsed += cnt;
+      paymentRevSum += item.net_revenue || 0;
+      paymentDaysCount += 1;
+    }
+  }
+  const avgSpend = tablesUsed > 0 ? Math.round(paymentRevSum / tablesUsed) : 0;
+  const paymentDataStatus: PeriodDataStatus =
+    openDays === 0 || paymentDaysCount === 0
+      ? 'none'
+      : paymentDaysCount < openDays
+        ? 'partial'
+        : 'complete';
+
   const hasData = openDays > 0 || purchaseCount > 0;
   const inputRate = expectedDays > 0 ? openDays / expectedDays : 0;
 
@@ -196,6 +240,8 @@ export function calcPeriodStats(
     avgDailySales,
     avgSpend,
     tablesUsed,
+    paymentDaysCount,
+    paymentDataStatus,
     hasData,
     dataStatus,
     expenseGroups: breakdown.groups,

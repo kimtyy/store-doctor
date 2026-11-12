@@ -1,6 +1,7 @@
 import {
   buildMenuMasterIndex,
   getMajorGroupLabel,
+  isNonMenuItem,
   LIQUOR_SUB_CATEGORIES,
   LiquorSubCategoryKey,
   MajorMenuGroupKey,
@@ -53,6 +54,13 @@ export interface AnalyzedMenuItem {
   isUnclassified: boolean;
 }
 
+export interface NonMenuSaleSummaryItem {
+  name: string;
+  quantity: number;
+  amount: number;
+  sharePct: number;
+}
+
 export interface MenuPeriodAnalysis {
   hasMenuData: boolean;
   dataStatus: 'none' | 'partial' | 'complete';
@@ -74,6 +82,9 @@ export interface MenuPeriodAnalysis {
   menus: AnalyzedMenuItem[];
   top70Menus: AnalyzedMenuItem[];
   bottom10Menus: AnalyzedMenuItem[];
+  nonMenuTotalAmount: number;
+  nonMenuTotalQuantity: number;
+  nonMenuItems: NonMenuSaleSummaryItem[];
 }
 
 export function analyzeMenuPeriod(
@@ -199,20 +210,37 @@ export function analyzeMenuPeriod(
 
   const unclassifiedNames: string[] = [];
 
-  // 1차로 메뉴 리스트 생성 (티어는 누적 비중 계산 후 부여)
-  let runningAmt = 0;
-  const menus: AnalyzedMenuItem[] = sortedRaw.map((m, idx) => {
+  // 배달비 등 메뉴 외 항목은 대분류·매출 총액에는 포함하되, 순위/상·하위/분류필요에서는 제외
+  const rankedItems: AnalyzedMenuItem[] = [];
+  const nonMenuItems: NonMenuSaleSummaryItem[] = [];
+  let nonMenuTotalAmount = 0;
+  let nonMenuTotalQuantity = 0;
+
+  for (let idx = 0; idx < sortedRaw.length; idx++) {
+    const m = sortedRaw[idx];
     const amount = preliminaryRounded[idx];
-    runningAmt += amount;
+    const isNonMenu = isNonMenuItem(m.name);
+    const effectiveMajorGroup: MajorMenuGroupKey = isNonMenu ? 'other' : m.majorGroup;
     const sharePct = totalMenuSales > 0 ? (amount / totalMenuSales) * 100 : 0;
-    const cumSharePct = totalMenuSales > 0 ? (runningAmt / totalMenuSales) * 100 : 0;
 
-    majorAmounts[m.majorGroup] += amount;
-    majorQuantities[m.majorGroup] += m.quantity;
+    majorAmounts[effectiveMajorGroup] += amount;
+    majorQuantities[effectiveMajorGroup] += m.quantity;
 
-    if (m.majorGroup === 'liquor' && m.liquorSubCategory) {
+    if (!isNonMenu && m.majorGroup === 'liquor' && m.liquorSubCategory) {
       liquorSubAmounts[m.liquorSubCategory] += amount;
       liquorSubQuantities[m.liquorSubCategory] += m.quantity;
+    }
+
+    if (isNonMenu) {
+      nonMenuTotalAmount += amount;
+      nonMenuTotalQuantity += m.quantity;
+      nonMenuItems.push({
+        name: m.name,
+        quantity: m.quantity,
+        amount,
+        sharePct,
+      });
+      continue;
     }
 
     if (m.isUnclassified) {
@@ -224,7 +252,7 @@ export function analyzeMenuPeriod(
         ? LIQUOR_SUB_CATEGORIES.find((s) => s.key === m.liquorSubCategory)?.label ?? null
         : null;
 
-    return {
+    rankedItems.push({
       canonicalKey: m.canonicalKey,
       name: m.name,
       rawCategory: m.rawCategory,
@@ -235,32 +263,42 @@ export function analyzeMenuPeriod(
       quantity: m.quantity,
       amount,
       sharePct,
-      cumSharePct,
+      cumSharePct: 0,
       tier: 'mid',
       isUnclassified: m.isUnclassified,
-    };
+    });
+  }
+
+  // 메뉴 외 항목을 제외한 순위 메뉴 기준 누적 비중(상위 70% / 하위 10%) 계산
+  const rankedMenuTotal = rankedItems.reduce((s, item) => s + item.amount, 0);
+  let runningRankedAmt = 0;
+  const menus: AnalyzedMenuItem[] = rankedItems.map((item) => {
+    runningRankedAmt += item.amount;
+    const cumSharePct = rankedMenuTotal > 0 ? (runningRankedAmt / rankedMenuTotal) * 100 : 0;
+    return { ...item, cumSharePct };
   });
 
-  // 상위(누적 70%까지) 부여: 이전 메뉴까지의 누적이 70% 미만인 메뉴까지 포함 (최소 1위 포함)
+  // 상위(누적 70%까지) 부여: 이전 메뉴까지의 누적이 70% 미만인 메뉴까지 포함
   let prevCum = 0;
   for (const item of menus) {
-    if (totalMenuSales > 0 && item.amount > 0 && prevCum < 70) {
+    if (rankedMenuTotal > 0 && item.amount > 0 && prevCum < 70) {
       item.tier = 'top70';
     }
     prevCum = item.cumSharePct;
   }
 
-  // 하위(누적 하위 10%) 부여: 맨 아래부터 누적 10% 이내(상위 70%와 겹치지 않게)
+  // 하위(누적 하위 10%) 부여: 순위 메뉴 합계 기준 맨 아래부터 누적 10% 이내
   let tailCum = 0;
   for (let i = menus.length - 1; i >= 0; i--) {
     const item = menus[i];
     if (item.tier === 'top70') continue;
-    if (totalMenuSales <= 0) break;
-    const nextTailCum = tailCum + item.sharePct;
+    if (rankedMenuTotal <= 0) break;
+    const itemRankSharePct = (item.amount / rankedMenuTotal) * 100;
+    const nextTailCum = tailCum + itemRankSharePct;
     if (tailCum < 10 && nextTailCum <= 12) {
       item.tier = 'bottom10';
       tailCum = nextTailCum;
-    } else if (tailCum === 0 && item.sharePct <= 10) {
+    } else if (tailCum === 0 && itemRankSharePct <= 10) {
       item.tier = 'bottom10';
       tailCum = nextTailCum;
     } else {
@@ -325,5 +363,8 @@ export function analyzeMenuPeriod(
     menus,
     top70Menus: menus.filter((m) => m.tier === 'top70'),
     bottom10Menus: menus.filter((m) => m.tier === 'bottom10'),
+    nonMenuTotalAmount,
+    nonMenuTotalQuantity,
+    nonMenuItems,
   };
 }

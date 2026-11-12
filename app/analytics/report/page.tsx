@@ -200,8 +200,13 @@ function MonthlyReportContent() {
       csv += csvRow('총비용률', c.totalCostRatio ?? 0, p.totalCostRatio ?? 0, l.totalCostRatio ?? 0, 'ratio', true);
       csv += csvRow('영업이익률', c.operatingProfitRatio ?? 0, p.operatingProfitRatio ?? 0, l.operatingProfitRatio ?? 0, 'ratio', true);
       csv += csvRow('일평균매출', c.avgDailySales, p.avgDailySales, l.avgDailySales, 'amount');
-      csv += csvRow('결제 건수', c.tablesUsed ?? 0, p.tablesUsed ?? 0, l.tablesUsed ?? 0, 'amount', false, '건');
-      csv += csvRow('결제 1건당 매출', c.avgSpend, p.avgSpend, l.avgSpend, 'amount');
+      const payNoteC = c.paymentDataStatus === 'partial' ? ` (일부 데이터 ${c.paymentDaysCount}/${c.openDays}일)` : '';
+      csv += c.tablesUsed > 0
+        ? csvRow(`결제 건수${payNoteC}`, c.tablesUsed ?? 0, p.tablesUsed ?? 0, l.tablesUsed ?? 0, 'amount', false, '건')
+        : `결제 건수,미입력,${hasPrev ? (p.tablesUsed > 0 ? `${p.tablesUsed}건` : '미입력') : '데이터 없음'},-,${hasLast ? (l.tablesUsed > 0 ? `${l.tablesUsed}건` : '미입력') : '데이터 없음'},-\n`;
+      csv += c.avgSpend > 0
+        ? csvRow(`결제 1건당 매출${payNoteC}`, c.avgSpend, p.avgSpend, l.avgSpend, 'amount')
+        : `결제 1건당 매출,미입력,${hasPrev ? (p.avgSpend > 0 ? p.avgSpend : '미입력') : '데이터 없음'},-,${hasLast ? (l.avgSpend > 0 ? l.avgSpend : '미입력') : '데이터 없음'},-\n`;
       csv += csvRow('영업일수', c.openDays, p.openDays, l.openDays, 'amount', false, '일');
       csv += `\n`;
     }
@@ -230,6 +235,10 @@ function MonthlyReportContent() {
         const tierLabel = m.tier === 'top70' ? '상위(누적 70%)' : m.tier === 'bottom10' ? '하위(누적 10%)' : '';
         csv += `${idx + 1},"${m.name}","${m.rawCategory ?? '미분류'}",${m.quantity},${m.amount},${m.sharePct.toFixed(1)}%,"${tierLabel}"\n`;
       });
+      if ((mc.nonMenuTotalAmount ?? 0) > 0) {
+        const nonMenuPct = mc.totalMenuSales > 0 ? ((mc.nonMenuTotalAmount / mc.totalMenuSales) * 100).toFixed(1) : '0.0';
+        csv += `-,"메뉴 외 매출(배달비 등)","기타",${mc.nonMenuTotalQuantity ?? 0},${mc.nonMenuTotalAmount},${nonMenuPct}%,"메뉴 외"\n`;
+      }
       csv += `\n`;
     }
 
@@ -839,15 +848,20 @@ function MonthlyReportContent() {
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700 whitespace-nowrap">
                         결제 건수 <TermTooltip term="결제 건수" />
+                        {data.comparison.current.paymentDataStatus === 'partial' && (
+                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                            일부 데이터({data.comparison.current.paymentDaysCount}/{data.comparison.current.openDays}일)
+                          </span>
+                        )}
                       </td>
                       <td className="p-3 font-bold text-slate-900 whitespace-nowrap">
                         {(data.comparison.current.tablesUsed ?? 0) > 0 ? `${fmt(data.comparison.current.tablesUsed)}건` : '미입력'}
                       </td>
                       <td className="p-3 bg-slate-50/50">
-                        {!hasPrevData || (data.comparison.prev.tablesUsed ?? 0) === 0 ? (
-                          <span className="text-xs text-slate-400">
-                            {!hasPrevData ? '데이터 없음' : '미입력'}
-                          </span>
+                        {!hasPrevData ? (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        ) : (data.comparison.prev.tablesUsed ?? 0) === 0 ? (
+                          <span className="text-xs text-slate-400">미입력</span>
                         ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
                           <ComparisonCell
                             current={data.comparison.current.tablesUsed}
@@ -860,10 +874,10 @@ function MonthlyReportContent() {
                         )}
                       </td>
                       <td className="p-3">
-                        {!hasLastYearData || (data.comparison.lastYear.tablesUsed ?? 0) === 0 ? (
-                          <span className="text-xs text-slate-400">
-                            {!hasLastYearData ? '데이터 없음' : '미입력'}
-                          </span>
+                        {!hasLastYearData ? (
+                          <span className="text-xs text-slate-400">데이터 없음</span>
+                        ) : (data.comparison.lastYear.tablesUsed ?? 0) === 0 ? (
+                          <span className="text-xs text-slate-400">미입력</span>
                         ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
                           <ComparisonCell
                             current={data.comparison.current.tablesUsed}
@@ -879,6 +893,11 @@ function MonthlyReportContent() {
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700 whitespace-nowrap">
                         결제 1건당 매출 <TermTooltip term="결제 1건당 매출" />
+                        {data.comparison.current.paymentDataStatus === 'partial' && (
+                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                            일부 데이터({data.comparison.current.paymentDaysCount}/{data.comparison.current.openDays}일)
+                          </span>
+                        )}
                       </td>
                       <td className="p-3 font-bold text-slate-900 whitespace-nowrap">
                         {data.comparison.current.avgSpend > 0 ? `${fmt(data.comparison.current.avgSpend)}원` : '미입력'}
@@ -1304,6 +1323,26 @@ function MonthlyReportContent() {
                               </td>
                             </tr>
                           ))}
+                          {(mc.nonMenuTotalAmount ?? 0) > 0 && (
+                            <tr className="bg-slate-50/80 border-t border-slate-200">
+                              <td className="p-2 text-left align-top">
+                                <span className="font-medium text-slate-600 break-words whitespace-normal">
+                                  메뉴 외 매출(배달비 등)
+                                </span>
+                              </td>
+                              <td className="p-2 text-right text-slate-600 whitespace-nowrap align-top">
+                                {fmt(mc.nonMenuTotalQuantity ?? 0)}
+                              </td>
+                              <td className="p-2 text-right font-semibold text-slate-800 whitespace-nowrap align-top">
+                                {fmt(mc.nonMenuTotalAmount)}원
+                              </td>
+                              <td className="p-2 text-right text-slate-600 whitespace-nowrap align-top">
+                                {mc.totalMenuSales > 0
+                                  ? `${((mc.nonMenuTotalAmount / mc.totalMenuSales) * 100).toFixed(1)}%`
+                                  : '0.0%'}
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>

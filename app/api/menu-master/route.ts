@@ -4,6 +4,7 @@ import { getStoreId } from '@/utils/supabase/getStore';
 import {
   buildMenuMasterIndex,
   findSimilarMenuPairs,
+  isNonMenuItem,
   isValidLiquorSubCategory,
   isValidMenuRawCategory,
   normalizeMenuCanonicalKey,
@@ -77,7 +78,8 @@ export async function PATCH(request: Request) {
             category: resolvedCategory,
             liquor_sub_category: resolvedSubCategory,
           })
-          .eq('id', targetRow.id);
+          .eq('id', targetRow.id)
+          .eq('store_id', STORE_ID);
         if (updateErr) throw new Error(updateErr.message);
       } else {
         const { error: insertErr } = await supabase
@@ -120,7 +122,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '올바르지 않은 메뉴 카테고리입니다.' }, { status: 400 });
     }
     if (liquorSubCategory && !isValidLiquorSubCategory(liquorSubCategory)) {
-      return NextResponse.json({ error: '올바르지 않은 주류 소분류입니다.' }, { status: 400 });
+      return NextResponse.json(
+        { error: '허용되지 않은 주류 소분류입니다. (소주·생맥주·병맥주·수제맥주·막걸리·전통주·기타 주류 중 선택)' },
+        { status: 400 }
+      );
     }
 
     // Canonical name: if renaming, use newName; otherwise menuName
@@ -165,7 +170,8 @@ export async function PATCH(request: Request) {
       const { error: updateError } = await supabase
         .from('menu_master')
         .update(updatePayload)
-        .eq('id', existing.id);
+        .eq('id', existing.id)
+        .eq('store_id', STORE_ID);
 
       if (updateError) throw new Error(updateError.message);
     } else {
@@ -201,16 +207,31 @@ export async function PUT(request: Request) {
   try {
     const supabase = makeClient();
     const body = await request.json().catch(() => null);
-    const items = Array.isArray(body?.items) ? body.items : [];
-
-    let savedCount = 0;
-    for (const raw of items as Array<{
+    const items = (Array.isArray(body?.items) ? body.items : []) as Array<{
       id?: string | null;
       menuName?: string;
       category?: string;
       liquorSubCategory?: string | null;
       aliases?: string[];
-    }>) {
+    }>;
+
+    // 서버 일괄 검증: 허용되지 않은 카테고리/주류 소분류는 저장 전 400 반환
+    for (const raw of items) {
+      const menuName = normalizeMenuDisplayName(String(raw.menuName ?? ''));
+      if (!menuName) continue;
+      if (raw.category && raw.category !== '' && !isValidMenuRawCategory(raw.category)) {
+        return NextResponse.json({ error: '올바르지 않은 메뉴 카테고리입니다.' }, { status: 400 });
+      }
+      if (raw.liquorSubCategory && !isValidLiquorSubCategory(raw.liquorSubCategory)) {
+        return NextResponse.json(
+          { error: '허용되지 않은 주류 소분류입니다. (소주·생맥주·병맥주·수제맥주·막걸리·전통주·기타 주류 중 선택)' },
+          { status: 400 }
+        );
+      }
+    }
+
+    let savedCount = 0;
+    for (const raw of items) {
       const menuName = normalizeMenuDisplayName(String(raw.menuName ?? ''));
       if (!menuName) continue;
 
@@ -355,13 +376,17 @@ export async function GET() {
 
     const unmapped = Array.from(unmappedMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
 
-    // 분류 필요 개수: menu_master에서 category 미지정 + 매출에는 있으나 카테고리 미분류인 미등록 항목
+    // 분류 필요 개수: menu_master에서 category 미지정 + 매출에는 있으나 카테고리 미분류인 미등록 항목 (배달비 등 메뉴 외 항목 제외)
     const unclassifiedNames: string[] = [];
     for (const m of masterRows) {
-      if (!isValidMenuRawCategory(m.category)) unclassifiedNames.push(m.menu_name);
+      if (!isNonMenuItem(m.menu_name) && !isValidMenuRawCategory(m.category)) {
+        unclassifiedNames.push(m.menu_name);
+      }
     }
     for (const u of unmapped) {
-      if (!isValidMenuRawCategory(u.category)) unclassifiedNames.push(u.name);
+      if (!isNonMenuItem(u.name) && !isValidMenuRawCategory(u.category)) {
+        unclassifiedNames.push(u.name);
+      }
     }
     const unclassifiedCount = unclassifiedNames.length;
 

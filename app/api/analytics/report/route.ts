@@ -382,7 +382,9 @@ export async function GET(request: Request) {
       '[정확성 규칙]\n' +
       '- 비율의 변화는 반드시 %p 로 말하고, 금액의 변화(%)와 섞지 말 것.\n' +
       '- 프롬프트에 주어진 숫자만 사용하고, 직접 계산한 퍼센트를 만들지 말 것.\n' +
-      '- 공과금(전기·가스·수도)은 납부 시점이 사용 월과 다를 수 있으므로, 전월 대비 공과금 증감을 운영 문제로 단정하지 말 것.';
+      '- 공과금(전기·가스·수도)은 납부 시점이 사용 월과 다를 수 있으므로, 전월 대비 공과금 증감을 운영 문제로 단정하지 말 것.\n' +
+      '- 주류·안주 원가율은 매입 카테고리 분류와 영수증 입력 여부에 따라 실제와 다를 수 있으니, 낮거나 높다고 단정하지 말고 전월 대비 %p 변화 위주로 해석할 것.\n' +
+      '- 음료 매출은 대응하는 매입 구분이 없어 원가율 계산에서 제외된다.';
 
     const metricDefinitions =
       '[지표 정의] 원가율=재료비(식자재·주류)÷매출, 인건비율=인건비÷매출, FL비율=(재료비+인건비)÷매출, 임대료율=임대료÷매출, 총비용률=총비용÷매출, 남은돈(영업이익)=매출−총비용. "원가율"은 반드시 재료비 기준으로만 사용할 것.';
@@ -433,12 +435,16 @@ export async function GET(request: Request) {
       : '';
 
     const paymentDeltaLines: string[] = [];
+    const paymentCoverageNote =
+      currentStats.paymentDataStatus === 'partial'
+        ? ` (일부 데이터 ${currentStats.paymentDaysCount}/${currentStats.openDays}일)`
+        : '';
     if (currentStats.tablesUsed > 0) {
       const hasPrevTables = prevStats.hasData && prevStats.tablesUsed > 0;
       const cntDelta = hasPrevTables
         ? calcComparisonMetricDelta(currentStats.tablesUsed, prevStats.tablesUsed, 'amount', true).formatted
         : '전월 데이터 없음';
-      paymentDeltaLines.push(`결제 건수: 이번달 ${currentStats.tablesUsed}건 (${cntDelta})`);
+      paymentDeltaLines.push(`결제 건수: 이번달 ${currentStats.tablesUsed}건${paymentCoverageNote} (${cntDelta})`);
     } else {
       paymentDeltaLines.push('결제 건수: 없음');
     }
@@ -447,7 +453,7 @@ export async function GET(request: Request) {
       const avgDelta = hasPrevAvg
         ? calcComparisonMetricDelta(currentStats.avgSpend, prevStats.avgSpend, 'amount', true).formatted
         : '전월 데이터 없음';
-      paymentDeltaLines.push(`결제 1건당 매출: 이번달 ${currentStats.avgSpend}원 (${avgDelta})`);
+      paymentDeltaLines.push(`결제 1건당 매출(순매출 기준): 이번달 ${currentStats.avgSpend}원${paymentCoverageNote} (${avgDelta})`);
     } else {
       paymentDeltaLines.push('결제 1건당 매출: 없음');
     }
