@@ -99,24 +99,44 @@ export async function PATCH(request: Request) {
         const { error: updateErr } = await supabase
           .from('menu_master')
           .update({
-            aliases: Array.from(mergedAliasSet),
+            aliases: Array.from(mergedAliasSet).filter(
+              (a) => normalizeMenuCanonicalKey(a) !== targetKey
+            ),
             category: resolvedCategory,
             liquor_sub_category: resolvedSubCategory,
           })
           .eq('id', targetRow.id)
           .eq('store_id', STORE_ID);
-        if (updateErr) throw new Error(updateErr.message);
+        if (updateErr) {
+          if (updateErr.code === '23505') {
+            return NextResponse.json(
+              { error: `이미 등록된 메뉴입니다: ${targetMenuName}` },
+              { status: 409 }
+            );
+          }
+          throw new Error(updateErr.message);
+        }
       } else {
         const { error: insertErr } = await supabase
           .from('menu_master')
           .insert({
             store_id: STORE_ID,
             menu_name: targetMenuName,
-            aliases: Array.from(mergedAliasSet),
+            aliases: Array.from(mergedAliasSet).filter(
+              (a) => normalizeMenuCanonicalKey(a) !== targetKey
+            ),
             category: resolvedCategory,
             liquor_sub_category: resolvedSubCategory,
           });
-        if (insertErr) throw new Error(insertErr.message);
+        if (insertErr) {
+          if (insertErr.code === '23505') {
+            return NextResponse.json(
+              { error: `이미 등록된 메뉴입니다: ${targetMenuName}` },
+              { status: 409 }
+            );
+          }
+          throw new Error(insertErr.message);
+        }
       }
 
       if (aliasRow && aliasRow.id !== targetRow?.id) {
@@ -154,13 +174,9 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // 기존 행은 id(있으면) 또는 canonical key 로 찾는다
     const cleanOrigName = normalizeMenuDisplayName(menuName);
-    const canonicalName =
-      newName && newName.trim() && newName.trim() !== menuName
-        ? normalizeMenuDisplayName(newName)
-        : cleanOrigName;
-    const isRename = canonicalName !== cleanOrigName;
+    const hasNewName = Boolean(newName && newName.trim() && normalizeMenuDisplayName(newName) !== cleanOrigName);
+    const canonicalName = hasNewName ? normalizeMenuDisplayName(newName!) : cleanOrigName;
     const origKey = normalizeMenuCanonicalKey(cleanOrigName);
     const targetKey = normalizeMenuCanonicalKey(canonicalName);
 
@@ -170,8 +186,10 @@ export async function PATCH(request: Request) {
       findCanonicalRowMatch(allRows, origKey) ??
       null;
 
-    // 충돌 검사(409)는 새 행 생성이거나 이름의 canonical key가 바뀌는 경우에만 수행
-    if (!existing || normalizeMenuCanonicalKey(existing.menu_name) !== targetKey) {
+    const isRename = Boolean(existing && targetKey !== normalizeMenuCanonicalKey(existing.menu_name));
+
+    // 충돌 검사(409): 새 행 생성이거나 이름 변경(canonical key 변경 또는 다른 행의 정확한 이름과 충돌) 시 검사
+    if (!existing || isRename || (hasNewName && canonicalName !== existing.menu_name)) {
       const conflict = findCanonicalRowMatch(allRows, targetKey, existing?.id ?? null);
       if (conflict) {
         return NextResponse.json(
@@ -179,19 +197,46 @@ export async function PATCH(request: Request) {
           { status: 409 }
         );
       }
+      if (hasNewName) {
+        const exactOther = allRows.find(
+          (r) => r.menu_name === canonicalName && r.id !== existing?.id
+        );
+        if (exactOther) {
+          return NextResponse.json(
+            { error: `이미 등록된 메뉴입니다: ${exactOther.menu_name}` },
+            { status: 409 }
+          );
+        }
+      }
     }
 
     if (existing) {
       const updatePayload: Record<string, unknown> = {};
-      let updatedAliases: string[] = existing.aliases ?? [];
+      const finalMenuName = isRename || hasNewName ? canonicalName : existing.menu_name;
+      const finalMenuKey = normalizeMenuCanonicalKey(finalMenuName);
 
-      if (isRename && !updatedAliases.includes(menuName)) {
-        updatedAliases = [...updatedAliases, menuName];
+      if (isRename || hasNewName) {
+        updatePayload.menu_name = finalMenuName;
       }
-      if (alias && !updatedAliases.includes(alias)) {
-        updatedAliases = [...updatedAliases, alias];
+
+      const rawAliases: string[] = [...(existing.aliases ?? [])];
+      if (isRename && existing.menu_name) {
+        rawAliases.push(existing.menu_name);
       }
-      updatePayload.aliases = updatedAliases;
+      if (isRename && cleanOrigName && cleanOrigName !== existing.menu_name) {
+        rawAliases.push(cleanOrigName);
+      }
+      if (alias) {
+        rawAliases.push(normalizeMenuDisplayName(alias));
+      }
+      // 자기 자신의 menu_name 과 같은 키의 값은 aliases 에 절대 넣지 않음
+      updatePayload.aliases = Array.from(
+        new Set(
+          rawAliases
+            .map((a) => normalizeMenuDisplayName(String(a)))
+            .filter((a) => a && normalizeMenuCanonicalKey(a) !== finalMenuKey)
+        )
+      );
 
       const finalCategory = category !== undefined ? (category || null) : existing.category;
       if (category !== undefined) {
@@ -210,12 +255,26 @@ export async function PATCH(request: Request) {
         .eq('id', existing.id)
         .eq('store_id', STORE_ID);
 
-      if (updateError) throw new Error(updateError.message);
+      if (updateError) {
+        if (updateError.code === '23505') {
+          return NextResponse.json(
+            { error: `이미 등록된 메뉴입니다: ${finalMenuName}` },
+            { status: 409 }
+          );
+        }
+        throw new Error(updateError.message);
+      }
     } else {
       // Entry doesn't exist — create it
-      const aliases: string[] = [];
-      if (isRename) aliases.push(menuName);
-      if (alias && !aliases.includes(alias)) aliases.push(alias);
+      const finalMenuKey = normalizeMenuCanonicalKey(canonicalName);
+      const rawAliases: string[] = [];
+      if (hasNewName && cleanOrigName) rawAliases.push(cleanOrigName);
+      if (alias) rawAliases.push(normalizeMenuDisplayName(alias));
+      const aliases = Array.from(
+        new Set(
+          rawAliases.filter((a) => a && normalizeMenuCanonicalKey(a) !== finalMenuKey)
+        )
+      );
 
       const { error: insertError } = await supabase
         .from('menu_master')
@@ -227,7 +286,15 @@ export async function PATCH(request: Request) {
           liquor_sub_category: category === '주류' ? (liquorSubCategory || null) : null,
         });
 
-      if (insertError) throw new Error(insertError.message);
+      if (insertError) {
+        if (insertError.code === '23505') {
+          return NextResponse.json(
+            { error: `이미 등록된 메뉴입니다: ${canonicalName}` },
+            { status: 409 }
+          );
+        }
+        throw new Error(insertError.message);
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -289,20 +356,30 @@ export async function PUT(request: Request) {
       if (!menuName) continue;
       const candKey = normalizeMenuCanonicalKey(menuName);
 
-      // 기존 행은 id(있으면) 또는 정확/canonical key 로 찾는다
-      const existingRow =
-        (raw.id ? existingRows.find((r) => r.id === raw.id) : undefined) ??
-        existingRows.find((r) => r.menu_name === menuName) ??
-        findCanonicalRowMatch(existingRows, candKey);
+      // PUT 규칙 (1-L4):
+      // - id 있음: 해당 id 행 조회. 이름이 기존과 다르면(key 변경 또는 다른 행의 정확한 이름과 충돌) 충돌 검사
+      // - id 없음(새 행): menu_name 정확 일치일 때만 갱신 대상으로 쓰고, 정확 일치가 없는데 canonical key/별칭으로 겹치면 건너뜀
+      const existingById = raw.id ? existingRows.find((r) => r.id === raw.id) : undefined;
+      const existingExact = !raw.id ? existingRows.find((r) => r.menu_name === menuName) : undefined;
+      const targetRow = existingById ?? existingExact;
 
-      const isNewOrKeyChanged =
-        !existingRow || normalizeMenuCanonicalKey(existingRow.menu_name) !== candKey;
+      const isNameChanged = Boolean(existingById && existingById.menu_name !== menuName);
+      const isKeyChanged = Boolean(
+        existingById && normalizeMenuCanonicalKey(existingById.menu_name) !== candKey
+      );
+      const needsConflictCheck = !targetRow || isNameChanged || isKeyChanged;
 
-      // 충돌 검사는 새 행 생성이거나 이름의 canonical key가 바뀌는 경우에만 수행
-      if (isNewOrKeyChanged) {
-        const dupInDb = findCanonicalRowMatch(existingRows, candKey, existingRow?.id ?? null);
+      if (needsConflictCheck) {
+        const dupInDb = findCanonicalRowMatch(existingRows, candKey, targetRow?.id ?? null);
         if (dupInDb) {
           skippedDuplicates.push({ menuName, existingName: dupInDb.menu_name });
+          continue;
+        }
+        const exactOther = existingRows.find(
+          (r) => r.menu_name === menuName && r.id !== targetRow?.id
+        );
+        if (exactOther) {
+          skippedDuplicates.push({ menuName, existingName: exactOther.menu_name });
           continue;
         }
         const dupInBatch = seenNewKeys.get(candKey);
@@ -319,7 +396,13 @@ export async function PUT(request: Request) {
           ? raw.liquorSubCategory
           : null;
       const aliases = Array.isArray(raw.aliases)
-        ? Array.from(new Set(raw.aliases.map((a) => normalizeMenuDisplayName(String(a))).filter((a) => a && a !== menuName)))
+        ? Array.from(
+            new Set(
+              raw.aliases
+                .map((a) => normalizeMenuDisplayName(String(a)))
+                .filter((a) => a && normalizeMenuCanonicalKey(a) !== candKey)
+            )
+          )
         : [];
 
       const payload = {
@@ -330,19 +413,35 @@ export async function PUT(request: Request) {
         aliases,
       };
 
-      const targetId = raw.id ?? existingRow?.id ?? null;
+      const targetId = targetRow?.id ?? null;
       if (targetId) {
         const { error: updErr } = await supabase
           .from('menu_master')
           .update(payload)
           .eq('id', targetId)
           .eq('store_id', STORE_ID);
-        if (updErr) throw new Error(updErr.message);
+        if (updErr) {
+          if (updErr.code === '23505') {
+            return NextResponse.json(
+              { error: `이미 등록된 메뉴입니다: ${menuName}` },
+              { status: 409 }
+            );
+          }
+          throw new Error(updErr.message);
+        }
       } else {
         const { error: upsErr } = await supabase
           .from('menu_master')
           .upsert(payload, { onConflict: 'store_id,menu_name' });
-        if (upsErr) throw new Error(upsErr.message);
+        if (upsErr) {
+          if (upsErr.code === '23505') {
+            return NextResponse.json(
+              { error: `이미 등록된 메뉴입니다: ${menuName}` },
+              { status: 409 }
+            );
+          }
+          throw new Error(upsErr.message);
+        }
       }
       savedCount += 1;
     }
