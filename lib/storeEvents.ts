@@ -52,7 +52,7 @@ export const STORE_EVENT_TYPE_META: Record<StoreEventType, StoreEventTypeMeta> =
   military: {
     key: 'military',
     label: '주변 기관 일정(군부대·학교·공장 등)',
-    shortLabel: '주변 기관 일정(군부대·학교·공장 등)',
+    shortLabel: '주변 기관',
     chartFill: 'rgba(245, 158, 11, 0.18)',
     chartStroke: 'rgba(251, 191, 36, 0.55)',
     badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
@@ -214,7 +214,7 @@ export function mergeStoreEventsWithHolidays(
       const origStartYear = parseInt(ev.start_date.slice(0, 4), 10);
       const origEndYear = parseInt(ev.end_date.slice(0, 4), 10);
       const yearSpan = origEndYear - origStartYear;
-      for (let y = startYear; y <= endYear; y++) {
+      for (let y = startYear - 1; y <= endYear + 1; y++) {
         if (y === origStartYear) continue;
         const projStart = `${y}-${ev.start_date.slice(5)}`;
         const projEnd = `${y + yearSpan}-${ev.end_date.slice(5)}`;

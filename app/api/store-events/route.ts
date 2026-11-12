@@ -11,6 +11,8 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Service Role 클라이언트를 사용하므로 모든 쿼리에서 반드시 getStoreId() 기반 store_id 조건을 강제합니다.
  */
@@ -135,12 +137,41 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '수정할 매장 사정 id가 필요합니다.' }, { status: 400 });
     }
 
-    const validated = validateStoreEventInput(body);
+    if (!UUID_REGEX.test(body.id)) {
+      return NextResponse.json({ error: '해당 매장 사정 기록을 찾을 수 없습니다.' }, { status: 404 });
+    }
+
+    const supabase = makeAdminClient();
+    const { data: existingRow, error: fetchErr } = await supabase
+      .from('store_events')
+      .select('id, store_id, start_date, end_date, title, type, impact, recurring_yearly, memo')
+      .eq('id', body.id)
+      .eq('store_id', STORE_ID)
+      .maybeSingle();
+
+    if (fetchErr) {
+      return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+    }
+    if (!existingRow) {
+      return NextResponse.json({ error: '해당 매장 사정 기록을 찾을 수 없습니다.' }, { status: 404 });
+    }
+
+    const mergedInput = {
+      title: body.title !== undefined ? body.title : existingRow.title,
+      start_date: body.start_date !== undefined ? body.start_date : existingRow.start_date,
+      end_date: body.end_date !== undefined ? body.end_date : existingRow.end_date,
+      type: body.type !== undefined ? body.type : existingRow.type,
+      impact: body.impact !== undefined ? body.impact : existingRow.impact,
+      recurring_yearly:
+        body.recurring_yearly !== undefined ? body.recurring_yearly : existingRow.recurring_yearly,
+      memo: body.memo !== undefined ? body.memo : existingRow.memo,
+    };
+
+    const validated = validateStoreEventInput(mergedInput);
     if (!validated.ok) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
 
-    const supabase = makeAdminClient();
     const { data, error } = await supabase
       .from('store_events')
       .update({
@@ -178,6 +209,10 @@ export async function DELETE(request: Request) {
     const id = searchParams.get('id');
     if (!id) {
       return NextResponse.json({ error: '삭제할 매장 사정 id가 필요합니다.' }, { status: 400 });
+    }
+
+    if (!UUID_REGEX.test(id)) {
+      return NextResponse.json({ error: '해당 매장 사정 기록을 찾을 수 없습니다.' }, { status: 404 });
     }
 
     const supabase = makeAdminClient();

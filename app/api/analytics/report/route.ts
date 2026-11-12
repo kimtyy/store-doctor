@@ -318,15 +318,38 @@ export async function GET(request: Request) {
       tier: m.tier,
     }));
 
-    // Weather metrics
-    const weatherMap: Record<string, { sum: number, count: number }> = { '맑음': {sum:0,count:0}, '흐림': {sum:0,count:0}, '비': {sum:0,count:0}, '눈': {sum:0,count:0} };
+    // Weather metrics (날씨별 사정 기간 겹침 일수 집계)
+    const manualEventDateSet = new Set<string>();
+    for (const ev of currentEvents) {
+      if (!ev.isAutoHoliday) {
+        for (let cur = ev.start_date; cur <= ev.end_date; ) {
+          manualEventDateSet.add(cur);
+          const d = new Date(`${cur}T00:00:00Z`);
+          d.setUTCDate(d.getUTCDate() + 1);
+          cur = d.toISOString().slice(0, 10);
+        }
+      }
+    }
+
+    const weatherMap: Record<
+      string,
+      { sum: number; count: number; eventOverlapDays: number }
+    > = {
+      맑음: { sum: 0, count: 0, eventOverlapDays: 0 },
+      흐림: { sum: 0, count: 0, eventOverlapDays: 0 },
+      비: { sum: 0, count: 0, eventOverlapDays: 0 },
+      눈: { sum: 0, count: 0, eventOverlapDays: 0 },
+    };
     for (const s of sales) {
       if (s.weather_condition) {
         if (!weatherMap[s.weather_condition]) {
-          weatherMap[s.weather_condition] = {sum:0,count:0};
+          weatherMap[s.weather_condition] = { sum: 0, count: 0, eventOverlapDays: 0 };
         }
         weatherMap[s.weather_condition].sum += s.net_revenue || 0;
         weatherMap[s.weather_condition].count += 1;
+        if (manualEventDateSet.has(s.date)) {
+          weatherMap[s.weather_condition].eventOverlapDays += 1;
+        }
       }
     }
     const weatherStats = Object.entries(weatherMap)
@@ -334,7 +357,8 @@ export async function GET(request: Request) {
       .map(([condition, data]) => ({
         condition,
         days: data.count,
-        avgRevenue: Math.round(data.sum / data.count)
+        eventOverlapDays: data.eventOverlapDays,
+        avgRevenue: Math.round(data.sum / data.count),
       }))
       .sort((a, b) => b.avgRevenue - a.avgRevenue);
 
@@ -707,9 +731,17 @@ ${eventPromptSection}
 이 매장의 손익분기점 달성과 수익 개선을 위한 구체적인 실행 조언(평소 일평균과 사정 기간을 고려한 추가 필요 매출 또는 비용 그룹 조정)을 작성해 주세요.
 ${reportFormatRule}`;
 
+    const weatherLines = weatherStats.map((w) => {
+      const overlapText =
+        w.eventOverlapDays > 0 ? ` (이 중 ${w.eventOverlapDays}일이 매장 사정 기간과 겹침)` : '';
+      return `${w.condition} ${w.days}일${overlapText}: 일평균 ${w.avgRevenue}원`;
+    });
+
     const weatherPrompt = `날씨와 매출 상관관계 데이터:
-${weatherStats.map(w => `${w.condition} ${w.days}일: 일평균 ${w.avgRevenue}원`).join('\n')}
+${weatherLines.join('\n')}
+${eventPromptSection}
 이 매장의 날씨에 따른 매출 차이를 해석하고 식자재·주류 발주 조절 조언을 작성해 주세요.
+특정 날씨에 사정 기간(행사·훈련·단축 등)이 겹친 경우 날씨 효과만으로 단정하지 말고 사정 영향 가능성을 함께 언급해 주세요.
 ${reportFormatRule}`;
 
     const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 600 };

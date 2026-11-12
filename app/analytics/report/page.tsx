@@ -776,54 +776,71 @@ function MonthlyReportContent() {
         })()}
 
         {/* Period Comparison */}
-        {data.comparison && (
-          <section>
-            <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">기간 비교 분석</h2>
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[460px] text-sm text-center">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs">
-                    <tr>
-                      <th className="p-3 font-semibold text-left whitespace-nowrap">항목</th>
-                      <th className="p-3 font-semibold whitespace-nowrap">
-                        이번달
-                        <br />
-                        <span className="font-normal text-[10px]">
-                          ({data.year}.{data.month}
-                          {data.comparison.current.dataStatus === 'partial' ? ' · 일부' : ''})
-                        </span>
-                        {data.events?.current?.length > 0 && (
-                          <div className="mt-0.5 text-[10px] font-normal text-purple-700 whitespace-normal leading-tight max-w-[110px] mx-auto">
-                            {Array.from(new Set((data.events.current as StoreEventRecord[]).map((e) => e.title))).slice(0, 2).join(', ')}
-                          </div>
-                        )}
-                      </th>
-                      <th className="p-3 font-semibold whitespace-nowrap">
-                        전월 대비
-                        <br />
-                        <span className="font-normal text-[10px]">
-                          {prevStatus === 'partial' ? '(일부 데이터)' : '(비교)'}
-                        </span>
-                        {data.events?.prev?.length > 0 && (
-                          <div className="mt-0.5 text-[10px] font-normal text-purple-700 whitespace-normal leading-tight max-w-[110px] mx-auto">
-                            {Array.from(new Set((data.events.prev as StoreEventRecord[]).map((e) => e.title))).slice(0, 2).join(', ')}
-                          </div>
-                        )}
-                      </th>
-                      <th className="p-3 font-semibold whitespace-nowrap">
-                        전년동월 대비
-                        <br />
-                        <span className="font-normal text-[10px]">
-                          {lastYearStatus === 'partial' ? '(일부 데이터)' : '(비교)'}
-                        </span>
-                        {data.events?.lastYear?.length > 0 && (
-                          <div className="mt-0.5 text-[10px] font-normal text-purple-700 whitespace-normal leading-tight max-w-[110px] mx-auto">
-                            {Array.from(new Set((data.events.lastYear as StoreEventRecord[]).map((e) => e.title))).slice(0, 2).join(', ')}
-                          </div>
-                        )}
-                      </th>
-                    </tr>
-                  </thead>
+        {data.comparison && (() => {
+          const renderEventHeaderTag = (
+            evList: StoreEventRecord[] | undefined,
+            hasData: boolean
+          ) => {
+            if (!hasData || !evList || evList.length === 0) return null;
+            const manualTitles = Array.from(
+              new Set(evList.filter((e) => !e.isAutoHoliday).map((e) => e.title))
+            );
+            const autoTitles = Array.from(
+              new Set(evList.filter((e) => e.isAutoHoliday).map((e) => e.title))
+            );
+            const orderedTitles = [...manualTitles, ...autoTitles];
+            if (orderedTitles.length === 0) return null;
+            const fullText = orderedTitles.join(', ');
+            const displayText =
+              orderedTitles.length <= 2
+                ? fullText
+                : `${orderedTitles.slice(0, 2).join(', ')} 외 ${orderedTitles.length - 2}건`;
+            return (
+              <div
+                title={fullText}
+                className="mt-0.5 text-[10px] font-normal text-purple-700 whitespace-normal leading-tight max-w-[110px] mx-auto cursor-help"
+              >
+                {displayText}
+              </div>
+            );
+          };
+
+          return (
+            <section>
+              <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">기간 비교 분석</h2>
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[460px] text-sm text-center">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs">
+                      <tr>
+                        <th className="p-3 font-semibold text-left whitespace-nowrap">항목</th>
+                        <th className="p-3 font-semibold whitespace-nowrap">
+                          이번달
+                          <br />
+                          <span className="font-normal text-[10px]">
+                            ({data.year}.{data.month}
+                            {data.comparison.current.dataStatus === 'partial' ? ' · 일부' : ''})
+                          </span>
+                          {renderEventHeaderTag(data.events?.current, data.comparison.current.hasData)}
+                        </th>
+                        <th className="p-3 font-semibold whitespace-nowrap">
+                          전월 대비
+                          <br />
+                          <span className="font-normal text-[10px]">
+                            {prevStatus === 'partial' ? '(일부 데이터)' : '(비교)'}
+                          </span>
+                          {renderEventHeaderTag(data.events?.prev, data.comparison.prev.hasData)}
+                        </th>
+                        <th className="p-3 font-semibold whitespace-nowrap">
+                          전년동월 대비
+                          <br />
+                          <span className="font-normal text-[10px]">
+                            {lastYearStatus === 'partial' ? '(일부 데이터)' : '(비교)'}
+                          </span>
+                          {renderEventHeaderTag(data.events?.lastYear, data.comparison.lastYear.hasData)}
+                        </th>
+                      </tr>
+                    </thead>
                   <tbody className="divide-y divide-slate-100">
                     {[
                       {
@@ -1147,7 +1164,8 @@ function MonthlyReportContent() {
               </div>
             </div>
           </section>
-        )}
+        );
+      })()}
 
         {/* BEP Summary */}
         <section>
