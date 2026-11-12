@@ -2,11 +2,13 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import TermTooltip from '@/components/ui/TermTooltip';
 import {
   calcComparisonMetricDelta,
   ComparisonMetricKind,
 } from '@/lib/analytics/periodComparison';
+import { MenuPeriodAnalysis } from '@/lib/analytics/menuAnalysis';
 
 const WEATHER_EMOJI: Record<string, string> = {
   '맑음': '☀️',
@@ -198,8 +200,36 @@ function MonthlyReportContent() {
       csv += csvRow('총비용률', c.totalCostRatio ?? 0, p.totalCostRatio ?? 0, l.totalCostRatio ?? 0, 'ratio', true);
       csv += csvRow('영업이익률', c.operatingProfitRatio ?? 0, p.operatingProfitRatio ?? 0, l.operatingProfitRatio ?? 0, 'ratio', true);
       csv += csvRow('일평균매출', c.avgDailySales, p.avgDailySales, l.avgDailySales, 'amount');
-      csv += csvRow('객단가', c.avgSpend, p.avgSpend, l.avgSpend, 'amount');
+      csv += csvRow('결제 건수', c.tablesUsed ?? 0, p.tablesUsed ?? 0, l.tablesUsed ?? 0, 'amount', false, '건');
+      csv += csvRow('결제 1건당 매출', c.avgSpend, p.avgSpend, l.avgSpend, 'amount');
       csv += csvRow('영업일수', c.openDays, p.openDays, l.openDays, 'amount', false, '일');
+      csv += `\n`;
+    }
+
+    if (data.menuAnalysis?.current?.hasMenuData) {
+      const mc: MenuPeriodAnalysis = data.menuAnalysis.current;
+      const mp: MenuPeriodAnalysis | undefined = data.menuAnalysis.prev;
+      const ml: MenuPeriodAnalysis | undefined = data.menuAnalysis.lastYear;
+      csv += `[메뉴별·주류별 매출 분석]\n`;
+      csv += `구분,이번달 매출,이번달 비중,전월 대비,전년동월 대비\n`;
+      mc.majorGroups.forEach((g) => {
+        const pShare = mp?.hasMenuData ? mp.majorShares[g.key] : 0;
+        const lShare = ml?.hasMenuData ? ml.majorShares[g.key] : 0;
+        const pDelta = calcComparisonMetricDelta(g.sharePct, pShare, 'ratio', !!mp?.hasMenuData).formatted;
+        const lDelta = calcComparisonMetricDelta(g.sharePct, lShare, 'ratio', !!ml?.hasMenuData).formatted;
+        csv += `"${g.label}",${g.amount},${g.sharePct.toFixed(1)}%,${pDelta},${lDelta}\n`;
+      });
+      csv += `주류 원가율,${mc.liquorCostRatio !== null ? mc.liquorCostRatio.toFixed(1) + '%' : '없음'}\n`;
+      csv += `안주 원가율,${mc.foodCostRatio !== null ? mc.foodCostRatio.toFixed(1) + '%' : '없음'}\n`;
+      csv += `[주류 세부 분류]\n종류,판매수량,매출,주류내 비중\n`;
+      mc.liquorSubGroups.forEach((s) => {
+        csv += `"${s.label}",${s.quantity},${s.amount},${s.shareOfLiquorPct.toFixed(1)}%\n`;
+      });
+      csv += `[전체 메뉴 매출]\n순위,메뉴명,분류,수량,매출,비중,구간\n`;
+      mc.menus.forEach((m, idx) => {
+        const tierLabel = m.tier === 'top70' ? '상위(누적 70%)' : m.tier === 'bottom10' ? '하위(누적 10%)' : '';
+        csv += `${idx + 1},"${m.name}","${m.rawCategory ?? '미분류'}",${m.quantity},${m.amount},${m.sharePct.toFixed(1)}%,"${tierLabel}"\n`;
+      });
       csv += `\n`;
     }
 
@@ -808,10 +838,50 @@ function MonthlyReportContent() {
                     ))}
                     <tr>
                       <td className="p-3 text-left font-semibold text-slate-700 whitespace-nowrap">
-                        객단가 <TermTooltip term="객단가" />
+                        결제 건수 <TermTooltip term="결제 건수" />
                       </td>
                       <td className="p-3 font-bold text-slate-900 whitespace-nowrap">
-                        {data.comparison.current.avgSpend > 0 ? `${fmt(data.comparison.current.avgSpend)}원` : '-'}
+                        {(data.comparison.current.tablesUsed ?? 0) > 0 ? `${fmt(data.comparison.current.tablesUsed)}건` : '미입력'}
+                      </td>
+                      <td className="p-3 bg-slate-50/50">
+                        {!hasPrevData || (data.comparison.prev.tablesUsed ?? 0) === 0 ? (
+                          <span className="text-xs text-slate-400">
+                            {!hasPrevData ? '데이터 없음' : '미입력'}
+                          </span>
+                        ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
+                          <ComparisonCell
+                            current={data.comparison.current.tablesUsed}
+                            base={data.comparison.prev.tablesUsed}
+                            formatter={fmt}
+                            suffix="건"
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400">미입력</span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {!hasLastYearData || (data.comparison.lastYear.tablesUsed ?? 0) === 0 ? (
+                          <span className="text-xs text-slate-400">
+                            {!hasLastYearData ? '데이터 없음' : '미입력'}
+                          </span>
+                        ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
+                          <ComparisonCell
+                            current={data.comparison.current.tablesUsed}
+                            base={data.comparison.lastYear.tablesUsed}
+                            formatter={fmt}
+                            suffix="건"
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400">미입력</span>
+                        )}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 text-left font-semibold text-slate-700 whitespace-nowrap">
+                        결제 1건당 매출 <TermTooltip term="결제 1건당 매출" />
+                      </td>
+                      <td className="p-3 font-bold text-slate-900 whitespace-nowrap">
+                        {data.comparison.current.avgSpend > 0 ? `${fmt(data.comparison.current.avgSpend)}원` : '미입력'}
                       </td>
                       <td className="p-3 bg-slate-50/50">
                         {!hasPrevData ? (
@@ -819,7 +889,7 @@ function MonthlyReportContent() {
                         ) : data.comparison.current.avgSpend > 0 && data.comparison.prev.avgSpend > 0 ? (
                           <ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.prev.avgSpend} />
                         ) : (
-                          <span className="text-xs text-slate-400">-</span>
+                          <span className="text-xs text-slate-400">미입력</span>
                         )}
                       </td>
                       <td className="p-3">
@@ -828,7 +898,7 @@ function MonthlyReportContent() {
                         ) : data.comparison.current.avgSpend > 0 && data.comparison.lastYear.avgSpend > 0 ? (
                           <ComparisonCell current={data.comparison.current.avgSpend} base={data.comparison.lastYear.avgSpend} />
                         ) : (
-                          <span className="text-xs text-slate-400">-</span>
+                          <span className="text-xs text-slate-400">미입력</span>
                         )}
                       </td>
                     </tr>
@@ -988,6 +1058,261 @@ function MonthlyReportContent() {
             </div>
           </section>
         </div>
+
+        {/* Menu & Liquor Analysis (1-L) */}
+        {data.menuAnalysis && (() => {
+          const mc: MenuPeriodAnalysis = data.menuAnalysis.current;
+          const mp: MenuPeriodAnalysis = data.menuAnalysis.prev;
+          const ml: MenuPeriodAnalysis = data.menuAnalysis.lastYear;
+          return (
+            <section className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-bold border-l-4 border-slate-800 pl-2">
+                  🍽️ 메뉴별·주류별 매출 분석
+                </h2>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {mc.dataStatus === 'partial' && (
+                    <span className="rounded-full bg-amber-100 border border-amber-300 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                      일부 데이터 ({mc.daysWithMenuData}/{mc.totalSalesDays}일)
+                    </span>
+                  )}
+                  {mc.unclassifiedCount > 0 && (
+                    <Link
+                      href="/settings/menu"
+                      className="rounded-full bg-orange-100 border border-orange-300 px-2.5 py-0.5 text-xs font-semibold text-orange-800 hover:bg-orange-200 print:no-underline"
+                    >
+                      분류 필요 {mc.unclassifiedCount}개
+                    </Link>
+                  )}
+                </div>
+              </div>
+
+              {!mc.hasMenuData ? (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 text-center text-sm text-slate-500">
+                  이번 달 메뉴별 매출 데이터 없음
+                </div>
+              ) : (
+                <>
+                  {/* 대분류 3그룹 비중 표 */}
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-sm text-right border-collapse">
+                      <thead className="bg-slate-100 text-slate-600 text-xs">
+                        <tr>
+                          <th className="p-2.5 text-left font-bold">카테고리 비중</th>
+                          <th className="p-2.5 font-bold">이번달 매출</th>
+                          <th className="p-2.5 font-bold">비중</th>
+                          <th className="p-2.5 font-bold">전월 대비</th>
+                          <th className="p-2.5 font-bold">전년 동월</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 bg-white">
+                        {mc.majorGroups.map((g) => (
+                          <tr key={g.key}>
+                            <td className="p-2.5 text-left font-semibold text-slate-800 whitespace-nowrap">
+                              {g.label}
+                            </td>
+                            <td className="p-2.5 font-semibold text-slate-900 whitespace-nowrap">
+                              {fmt(g.amount)}원
+                            </td>
+                            <td className="p-2.5 font-bold text-slate-900 whitespace-nowrap">
+                              {g.sharePct.toFixed(1)}%
+                            </td>
+                            <td className="p-2.5 bg-slate-50/50">
+                              {mp?.hasMenuData ? (
+                                <ComparisonCell
+                                  current={g.sharePct}
+                                  base={mp.majorShares[g.key]}
+                                  kind="ratio"
+                                  hasBaseData={true}
+                                  formatter={(v: number) => v.toFixed(1)}
+                                  suffix="%"
+                                />
+                              ) : (
+                                <span className="text-xs text-slate-400">데이터 없음</span>
+                              )}
+                            </td>
+                            <td className="p-2.5">
+                              {ml?.hasMenuData ? (
+                                <ComparisonCell
+                                  current={g.sharePct}
+                                  base={ml.majorShares[g.key]}
+                                  kind="ratio"
+                                  hasBaseData={true}
+                                  formatter={(v: number) => v.toFixed(1)}
+                                  suffix="%"
+                                />
+                              ) : (
+                                <span className="text-xs text-slate-400">데이터 없음</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 주류 원가율 / 안주 원가율 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-900">주류 원가율</span>
+                        <span className="text-lg font-extrabold text-indigo-950">
+                          {mc.liquorCostRatio !== null ? `${mc.liquorCostRatio.toFixed(1)}%` : '데이터 없음'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        주류 매입 {fmt(mc.liquorCost)}원 ÷ 주류 매출 {fmt(mc.majorAmounts.liquor)}원
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
+                        <span>
+                          전월:{' '}
+                          {mp?.hasMenuData && mc.liquorCostRatio !== null && mp.liquorCostRatio !== null
+                            ? `${mp.liquorCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.liquorCostRatio, mp.liquorCostRatio, 'ratio', true).formatted})`
+                            : '데이터 없음'}
+                        </span>
+                        <span>
+                          전년:{' '}
+                          {ml?.hasMenuData && mc.liquorCostRatio !== null && ml.liquorCostRatio !== null
+                            ? `${ml.liquorCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.liquorCostRatio, ml.liquorCostRatio, 'ratio', true).formatted})`
+                            : '데이터 없음'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-orange-200 bg-orange-50/50 p-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-orange-900">안주 원가율</span>
+                        <span className="text-lg font-extrabold text-orange-950">
+                          {mc.foodCostRatio !== null ? `${mc.foodCostRatio.toFixed(1)}%` : '데이터 없음'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        식자재 매입 {fmt(mc.foodPurchaseCost)}원 ÷ 안주·식사 매출 {fmt(mc.majorAmounts.food)}원
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
+                        <span>
+                          전월:{' '}
+                          {mp?.hasMenuData && mc.foodCostRatio !== null && mp.foodCostRatio !== null
+                            ? `${mp.foodCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.foodCostRatio, mp.foodCostRatio, 'ratio', true).formatted})`
+                            : '데이터 없음'}
+                        </span>
+                        <span>
+                          전년:{' '}
+                          {ml?.hasMenuData && mc.foodCostRatio !== null && ml.foodCostRatio !== null
+                            ? `${ml.foodCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.foodCostRatio, ml.foodCostRatio, 'ratio', true).formatted})`
+                            : '데이터 없음'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 주류 세부 6종 */}
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-xs sm:text-sm text-right border-collapse">
+                      <thead className="bg-slate-100 text-slate-600 text-xs">
+                        <tr>
+                          <th className="p-2.5 text-left font-bold">주류 세부</th>
+                          <th className="p-2.5 font-bold">수량</th>
+                          <th className="p-2.5 font-bold">매출</th>
+                          <th className="p-2.5 font-bold">주류 내 비중</th>
+                          <th className="p-2.5 font-bold">전월 매출 대비</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 bg-white">
+                        {mc.liquorSubGroups.map((s) => {
+                          const prevSubAmt = mp?.liquorSubAmounts?.[s.key] ?? 0;
+                          return (
+                            <tr key={s.key}>
+                              <td className="p-2.5 text-left font-medium text-slate-800 whitespace-nowrap">
+                                {s.label}
+                              </td>
+                              <td className="p-2.5 text-slate-700 whitespace-nowrap">
+                                {fmt(s.quantity)}
+                              </td>
+                              <td className="p-2.5 font-semibold text-slate-900 whitespace-nowrap">
+                                {fmt(s.amount)}원
+                              </td>
+                              <td className="p-2.5 text-slate-700 whitespace-nowrap">
+                                {s.shareOfLiquorPct.toFixed(1)}%
+                              </td>
+                              <td className="p-2.5 bg-slate-50/50">
+                                {mp?.hasMenuData && prevSubAmt > 0 ? (
+                                  <ComparisonCell current={s.amount} base={prevSubAmt} />
+                                ) : (
+                                  <span className="text-xs text-slate-400">
+                                    {!mp?.hasMenuData ? '데이터 없음' : '-'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 전체 메뉴 매출 표 (모바일에서 메뉴명 잘리지 않게 break-words 적용) */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-100 px-3 py-2 flex items-center justify-between text-xs font-bold text-slate-700">
+                      <span>전체 메뉴 매출 ({mc.menus.length}종)</span>
+                      <span className="font-normal text-slate-500">합계 {fmt(mc.totalMenuSales)}원</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                          <tr>
+                            <th className="p-2 text-left font-semibold">메뉴명</th>
+                            <th className="p-2 text-right font-semibold whitespace-nowrap">수량</th>
+                            <th className="p-2 text-right font-semibold whitespace-nowrap">매출</th>
+                            <th className="p-2 text-right font-semibold whitespace-nowrap">비중</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {mc.menus.map((m, idx) => (
+                            <tr key={m.canonicalKey}>
+                              <td className="p-2 text-left align-top">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-slate-400">{idx + 1}.</span>
+                                  <span className="font-medium text-slate-800 break-words whitespace-normal">
+                                    {m.name}
+                                  </span>
+                                  {m.tier === 'top70' && (
+                                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 whitespace-nowrap">
+                                      상위 70%
+                                    </span>
+                                  )}
+                                  {m.tier === 'bottom10' && (
+                                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 whitespace-nowrap">
+                                      하위 10%
+                                    </span>
+                                  )}
+                                  {m.isUnclassified && (
+                                    <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 whitespace-nowrap">
+                                      미분류
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-2 text-right text-slate-700 whitespace-nowrap align-top">
+                                {fmt(m.quantity)}
+                              </td>
+                              <td className="p-2 text-right font-semibold text-slate-900 whitespace-nowrap align-top">
+                                {fmt(m.amount)}원
+                              </td>
+                              <td className="p-2 text-right text-slate-600 whitespace-nowrap align-top">
+                                {m.sharePct.toFixed(1)}%
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          );
+        })()}
 
         {/* Day of Week */}
         <section>

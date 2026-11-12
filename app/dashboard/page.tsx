@@ -939,7 +939,7 @@ export default function DashboardPage() {
                               })}
                             </p>
                             <p className="mt-1 text-sm text-slate-400">
-                              테이블 {day.tablesUsed}개
+                              {day.tablesUsed > 0 ? `결제 ${day.tablesUsed}건` : '결제 건수 미입력'}
                             </p>
                           </div>
                           <div className="text-right">

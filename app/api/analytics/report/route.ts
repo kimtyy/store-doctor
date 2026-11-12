@@ -14,6 +14,8 @@ import {
   mapCategoryToExpenseGroup,
   PURCHASE_CATEGORY_LABELS,
 } from '@/lib/expenses';
+import { analyzeMenuPeriod, MenuSaleInputRow } from '@/lib/analytics/menuAnalysis';
+import { MenuMasterRecord } from '@/lib/menus';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -71,6 +73,25 @@ export async function GET(request: Request) {
     let past6MonthSalesQuery = supabase.from('daily_sales').select('date, net_revenue').eq('store_id', STORE_ID).gte('date', past6MonthFromStr).lte('date', toStr);
     let nextMonthLastYearSalesQuery = supabase.from('daily_sales').select('net_revenue').eq('store_id', STORE_ID).gte('date', nextMonthLastYearFromStr).lte('date', nextMonthLastYearToStr);
 
+    let currentMenuSalesQuery = supabase
+      .from('daily_sales')
+      .select('id, date, net_revenue, is_event, sales_menu_items(name, quantity, amount, category)')
+      .eq('store_id', STORE_ID)
+      .gte('date', fromStr)
+      .lte('date', toStr);
+    let prevMenuSalesQuery = supabase
+      .from('daily_sales')
+      .select('id, date, net_revenue, is_event, sales_menu_items(name, quantity, amount, category)')
+      .eq('store_id', STORE_ID)
+      .gte('date', prevFromStr)
+      .lte('date', prevToStr);
+    let lastYearMenuSalesQuery = supabase
+      .from('daily_sales')
+      .select('id, date, net_revenue, is_event, sales_menu_items(name, quantity, amount, category)')
+      .eq('store_id', STORE_ID)
+      .gte('date', lastYearFromStr)
+      .lte('date', lastYearToStr);
+
     if (!includeEvent) {
       salesQuery = salesQuery.eq('is_event', false);
       prevSalesQuery = prevSalesQuery.eq('is_event', false);
@@ -80,19 +101,15 @@ export async function GET(request: Request) {
       purchaseQuery = purchaseQuery.eq('is_event', false);
       past6MonthSalesQuery = past6MonthSalesQuery.eq('is_event', false);
       nextMonthLastYearSalesQuery = nextMonthLastYearSalesQuery.eq('is_event', false);
+      currentMenuSalesQuery = currentMenuSalesQuery.eq('is_event', false);
+      prevMenuSalesQuery = prevMenuSalesQuery.eq('is_event', false);
+      lastYearMenuSalesQuery = lastYearMenuSalesQuery.eq('is_event', false);
     }
 
-    // Fetch menus properly with inner join via PostgREST
-    let menuJoinQuery = supabase
-      .from('sales_menu_items')
-      .select(`name, amount, daily_sales!inner(date, store_id, is_event)`)
-      .eq('daily_sales.store_id', STORE_ID)
-      .gte('daily_sales.date', fromStr)
-      .lte('daily_sales.date', toStr);
-
-    if (!includeEvent) {
-      menuJoinQuery = menuJoinQuery.eq('daily_sales.is_event', false);
-    }
+    const menuMasterQuery = supabase
+      .from('menu_master')
+      .select('menu_name, category, liquor_sub_category, aliases')
+      .eq('store_id', STORE_ID);
 
     const storeQuery = supabase
       .from('stores')
@@ -110,7 +127,10 @@ export async function GET(request: Request) {
       { data: purchaseData },
       { data: past6MonthSalesData },
       { data: nextMonthLastYearSalesData },
-      { data: menuDataJoin }
+      { data: currentMenuSalesData },
+      { data: prevMenuSalesData },
+      { data: lastYearMenuSalesData },
+      { data: menuMasterData }
     ] = await Promise.all([
       storeQuery,
       salesQuery,
@@ -121,7 +141,10 @@ export async function GET(request: Request) {
       purchaseQuery,
       past6MonthSalesQuery,
       nextMonthLastYearSalesQuery,
-      menuJoinQuery
+      currentMenuSalesQuery,
+      prevMenuSalesQuery,
+      lastYearMenuSalesQuery,
+      menuMasterQuery
     ]);
 
     const sales = salesData ?? [];
@@ -130,7 +153,7 @@ export async function GET(request: Request) {
     const purchases = purchaseData ?? [];
     const prevPurchases = prevPurchaseData ?? [];
     const lastYearPurchases = lastYearPurchaseData ?? [];
-    const menus = menuDataJoin ?? [];
+    const masterRows = (menuMasterData ?? []) as MenuMasterRecord[];
     
     const ownerSalary = storeData?.owner_salary || 0;
     const loanRepayment = storeData?.loan_repayment || 0;
@@ -230,12 +253,30 @@ export async function GET(request: Request) {
     const netProfit = operatingProfit - nonOperatingExpenses;
     const totalCostRatio = currentStats.totalCostRatio; // 총비용 ÷ 매출 * 100
 
-    // Menu metrics
-    const menuMap: Record<string, number> = {};
-    for (const m of menus) {
-      menuMap[m.name] = (menuMap[m.name] || 0) + (m.amount || 0);
-    }
-    const topMenus = Object.entries(menuMap).map(([m, amt]) => ({ name: m, amount: amt })).sort((a,b)=>b.amount-a.amount).slice(0, 10);
+    // Menu & Liquor Analysis (1-L: 전월·전년동월 비교, 공백 무시 정규화, 주류 6소분류, 상/하위 70%/10%, 카테고리 원가율)
+    const currentMenuAnalysis = analyzeMenuPeriod(
+      (currentMenuSalesData ?? []) as MenuSaleInputRow[],
+      purchases,
+      masterRows
+    );
+    const prevMenuAnalysis = analyzeMenuPeriod(
+      (prevMenuSalesData ?? []) as MenuSaleInputRow[],
+      prevPurchases,
+      masterRows
+    );
+    const lastYearMenuAnalysis = analyzeMenuPeriod(
+      (lastYearMenuSalesData ?? []) as MenuSaleInputRow[],
+      lastYearPurchases,
+      masterRows
+    );
+
+    const topMenus = currentMenuAnalysis.menus.slice(0, 10).map((m) => ({
+      name: m.name,
+      amount: m.amount,
+      quantity: m.quantity,
+      sharePct: m.sharePct,
+      tier: m.tier,
+    }));
 
     // Weather metrics
     const weatherMap: Record<string, { sum: number, count: number }> = { '맑음': {sum:0,count:0}, '흐림': {sum:0,count:0}, '비': {sum:0,count:0}, '눈': {sum:0,count:0} };
@@ -391,11 +432,102 @@ export async function GET(request: Request) {
       ? `\n주의: 이번 달 매출 입력일수가 ${currentStats.openDays}/${currentStats.expectedDays}일(80% 미만)입니다. 반드시 "${lowInputWarningText}"를 포함하고 전월 대비 급감·급증 판단을 단정하지 말 것.`
       : '';
 
+    const paymentDeltaLines: string[] = [];
+    if (currentStats.tablesUsed > 0) {
+      const hasPrevTables = prevStats.hasData && prevStats.tablesUsed > 0;
+      const cntDelta = hasPrevTables
+        ? calcComparisonMetricDelta(currentStats.tablesUsed, prevStats.tablesUsed, 'amount', true).formatted
+        : '전월 데이터 없음';
+      paymentDeltaLines.push(`결제 건수: 이번달 ${currentStats.tablesUsed}건 (${cntDelta})`);
+    } else {
+      paymentDeltaLines.push('결제 건수: 없음');
+    }
+    if (currentStats.avgSpend > 0) {
+      const hasPrevAvg = prevStats.hasData && prevStats.avgSpend > 0;
+      const avgDelta = hasPrevAvg
+        ? calcComparisonMetricDelta(currentStats.avgSpend, prevStats.avgSpend, 'amount', true).formatted
+        : '전월 데이터 없음';
+      paymentDeltaLines.push(`결제 1건당 매출: 이번달 ${currentStats.avgSpend}원 (${avgDelta})`);
+    } else {
+      paymentDeltaLines.push('결제 1건당 매출: 없음');
+    }
+
+    let menuPromptSection = '메뉴별 매출 데이터: 없음';
+    if (currentMenuAnalysis.hasMenuData) {
+      const lSharePrev = prevMenuAnalysis.hasMenuData
+        ? calcComparisonMetricDelta(
+            currentMenuAnalysis.majorShares.liquor,
+            prevMenuAnalysis.majorShares.liquor,
+            'ratio',
+            true
+          ).formatted
+        : '전월 없음';
+      const fSharePrev = prevMenuAnalysis.hasMenuData
+        ? calcComparisonMetricDelta(
+            currentMenuAnalysis.majorShares.food,
+            prevMenuAnalysis.majorShares.food,
+            'ratio',
+            true
+          ).formatted
+        : '전월 없음';
+
+      const subSummary = currentMenuAnalysis.liquorSubGroups
+        .filter((s) => s.amount > 0)
+        .map((s) => {
+          const prevSub = prevMenuAnalysis.liquorSubGroups.find((p) => p.key === s.key);
+          const subAmtDelta =
+            prevMenuAnalysis.hasMenuData && prevSub && prevSub.amount > 0
+              ? calcComparisonMetricDelta(s.amount, prevSub.amount, 'amount', true).formatted
+              : '전월 비교 없음';
+          return `${s.label} ${s.amount}원(주류내 ${s.shareOfLiquorPct.toFixed(1)}%, ${subAmtDelta})`;
+        })
+        .join(', ');
+
+      const top3Text = currentMenuAnalysis.menus
+        .slice(0, 3)
+        .map((m) => `${m.name} ${m.amount}원(${m.sharePct.toFixed(1)}%)`)
+        .join(', ');
+      const bottomSample =
+        currentMenuAnalysis.bottom10Menus.length > 0
+          ? currentMenuAnalysis.bottom10Menus.slice(0, 3)
+          : currentMenuAnalysis.menus.slice(-3);
+      const bottomText = bottomSample
+        .map((m) => `${m.name} ${m.amount}원(${m.sharePct.toFixed(1)}%)`)
+        .join(', ');
+
+      const liqCostText =
+        currentMenuAnalysis.liquorCostRatio !== null
+          ? `${currentMenuAnalysis.liquorCostRatio.toFixed(1)}%${
+              prevMenuAnalysis.hasMenuData && prevMenuAnalysis.liquorCostRatio !== null
+                ? ` (${calcComparisonMetricDelta(currentMenuAnalysis.liquorCostRatio, prevMenuAnalysis.liquorCostRatio, 'ratio', true).formatted})`
+                : ''
+            }`
+          : '없음';
+      const foodCostText =
+        currentMenuAnalysis.foodCostRatio !== null
+          ? `${currentMenuAnalysis.foodCostRatio.toFixed(1)}%${
+              prevMenuAnalysis.hasMenuData && prevMenuAnalysis.foodCostRatio !== null
+                ? ` (${calcComparisonMetricDelta(currentMenuAnalysis.foodCostRatio, prevMenuAnalysis.foodCostRatio, 'ratio', true).formatted})`
+                : ''
+            }`
+          : '없음';
+
+      menuPromptSection = [
+        `메뉴 데이터 상태: ${currentMenuAnalysis.dataStatus === 'partial' ? `일부 데이터 (${currentMenuAnalysis.daysWithMenuData}/${currentMenuAnalysis.totalSalesDays}일)` : `완전 (${currentMenuAnalysis.daysWithMenuData}일)`}`,
+        `카테고리 비중(비율 변화는 %p): 주류 ${currentMenuAnalysis.majorShares.liquor.toFixed(1)}% (${lSharePrev}), 안주·식사 ${currentMenuAnalysis.majorShares.food.toFixed(1)}% (${fSharePrev}), 기타 ${currentMenuAnalysis.majorShares.other.toFixed(1)}%`,
+        `주류 세부: ${subSummary || '없음'}`,
+        `카테고리별 원가율(비율 변화는 %p): 주류 원가율 ${liqCostText}, 안주 원가율 ${foodCostText}`,
+        `상위 대표 메뉴: ${top3Text || '없음'} / 하위권 메뉴: ${bottomText || '없음'}`,
+      ].join('\n');
+    }
+
     const aiPrompt = `${metricDefinitions}
 이번달(${year}년 ${month}월) 실적: 매출 ${currentStats.totalRevenue}원, 총비용 ${currentStats.totalExpense}원, 남은돈(영업이익) ${currentStats.operatingProfit}원, 영업이익률 ${currentStats.operatingProfitRatio.toFixed(1)}%, 총비용률 ${currentStats.totalCostRatio.toFixed(1)}%, 원가율 ${currentStats.costRatio.toFixed(1)}%, 인건비율 ${currentStats.laborRatio.toFixed(1)}%, FL비율 ${currentStats.flRatio.toFixed(1)}%, 임대료율 ${currentStats.rentRatio.toFixed(1)}%, 일평균 ${currentStats.avgDailySales}원 (매출입력 ${currentStats.openDays}/${currentStats.expectedDays}일, 매입 ${currentStats.purchaseCount}건)
+${paymentDeltaLines.join(' / ')}
 비용 그룹별 상세(금액 vs 비율 분리): ${groupSummaryLines}
+${menuPromptSection}
 ${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
-이 매장의 ${year}년 ${month}월 성과와 전월 대비 변화가 큰 비용 그룹(공과금 시차 주의)을 짚어 해석과 실행 조언을 작성해 주세요.${lowInputDirective}
+이 매장의 ${year}년 ${month}월 손익 성과, 결제 지표(건수·1건당 매출), 주류/안주 비중·원가율·인기 메뉴 흐름, 변화가 큰 비용 그룹(공과금 시차 주의)을 종합해 핵심 해석과 실행 조언을 작성해 주세요.${lowInputDirective}
 ${reportFormatRule}`;
 
     const predictionPrompt = `${metricDefinitions}
@@ -505,6 +637,11 @@ ${reportFormatRule}`;
         aiDiagnosis: bepAiDiagnosis
       },
       topMenus,
+      menuAnalysis: {
+        current: currentMenuAnalysis,
+        prev: prevMenuAnalysis,
+        lastYear: lastYearMenuAnalysis,
+      },
       topVendors,
       dowAverages, // 0: Sun, 1: Mon, ...
       aiDiagnosis,

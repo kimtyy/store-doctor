@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
 interface SalesMenuItem {
   name: string;
@@ -102,9 +103,14 @@ export async function POST(request: Request) {
         cash_amount: receipt.cashAmount || 0,
         card_count: receipt.cardCount || 0,
         card_amount: receipt.cardAmount || 0,
-        tables_used: receipt.tablesUsed || 0,
-        guest_count: receipt.guestCount || 0,
-        avg_spend: receipt.avgSpend || 0,
+        tables_used: receipt.tablesUsed || receipt.guestCount || 0,
+        guest_count: receipt.guestCount || receipt.tablesUsed || 0,
+        avg_spend:
+          receipt.avgSpend && receipt.avgSpend > 0
+            ? receipt.avgSpend
+            : (receipt.tablesUsed || receipt.guestCount || 0) > 0 && (receipt.totalRevenue || 0) > 0
+              ? Math.round((receipt.totalRevenue || 0) / (receipt.tablesUsed || receipt.guestCount || 1))
+              : 0,
         open_time: receipt.openTime || null,
         close_time: receipt.closeTime || null,
         first_order_time: receipt.firstOrderTime || null,
@@ -147,14 +153,7 @@ export async function POST(request: Request) {
         .select('menu_name, category, aliases')
         .eq('store_id', STORE_ID);
 
-      const masterByName: Record<string, { category: string | null }> = {};
-      const masterByAlias: Record<string, { canonicalName: string; category: string | null }> = {};
-      for (const m of masterRows ?? []) {
-        masterByName[m.menu_name] = { category: m.category };
-        for (const alias of m.aliases ?? []) {
-          masterByAlias[alias] = { canonicalName: m.menu_name, category: m.category };
-        }
-      }
+      const masterIndex = buildMenuMasterIndex(masterRows ?? []);
 
       // sales_menu_items 기존 카테고리 학습 (fallback)
       const rawNames = (menu.menuItems as SalesMenuItem[]).map((i) => i.name).filter(Boolean);
@@ -174,13 +173,14 @@ export async function POST(request: Request) {
       }
 
       const menuItems = (menu.menuItems as SalesMenuItem[]).map((item) => {
-        const aliasMatch = masterByAlias[item.name];
-        const canonicalName = aliasMatch ? aliasMatch.canonicalName : item.name;
-        const masterEntry = aliasMatch ?? masterByName[canonicalName];
+        const resolved = resolveMenuWithIndex(item.name, masterIndex, item.category ?? null);
+        const canonicalName = resolved.canonicalName;
         const resolvedCategory =
+          (resolved.matchedMaster ? resolved.rawCategory : null) ||
           item.category ||
-          (masterEntry?.category ?? null) ||
+          resolved.rawCategory ||
           categoryFallback[canonicalName] ||
+          categoryFallback[item.name] ||
           null;
         return {
           daily_sale_id: salesId,

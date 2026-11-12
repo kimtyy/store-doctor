@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,22 +63,18 @@ export async function POST(request: Request) {
         .select('menu_name, category, aliases')
         .eq('store_id', STORE_ID);
 
-      const masterByName: Record<string, string | null> = {};
-      const masterByAlias: Record<string, { canonicalName: string; category: string | null }> = {};
-      for (const m of masterRows ?? []) {
-        masterByName[m.menu_name] = m.category;
-        for (const alias of m.aliases ?? []) {
-          masterByAlias[alias] = { canonicalName: m.menu_name, category: m.category };
-        }
-      }
+      const masterIndex = buildMenuMasterIndex(masterRows ?? []);
 
       const rows = menuItems.map((item) => {
-        const aliasMatch = masterByAlias[item.name];
-        const canonicalName = aliasMatch ? aliasMatch.canonicalName : item.name;
-        const resolvedCategory = item.category ?? aliasMatch?.category ?? masterByName[canonicalName] ?? null;
+        const resolved = resolveMenuWithIndex(item.name, masterIndex, item.category ?? null);
+        const resolvedCategory =
+          (resolved.matchedMaster ? resolved.rawCategory : null) ??
+          item.category ??
+          resolved.rawCategory ??
+          null;
         return {
           daily_sale_id: salesId,
-          name: canonicalName,
+          name: resolved.canonicalName,
           quantity: item.quantity,
           amount: item.amount,
           category: resolvedCategory,

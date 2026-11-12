@@ -4,6 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import BottomTabNav from '../../../components/BottomTabNav';
 import AdminHeaderBadge from '../../../components/ui/AdminHeaderBadge';
+import {
+  LIQUOR_SUB_CATEGORIES,
+  LIQUOR_SUB_CATEGORY_LABELS,
+  LiquorSubCategoryKey,
+  SimilarMenuSuggestion,
+  isValidLiquorSubCategory,
+  suggestLiquorSubCategory,
+  suggestMenuClassification,
+} from '../../../lib/menus';
 
 const CATEGORIES = ['주류', '음료', '안주', '식사', '세트'] as const;
 type Category = (typeof CATEGORIES)[number] | '';
@@ -12,36 +21,47 @@ interface MasterRow {
   id: string;
   menu_name: string;
   category: string | null;
+  liquor_sub_category?: string | null;
   aliases: string[];
 }
 
 interface UnmappedRow {
   name: string;
   category: string | null;
+  suggestedCategory?: string | null;
+  suggestedLiquorSub?: string | null;
 }
 
 interface DraftRow {
   id: string | null; // null = new (not yet saved)
   menuName: string;
   category: Category;
+  liquorSubCategory: LiquorSubCategoryKey | '';
   aliases: string[];
   aliasInput: string;
   dirty: boolean;
 }
 
 function rowFromMaster(m: MasterRow): DraftRow {
+  const cat = (m.category as Category) ?? '';
+  const sub = isValidLiquorSubCategory(m.liquor_sub_category) ? m.liquor_sub_category : '';
   return {
     id: m.id,
     menuName: m.menu_name,
-    category: (m.category as Category) ?? '',
+    category: cat,
+    liquorSubCategory: sub,
     aliases: m.aliases ?? [],
     aliasInput: '',
     dirty: false,
   };
 }
 
-function newDraftRow(name = '', category: Category = ''): DraftRow {
-  return { id: null, menuName: name, category, aliases: [], aliasInput: '', dirty: true };
+function newDraftRow(
+  name = '',
+  category: Category = '',
+  liquorSubCategory: LiquorSubCategoryKey | '' = ''
+): DraftRow {
+  return { id: null, menuName: name, category, liquorSubCategory, aliases: [], aliasInput: '', dirty: true };
 }
 
 const CAT_BG: Record<string, string> = {
@@ -57,6 +77,11 @@ export default function MenuMasterPage() {
   const router = useRouter();
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [unmapped, setUnmapped] = useState<UnmappedRow[]>([]);
+  const [unclassifiedCount, setUnclassifiedCount] = useState(0);
+  const [unclassifiedNames, setUnclassifiedNames] = useState<string[]>([]);
+  const [similarPairs, setSimilarPairs] = useState<SimilarMenuSuggestion[]>([]);
+  const [dismissedPairs, setDismissedPairs] = useState<string[]>([]);
+  const [mergingPairKey, setMergingPairKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -72,6 +97,9 @@ export default function MenuMasterPage() {
       const masterArr: MasterRow[] = body.data ?? body.master ?? [];
       setRows(masterArr.map(rowFromMaster));
       setUnmapped(body.unmapped ?? []);
+      setUnclassifiedCount(body.unclassifiedCount ?? 0);
+      setUnclassifiedNames(body.unclassifiedNames ?? []);
+      setSimilarPairs(body.similarPairs ?? []);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '불러오기 실패' });
     } finally {
@@ -88,12 +116,39 @@ export default function MenuMasterPage() {
 
   function addFromUnmapped(u: UnmappedRow) {
     setUnmapped((prev) => prev.filter((x) => x.name !== u.name));
-    const draft = newDraftRow(u.name, (u.category as Category) ?? '');
+    const suggested = suggestMenuClassification(u.name, u.category);
+    const cat = ((u.category as Category) || suggested.suggestedCategory || '') as Category;
+    const sub =
+      cat === '주류'
+        ? (isValidLiquorSubCategory(u.suggestedLiquorSub) ? u.suggestedLiquorSub : suggested.suggestedLiquorSub ?? '')
+        : '';
+    const draft = newDraftRow(u.name, cat, sub);
     setRows((prev) => {
       const idx = prev.length;
       setExpandedIdx(idx);
       return [...prev, draft];
     });
+  }
+
+  async function mergeSimilarPair(targetMenuName: string, aliasName: string) {
+    const key = `${targetMenuName}::${aliasName}`;
+    setMergingPairKey(key);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/menu-master', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mergeAlias', targetMenuName, aliasName }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? '통합 실패');
+      setMessage({ type: 'success', text: `✅ "${aliasName}" → "${targetMenuName}" 별칭으로 통합했습니다.` });
+      await load();
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '통합 실패' });
+    } finally {
+      setMergingPairKey(null);
+    }
   }
 
   function updateRow(idx: number, patch: Partial<DraftRow>) {
@@ -140,8 +195,10 @@ export default function MenuMasterPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: dirtyRows.map((r) => ({
+            id: r.id,
             menuName: r.menuName.trim(),
             category: r.category,
+            liquorSubCategory: r.category === '주류' ? (r.liquorSubCategory || null) : null,
             aliases: r.aliases,
           })),
         }),
@@ -199,11 +256,76 @@ export default function MenuMasterPage() {
             </div>
           ) : null}
 
+          {/* 분류 필요 안내 */}
+          {unclassifiedCount > 0 && (
+            <div className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-amber-300">분류 필요 {unclassifiedCount}개</p>
+                <span className="text-xs text-amber-200/80">보고서에서 &quot;기타&quot;로 합산됨</span>
+              </div>
+              {unclassifiedNames.length > 0 && (
+                <p className="text-xs text-slate-300">
+                  {unclassifiedNames.slice(0, 8).join(', ')}
+                  {unclassifiedNames.length > 8 ? ` 외 ${unclassifiedNames.length - 8}개` : ''}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 비슷한 이름 제안 (확인 후 별칭 통합) */}
+          {similarPairs.filter((p) => !dismissedPairs.includes(`${p.canonicalCandidate}::${p.variantName}`)).length > 0 && (
+            <div className="rounded-3xl border border-sky-500/30 bg-sky-950/20 p-5 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-sky-300">
+                  비슷한 이름 제안 ({similarPairs.filter((p) => !dismissedPairs.includes(`${p.canonicalCandidate}::${p.variantName}`)).length}건)
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  오탈자 가능성이 있는 메뉴입니다. 같은 메뉴라면 확인 후 통합해 주세요 (과거 데이터는 보존됩니다).
+                </p>
+              </div>
+              <div className="space-y-2">
+                {similarPairs
+                  .filter((p) => !dismissedPairs.includes(`${p.canonicalCandidate}::${p.variantName}`))
+                  .map((pair) => {
+                    const pKey = `${pair.canonicalCandidate}::${pair.variantName}`;
+                    const isMerging = mergingPairKey === pKey;
+                    return (
+                      <div key={pKey} className="rounded-2xl border border-slate-800 bg-slate-900/90 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="text-xs space-y-0.5">
+                          <p className="font-semibold text-slate-100">
+                            &quot;{pair.variantName}&quot; ↔ &quot;{pair.canonicalCandidate}&quot;
+                          </p>
+                          <p className="text-slate-400">유사도 {Math.round(pair.similarity * 100)}%</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            disabled={isMerging}
+                            onClick={() => mergeSimilarPair(pair.canonicalCandidate, pair.variantName)}
+                            className="rounded-xl bg-sky-500/20 border border-sky-500/40 px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-500/30 disabled:opacity-50"
+                          >
+                            {isMerging ? '통합 중...' : `"${pair.canonicalCandidate}"로 통합`}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDismissedPairs((prev) => [...prev, pKey])}
+                            className="rounded-xl border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+                          >
+                            다른 메뉴
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {/* 미등록 메뉴 (자동 추출) */}
           {unmapped.length > 0 && (
             <div className="rounded-3xl border border-amber-700/40 bg-amber-950/20 p-5 space-y-3">
               <p className="text-sm font-semibold text-amber-300">미등록 메뉴 ({unmapped.length}개)</p>
-              <p className="text-xs text-slate-400">매출에서 발견된 메뉴입니다. 탭해서 등록하세요.</p>
+              <p className="text-xs text-slate-400">매출에서 발견된 메뉴입니다. 탭하면 추천 분류와 함께 등록됩니다.</p>
               <div className="flex flex-wrap gap-2">
                 {unmapped.map((u) => (
                   <button
@@ -212,6 +334,7 @@ export default function MenuMasterPage() {
                     className="rounded-xl border border-amber-700/50 bg-amber-900/30 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-800/40"
                   >
                     + {u.name}
+                    {u.suggestedCategory ? ` (${u.suggestedCategory})` : ''}
                   </button>
                 ))}
               </div>
@@ -251,6 +374,9 @@ export default function MenuMasterPage() {
                         {row.category ? (
                           <span className={`rounded-lg px-2 py-0.5 text-xs font-medium ${CAT_BG[row.category]}`}>
                             {row.category}
+                            {row.category === '주류' && row.liquorSubCategory
+                              ? ` · ${LIQUOR_SUB_CATEGORY_LABELS[row.liquorSubCategory]}`
+                              : ''}
                           </span>
                         ) : (
                           <span className="rounded-lg px-2 py-0.5 text-xs font-medium bg-slate-700/60 text-slate-400">미지정</span>
@@ -280,7 +406,14 @@ export default function MenuMasterPage() {
                             {CATEGORIES.map((cat) => (
                               <button
                                 key={cat}
-                                onClick={() => updateRow(idx, { category: row.category === cat ? '' : cat })}
+                                onClick={() => {
+                                  const nextCat = row.category === cat ? '' : cat;
+                                  const nextSub =
+                                    nextCat === '주류'
+                                      ? row.liquorSubCategory || suggestLiquorSubCategory(row.menuName)
+                                      : '';
+                                  updateRow(idx, { category: nextCat, liquorSubCategory: nextSub });
+                                }}
                                 className={`rounded-xl py-2 text-sm font-medium transition ${
                                   row.category === cat
                                     ? CAT_BG[cat]
@@ -291,7 +424,7 @@ export default function MenuMasterPage() {
                               </button>
                             ))}
                             <button
-                              onClick={() => updateRow(idx, { category: '' })}
+                              onClick={() => updateRow(idx, { category: '', liquorSubCategory: '' })}
                               className={`rounded-xl py-2 text-sm font-medium transition ${
                                 row.category === ''
                                   ? 'bg-slate-700/60 text-slate-300'
@@ -302,6 +435,33 @@ export default function MenuMasterPage() {
                             </button>
                           </div>
                         </div>
+
+                        {/* 주류 소분류 (주류 선택 시에만 표시) */}
+                        {row.category === '주류' && (
+                          <div>
+                            <label className="block text-xs text-slate-400 mb-2">주류 소분류</label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {LIQUOR_SUB_CATEGORIES.map((sub) => (
+                                <button
+                                  key={sub.key}
+                                  type="button"
+                                  onClick={() =>
+                                    updateRow(idx, {
+                                      liquorSubCategory: row.liquorSubCategory === sub.key ? '' : sub.key,
+                                    })
+                                  }
+                                  className={`rounded-xl py-2 px-2 text-xs font-medium transition ${
+                                    row.liquorSubCategory === sub.key
+                                      ? 'bg-indigo-500/30 border border-indigo-400/60 text-indigo-200'
+                                      : 'border border-slate-700 bg-slate-800/50 text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  {sub.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
                         {/* 별칭 */}
                         <div>

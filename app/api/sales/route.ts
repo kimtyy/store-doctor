@@ -73,6 +73,7 @@ export async function PATCH(request: Request) {
         tax?: number;
         cashAmount?: number;
         cardAmount?: number;
+        tablesUsed?: number;
         guestCount?: number;
         avgSpend?: number;
         isEvent?: boolean;
@@ -102,6 +103,14 @@ export async function PATCH(request: Request) {
     }
 
     const serviceAmount = receipt.serviceAmount ?? 0;
+    const resolvedPaymentCount = receipt.tablesUsed ?? receipt.guestCount ?? 0;
+    const resolvedGuestCount = receipt.guestCount ?? receipt.tablesUsed ?? 0;
+    const resolvedAvgSpend =
+      receipt.avgSpend && receipt.avgSpend > 0
+        ? receipt.avgSpend
+        : resolvedPaymentCount > 0 && receipt.totalRevenue > 0
+          ? Math.round(receipt.totalRevenue / resolvedPaymentCount)
+          : 0;
     const updateFields: Record<string, unknown> = {
       total_revenue: receipt.totalRevenue,
       service_charge: serviceAmount,
@@ -111,8 +120,9 @@ export async function PATCH(request: Request) {
       net_revenue: receipt.netRevenue,
       cash_amount: receipt.cashAmount ?? 0,
       card_amount: receipt.cardAmount ?? 0,
-      guest_count: receipt.guestCount ?? 0,
-      avg_spend: receipt.avgSpend ?? 0,
+      tables_used: resolvedPaymentCount,
+      guest_count: resolvedGuestCount,
+      avg_spend: resolvedAvgSpend,
       note: receipt.note ?? null,
     };
     if (receipt.date) updateFields.date = receipt.date;

@@ -8,6 +8,7 @@ import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '../../components/PeriodSelector';
+import TermTooltip from '../../components/ui/TermTooltip';
 
 type Tab = 'input' | 'history';
 type ParseMode = 'full' | 'menu_only' | 'manual';
@@ -79,6 +80,7 @@ interface HistoryDraft {
   tax: number;
   cashAmount: number;
   cardAmount: number;
+  tablesUsed: number;
   guestCount: number;
   avgSpend: number;
   menuItems: SalesMenuItem[];
@@ -213,6 +215,7 @@ export default function SalesInputPage() {
     cashAmount: 0,
     cardAmount: 0,
     serviceAmount: 0,
+    tablesUsed: 0,
     guestCount: 0,
     note: '',
   });
@@ -354,7 +357,8 @@ export default function SalesInputPage() {
           tax: record.tax ?? 0,
           cashAmount: record.cashAmount ?? 0,
           cardAmount: record.cardAmount ?? 0,
-          guestCount: record.guestCount ?? 0,
+          tablesUsed: record.tablesUsed || record.guestCount || 0,
+          guestCount: record.guestCount || record.tablesUsed || 0,
           avgSpend: record.avgSpend ?? 0,
           menuItems: record.menuItems ? [...record.menuItems] : [],
         },
@@ -478,6 +482,7 @@ export default function SalesInputPage() {
       if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
       const p = body.data as DailySales;
       const rawDate = p.date ?? new Date().toISOString().split('T')[0];
+      const paymentCount = p.tablesUsed || p.guestCount || 0;
       setEditableReceipt({
         date: fixYear(rawDate),
         totalRevenue: p.totalRevenue ?? 0, discount: p.discount ?? 0,
@@ -487,7 +492,7 @@ export default function SalesInputPage() {
         tax: p.tax ?? 0, netRevenue: p.netRevenue ?? 0,
         cashCount: p.cashCount ?? 0, cashAmount: p.cashAmount ?? 0,
         cardCount: p.cardCount ?? 0, cardAmount: p.cardAmount ?? 0,
-        tablesUsed: p.tablesUsed ?? 0, guestCount: p.guestCount ?? 0, avgSpend: p.avgSpend ?? 0,
+        tablesUsed: paymentCount, guestCount: p.guestCount || paymentCount, avgSpend: p.avgSpend ?? 0,
         openTime: p.openTime ?? '', closeTime: p.closeTime ?? '', firstOrderTime: p.firstOrderTime ?? '',
       });
     } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
@@ -642,7 +647,7 @@ export default function SalesInputPage() {
         resetInput();
         setManualRecord({
           date: new Date().toISOString().split('T')[0],
-          totalRevenue: 0, netRevenue: 0, cashAmount: 0, cardAmount: 0, serviceAmount: 0, guestCount: 0, note: '',
+          totalRevenue: 0, netRevenue: 0, cashAmount: 0, cardAmount: 0, serviceAmount: 0, tablesUsed: 0, guestCount: 0, note: '',
         });
       } else throw new Error('저장 결과를 확인할 수 없습니다.');
     } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
@@ -766,9 +771,26 @@ export default function SalesInputPage() {
                                 <div><label className="text-xs text-slate-400">순매출</label><input type="number" value={editableReceipt.netRevenue} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, netRevenue: Number(e.target.value) } : c)} className={iCls} /></div>
                                 <div><label className="text-xs text-slate-400">현금</label><input type="number" value={editableReceipt.cashAmount} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cashAmount: Number(e.target.value) } : c)} className={iCls} /></div>
                                 <div><label className="text-xs text-slate-400">카드</label><input type="number" value={editableReceipt.cardAmount} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cardAmount: Number(e.target.value) } : c)} className={iCls} /></div>
-                                <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={editableReceipt.guestCount ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, guestCount: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div>
+                                  <label className="text-xs text-slate-400">결제 건수 <TermTooltip term="결제 건수" /></label>
+                                  <input
+                                    type="number"
+                                    value={editableReceipt.tablesUsed ?? editableReceipt.guestCount ?? 0}
+                                    disabled={receiptSaved}
+                                    onChange={(e) => {
+                                      const v = Number(e.target.value);
+                                      setEditableReceipt((c) => c ? { ...c, tablesUsed: v, guestCount: v } : c);
+                                    }}
+                                    className={iCls}
+                                  />
+                                </div>
                                 <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={editableReceipt.tax ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, tax: Number(e.target.value) } : c)} className={iCls} /></div>
                               </div>
+                              {(editableReceipt.tablesUsed ?? editableReceipt.guestCount ?? 0) === 0 && !receiptSaved && (
+                                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                                  ⚠️ 고객수를 읽지 못했습니다. 정산서의 고객수(결제 건수)를 직접 입력해주세요.
+                                </p>
+                              )}
                             </div>
 
                             {!receiptSaved && (
@@ -920,7 +942,18 @@ export default function SalesInputPage() {
                           <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={editableReceipt.serviceAmount ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, serviceAmount: Number(e.target.value) } : c)} className={iCls} /></div>
                           <div><label className="text-xs text-slate-400">현금</label><input type="number" value={editableReceipt.cashAmount} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cashAmount: Number(e.target.value) } : c)} className={iCls} /></div>
                           <div><label className="text-xs text-slate-400">카드</label><input type="number" value={editableReceipt.cardAmount} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cardAmount: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={editableReceipt.guestCount ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, guestCount: Number(e.target.value) } : c)} className={iCls} /></div>
+                          <div>
+                            <label className="text-xs text-slate-400">결제 건수 <TermTooltip term="결제 건수" /></label>
+                            <input
+                              type="number"
+                              value={editableReceipt.tablesUsed ?? editableReceipt.guestCount ?? 0}
+                              onChange={(e) => {
+                                const v = Number(e.target.value);
+                                setEditableReceipt((c) => c ? { ...c, tablesUsed: v, guestCount: v } : c);
+                              }}
+                              className={iCls}
+                            />
+                          </div>
                         </div>
                       </div>
 
@@ -989,8 +1022,16 @@ export default function SalesInputPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-slate-300">고객수 (선택)</label>
-                      <input type="number" value={manualRecord.guestCount || ''} onChange={(e) => setManualRecord({ ...manualRecord, guestCount: Number(e.target.value) })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                      <label className="text-sm font-medium text-slate-300">결제 건수 (선택) <TermTooltip term="결제 건수" /></label>
+                      <input
+                        type="number"
+                        value={manualRecord.tablesUsed || manualRecord.guestCount || ''}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setManualRecord({ ...manualRecord, tablesUsed: v, guestCount: v });
+                        }}
+                        className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100"
+                      />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-slate-300">메모 (선택)</label>
@@ -1084,7 +1125,7 @@ export default function SalesInputPage() {
                               {(record.serviceAmount ?? 0) > 0 && ` · 서비스 ${((record.serviceAmount ?? 0) / 10000).toFixed(1)}만원`}
                             </p>
                             <p className="mt-0.5 text-xs text-slate-600">
-                              현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · 고객 {record.guestCount ?? 0}명{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
+                              현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {(record.tablesUsed || record.guestCount) ? `결제 ${record.tablesUsed || record.guestCount}건` : '결제 건수 미입력'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
                             </p>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
@@ -1104,8 +1145,19 @@ export default function SalesInputPage() {
                               <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={draft.tax} onChange={(e) => patchDraft(record.id!, { tax: Number(e.target.value) })} className={iClsDark} /></div>
                               <div><label className="text-xs text-slate-400">현금</label><input type="number" value={draft.cashAmount} onChange={(e) => patchDraft(record.id!, { cashAmount: Number(e.target.value) })} className={iClsDark} /></div>
                               <div><label className="text-xs text-slate-400">카드</label><input type="number" value={draft.cardAmount} onChange={(e) => patchDraft(record.id!, { cardAmount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={draft.guestCount} onChange={(e) => patchDraft(record.id!, { guestCount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">객단가</label><input type="number" value={draft.avgSpend} onChange={(e) => patchDraft(record.id!, { avgSpend: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div>
+                                <label className="text-xs text-slate-400">결제 건수 <TermTooltip term="결제 건수" /></label>
+                                <input
+                                  type="number"
+                                  value={draft.tablesUsed ?? draft.guestCount ?? 0}
+                                  onChange={(e) => {
+                                    const v = Number(e.target.value);
+                                    patchDraft(record.id!, { tablesUsed: v, guestCount: v });
+                                  }}
+                                  className={iClsDark}
+                                />
+                              </div>
+                              <div><label className="text-xs text-slate-400">결제 1건당 매출 <TermTooltip term="결제 1건당 매출" /></label><input type="number" value={draft.avgSpend} onChange={(e) => patchDraft(record.id!, { avgSpend: Number(e.target.value) })} className={iClsDark} /></div>
                             </div>
 
                             <div>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,18 +62,26 @@ export async function GET(request: Request) {
       query = query.eq('is_event', false);
     }
 
-    const { data, error } = await query.order('date', { ascending: false });
+    const [{ data, error }, { data: masterRows }] = await Promise.all([
+      query.order('date', { ascending: false }),
+      supabase
+        .from('menu_master')
+        .select('menu_name, category, liquor_sub_category, aliases')
+        .eq('store_id', STORE_ID),
+    ]);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const masterIndex = buildMenuMasterIndex(masterRows ?? []);
 
     // 메뉴별매출내역(sales_menu_items.amount)은 부가세 포함 금액이고,
     // 포스마감정산서의 net_revenue는 부가세 제외 금액이라 기준이 달랐다.
     // 일별로 (net_revenue / 해당일 품목 합계) 비율을 구해 각 품목 금액에
     // 곱해서 부가세 제외 기준으로 환산 — 카테고리/랭킹 합계가 손익 요약의
     // 총매출(net_revenue 합)과 정확히 일치하도록 맞춘다.
-    const nameMap: Record<string, { totalAmount: number; totalQuantity: number; category: string | null }> = {};
+    const nameMap: Record<string, { name: string; totalAmount: number; totalQuantity: number; category: string | null }> = {};
 
     for (const sale of (data ?? []) as RawSale[]) {
       const items = sale.sales_menu_items ?? [];
@@ -82,19 +91,26 @@ export async function GET(request: Request) {
 
       for (const item of items) {
         if (!item.name) continue;
-        if (!nameMap[item.name]) {
-          nameMap[item.name] = { totalAmount: 0, totalQuantity: 0, category: null };
+        const resolved = resolveMenuWithIndex(item.name, masterIndex, item.category);
+        const key = resolved.canonicalKey || resolved.canonicalName;
+        if (!nameMap[key]) {
+          nameMap[key] = {
+            name: resolved.canonicalName,
+            totalAmount: 0,
+            totalQuantity: 0,
+            category: resolved.rawCategory,
+          };
         }
-        nameMap[item.name].totalAmount += (item.amount ?? 0) * scale;
-        nameMap[item.name].totalQuantity += item.quantity ?? 0;
-        if (item.category && !nameMap[item.name].category) {
-          nameMap[item.name].category = item.category;
+        nameMap[key].totalAmount += (item.amount ?? 0) * scale;
+        nameMap[key].totalQuantity += item.quantity ?? 0;
+        if (resolved.rawCategory && !nameMap[key].category) {
+          nameMap[key].category = resolved.rawCategory;
         }
       }
     }
 
-    const menuStats = Object.entries(nameMap).map(([name, stats]) => ({
-      name,
+    const menuStats = Object.values(nameMap).map((stats) => ({
+      name: stats.name,
       totalAmount: Math.round(stats.totalAmount),
       totalQuantity: stats.totalQuantity,
       category: stats.category,

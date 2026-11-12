@@ -59,9 +59,17 @@ export const TERMS_DICT: Record<string, { term: string; explanation: string }> =
     term: '안전마진율',
     explanation: '본전 금액보다 얼마나 여유 있게 팔고 있는지. 높을수록 안정적입니다.',
   },
+  '결제 건수': {
+    term: '결제 건수',
+    explanation: '같은 테이블에서 추가 결제하면 2건으로 셉니다. 정확한 손님 수가 아니라 흐름을 보는 지표입니다.',
+  },
+  '결제 1건당 매출': {
+    term: '결제 1건당 매출',
+    explanation: '결제 1건당 평균 얼마를 결제했는지 나타냅니다. (매출 ÷ 결제 건수)',
+  },
   객단가: {
-    term: '객단가',
-    explanation: '손님 한 분(또는 테이블)이 평균 얼마를 쓰고 가는지.',
+    term: '결제 1건당 매출',
+    explanation: '결제 1건당 평균 얼마를 결제했는지 나타냅니다. (매출 ÷ 결제 건수)',
   },
   총매출: {
     term: '총매출',
