@@ -10,6 +10,12 @@ import {
   ComparisonMetricKind,
 } from '@/lib/analytics/periodComparison';
 import { MenuPeriodAnalysis } from '@/lib/analytics/menuAnalysis';
+import {
+  EventPeriodSalesComparison,
+  STORE_EVENT_IMPACT_LABELS,
+  STORE_EVENT_TYPE_META,
+  StoreEventRecord,
+} from '@/lib/storeEvents';
 
 const WEATHER_EMOJI: Record<string, string> = {
   '맑음': '☀️',
@@ -331,7 +337,7 @@ function MonthlyReportContent() {
       : 0;
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 print:bg-white pb-20">
+    <div className="min-h-screen bg-slate-100 text-slate-900 print:bg-white pb-20 print:pb-0">
       {/* Top Actions (Hidden in print) */}
       <div className="sticky top-0 bg-white/90 backdrop-blur shadow-sm p-4 flex gap-2 print:hidden z-50">
         <button onClick={() => router.back()} className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-300 transition">
@@ -346,10 +352,10 @@ function MonthlyReportContent() {
         </button>
       </div>
 
-      <main className="max-w-2xl mx-auto p-6 space-y-8 bg-white shadow-sm mt-4 print:shadow-none print:mt-0 print:p-0">
+      <main className="max-w-2xl mx-auto p-6 space-y-8 bg-white shadow-sm mt-4 print:shadow-none print:mt-0 print:p-0 print:space-y-5">
         
         {/* Header */}
-        <header className="text-center space-y-2 border-b-2 border-slate-800 pb-6">
+        <header className="text-center space-y-2 border-b-2 border-slate-800 pb-6 print:pb-4">
           <h1 className="text-3xl font-extrabold tracking-tight">{data.storeName} 월별 영업보고서</h1>
           <p className="text-lg font-medium text-slate-600">{data.year}년 {data.month}월</p>
           {data.dataCoverage && (
@@ -358,6 +364,22 @@ function MonthlyReportContent() {
             </p>
           )}
         </header>
+
+        {/* 전월 대비 ±20% 이상 변동 + 수동 이벤트 미입력 시 안내 배너 */}
+        {data.events?.showEventPromptBanner && (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
+            <div className="text-sm text-amber-900">
+              <p className="font-bold">이번 달에 특별한 사정이 있었나요? 기록하면 AI 가 함께 고려합니다</p>
+              <p className="text-xs text-amber-800 mt-0.5">전월 대비 매출 변동이 ±20% 이상입니다. 훈련·행사·휴무 등 매장 사정을 남겨 보세요.</p>
+            </div>
+            <Link
+              href={`/settings/events?start_date=${data.year}-${String(data.month).padStart(2, '0')}-01&add=1`}
+              className="shrink-0 rounded-xl bg-amber-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-amber-500 transition text-center"
+            >
+              매장 사정 기록하기 →
+            </Link>
+          </div>
+        )}
 
         {data.dataCoverage?.isLowInputRate && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800 leading-relaxed">
@@ -631,6 +653,85 @@ function MonthlyReportContent() {
           </div>
         </section>
 
+        {/* 이번 달 매장 사정 (1-N) */}
+        {data.events && (() => {
+          const evList: StoreEventRecord[] = data.events.current ?? [];
+          const evCmp: EventPeriodSalesComparison | undefined = data.events.comparison;
+          return (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xl font-bold border-l-4 border-slate-800 pl-3">📅 이번 달 매장 사정</h2>
+                <Link
+                  href={`/settings/events?start_date=${data.year}-${String(data.month).padStart(2, '0')}-01&add=1`}
+                  className="text-xs font-semibold text-sky-700 hover:text-sky-900 print:hidden"
+                >
+                  + 사정 관리
+                </Link>
+              </div>
+              {evList.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  이번 달에 등록되거나 해당되는 공휴일·매장 사정이 없습니다.
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4">
+                  <div className="space-y-2">
+                    {evList.map((ev) => {
+                      const meta = STORE_EVENT_TYPE_META[ev.type] ?? STORE_EVENT_TYPE_META.other;
+                      const range = ev.start_date === ev.end_date ? ev.start_date : `${ev.start_date} ~ ${ev.end_date}`;
+                      return (
+                        <div key={ev.id} className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-2 last:border-b-0 last:pb-0 text-sm">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${meta.badgeClass}`}>
+                                {meta.shortLabel}
+                              </span>
+                              <span className="font-semibold text-slate-800">{ev.title}</span>
+                              {!ev.isAutoHoliday && (
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                                  {STORE_EVENT_IMPACT_LABELS[ev.impact]}
+                                </span>
+                              )}
+                            </div>
+                            {ev.memo && <p className="text-xs text-slate-500 mt-0.5">{ev.memo}</p>}
+                          </div>
+                          <span className="text-xs text-slate-500 whitespace-nowrap">{range}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* 이벤트 기간 일평균 vs 그 외 기간 일평균 */}
+                  {evCmp && (
+                    <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                      <p className="text-xs font-bold text-slate-600 mb-2">사정 기간 vs 평소 일평균 비교 (매출 있는 날 기준)</p>
+                      {!evCmp.canCompare ? (
+                        <p className="text-xs text-slate-500">비교 불가 (사정 기간 또는 평소 영업일 중 한쪽이 0일)</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div className="rounded-lg bg-white border border-slate-200 p-2.5">
+                            <p className="text-slate-500">사정 기간 ({evCmp.eventDays}일)</p>
+                            <p className="text-base font-extrabold text-slate-900 mt-0.5">{fmt(evCmp.eventAvgRevenue)}원</p>
+                            <p className="text-slate-500 mt-0.5">
+                              {evCmp.eventAvgPaymentCount !== null ? `일평균 결제 ${evCmp.eventAvgPaymentCount}건` : '결제 건수 미입력'}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-white border border-slate-200 p-2.5">
+                            <p className="text-slate-500">그 외 평소 ({evCmp.normalDays}일)</p>
+                            <p className="text-base font-extrabold text-slate-900 mt-0.5">{fmt(evCmp.normalAvgRevenue)}원</p>
+                            <p className="text-slate-500 mt-0.5">
+                              {evCmp.normalAvgPaymentCount !== null ? `일평균 결제 ${evCmp.normalAvgPaymentCount}건` : '결제 건수 미입력'}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
         {/* Period Comparison */}
         {data.comparison && (
           <section>
@@ -648,6 +749,11 @@ function MonthlyReportContent() {
                           ({data.year}.{data.month}
                           {data.comparison.current.dataStatus === 'partial' ? ' · 일부' : ''})
                         </span>
+                        {data.events?.current?.length > 0 && (
+                          <div className="mt-0.5 text-[10px] font-normal text-purple-700 whitespace-normal leading-tight max-w-[110px] mx-auto">
+                            {Array.from(new Set((data.events.current as StoreEventRecord[]).map((e) => e.title))).slice(0, 2).join(', ')}
+                          </div>
+                        )}
                       </th>
                       <th className="p-3 font-semibold whitespace-nowrap">
                         전월 대비
@@ -655,6 +761,11 @@ function MonthlyReportContent() {
                         <span className="font-normal text-[10px]">
                           {prevStatus === 'partial' ? '(일부 데이터)' : '(비교)'}
                         </span>
+                        {data.events?.prev?.length > 0 && (
+                          <div className="mt-0.5 text-[10px] font-normal text-purple-700 whitespace-normal leading-tight max-w-[110px] mx-auto">
+                            {Array.from(new Set((data.events.prev as StoreEventRecord[]).map((e) => e.title))).slice(0, 2).join(', ')}
+                          </div>
+                        )}
                       </th>
                       <th className="p-3 font-semibold whitespace-nowrap">
                         전년동월 대비
@@ -662,6 +773,11 @@ function MonthlyReportContent() {
                         <span className="font-normal text-[10px]">
                           {lastYearStatus === 'partial' ? '(일부 데이터)' : '(비교)'}
                         </span>
+                        {data.events?.lastYear?.length > 0 && (
+                          <div className="mt-0.5 text-[10px] font-normal text-purple-700 whitespace-normal leading-tight max-w-[110px] mx-auto">
+                            {Array.from(new Set((data.events.lastYear as StoreEventRecord[]).map((e) => e.title))).slice(0, 2).join(', ')}
+                          </div>
+                        )}
                       </th>
                     </tr>
                   </thead>
@@ -1346,6 +1462,9 @@ function MonthlyReportContent() {
                       <span>전체 메뉴 매출 ({mc.menus.length}종)</span>
                       <span className="font-normal text-slate-500">합계 {fmt(mc.totalMenuSales)}원</span>
                     </div>
+                    <p className="bg-slate-50/70 px-3 py-1.5 text-[11px] text-slate-500 border-b border-slate-200">
+                      매출 상위(누적 70%)는 매출을 끌어올리는 주력 메뉴, 매출 하위(누적 10%)는 판매 비중이 가장 낮은 메뉴입니다.
+                    </p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
                         <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
@@ -1367,12 +1486,12 @@ function MonthlyReportContent() {
                                   </span>
                                   {m.tier === 'top70' && (
                                     <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 whitespace-nowrap">
-                                      상위 70%
+                                      매출 상위(누적 70%)
                                     </span>
                                   )}
                                   {m.tier === 'bottom10' && (
                                     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 whitespace-nowrap">
-                                      하위 10%
+                                      매출 하위(누적 10%)
                                     </span>
                                   )}
                                   {m.isUnclassified && (
@@ -1504,8 +1623,8 @@ function MonthlyReportContent() {
           </section>
         )}
 
-        {/* Footer */}
-        <footer className="text-center pt-8 border-t border-slate-200">
+        {/* Footer (인쇄 시 마지막 쪽에 꼬리말만 남지 않도록 마지막 섹션 여백 축소 및 분할 방지) */}
+        <footer className="text-center pt-6 border-t border-slate-200 print:pt-3 print:mt-4 print:break-inside-avoid">
           <p className="text-xs text-slate-500">
             마지막 업데이트: {new Date(data.generatedAt).toLocaleString('ko-KR')} <br/>
             데이터 추가/수정 후 재생성 가능합니다.

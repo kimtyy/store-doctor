@@ -186,7 +186,7 @@ export async function PATCH(request: Request) {
       findCanonicalRowMatch(allRows, origKey) ??
       null;
 
-    const isRename = Boolean(existing && targetKey !== normalizeMenuCanonicalKey(existing.menu_name));
+    const isRename = Boolean(hasNewName && existing && targetKey !== normalizeMenuCanonicalKey(existing.menu_name));
 
     // 충돌 검사(409): 새 행 생성이거나 이름 변경(canonical key 변경 또는 다른 행의 정확한 이름과 충돌) 시 검사
     if (!existing || isRename || (hasNewName && canonicalName !== existing.menu_name)) {
@@ -363,11 +363,10 @@ export async function PUT(request: Request) {
       const existingExact = !raw.id ? existingRows.find((r) => r.menu_name === menuName) : undefined;
       const targetRow = existingById ?? existingExact;
 
-      const isNameChanged = Boolean(existingById && existingById.menu_name !== menuName);
       const isKeyChanged = Boolean(
         existingById && normalizeMenuCanonicalKey(existingById.menu_name) !== candKey
       );
-      const needsConflictCheck = !targetRow || isNameChanged || isKeyChanged;
+      const needsConflictCheck = !targetRow || isKeyChanged;
 
       if (needsConflictCheck) {
         const dupInDb = findCanonicalRowMatch(existingRows, candKey, targetRow?.id ?? null);

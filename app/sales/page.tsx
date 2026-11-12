@@ -14,6 +14,7 @@ import {
   getPaymentCount,
   resolvePaymentCountInput,
 } from '../../lib/analytics/periodComparison';
+import { STORE_EVENT_TYPE_META, StoreEventRecord } from '../../lib/storeEvents';
 
 type Tab = 'input' | 'history';
 type ParseMode = 'full' | 'menu_only' | 'manual';
@@ -268,6 +269,7 @@ export default function SalesInputPage() {
 
   // history state
   const [historyData, setHistoryData] = useState<DailySales[]>([]);
+  const [historyEvents, setHistoryEvents] = useState<StoreEventRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -334,7 +336,18 @@ export default function SalesInputPage() {
       const res = await fetch('/api/sales');
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? '불러오기 실패');
-      setHistoryData([...(body.data ?? [])].reverse());
+      const rows = [...(body.data ?? [])].reverse() as DailySales[];
+      setHistoryData(rows);
+      if (rows.length > 0) {
+        const dates = rows.map((r) => r.date).sort();
+        const evRes = await fetch(`/api/store-events?from=${dates[0]}&to=${dates[dates.length - 1]}`);
+        if (evRes.ok) {
+          const evBody = await evRes.json().catch(() => null);
+          setHistoryEvents(evBody?.data ?? []);
+        }
+      } else {
+        setHistoryEvents([]);
+      }
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : '불러오기 실패');
     } finally {
@@ -1118,25 +1131,67 @@ export default function SalesInputPage() {
                     const isExpanded = expandedId === record.id!;
                     const draft = drafts[record.id!];
                     const menuCount = record.menuItems?.length ?? 0;
+                    const dayEvents = historyEvents.filter(
+                      (ev) => ev.start_date <= record.date && record.date <= ev.end_date
+                    );
+                    const primaryEventMeta =
+                      dayEvents.length > 0
+                        ? STORE_EVENT_TYPE_META[dayEvents[0].type] ?? STORE_EVENT_TYPE_META.other
+                        : null;
                     return (
-                      <div key={record.id!} className="rounded-2xl border border-slate-800 bg-slate-900/90">
+                      <div
+                        key={record.id!}
+                        className={`rounded-2xl border bg-slate-900/90 ${
+                          primaryEventMeta ? 'border-purple-500/30 bg-purple-950/10' : 'border-slate-800'
+                        }`}
+                      >
                         <button className="w-full p-4 flex items-center justify-between text-left" onClick={() => toggleExpand(record)}>
                           <div className="min-w-0">
-                            <p className="font-semibold text-slate-100 flex items-center gap-2">
+                            <p className="font-semibold text-slate-100 flex flex-wrap items-center gap-2">
                               <span>{new Date(record.date + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' })}</span>
                               {menuCount === 0 && (
                                 <span className="rounded bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-400 border border-orange-500/30">
                                   📋 메뉴 미입력
                                 </span>
                               )}
+                              {dayEvents.map((ev) => {
+                                const meta = STORE_EVENT_TYPE_META[ev.type] ?? STORE_EVENT_TYPE_META.other;
+                                return (
+                                  <span
+                                    key={ev.id}
+                                    className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${meta.darkBadgeClass}`}
+                                  >
+                                    {meta.shortLabel}: {ev.title}
+                                  </span>
+                                );
+                              })}
                             </p>
                             <p className="mt-0.5 text-sm text-slate-400">
                               순매출 {(record.netRevenue / 10000).toFixed(1)}만원
                               {(record.serviceAmount ?? 0) > 0 && ` · 서비스 ${((record.serviceAmount ?? 0) / 10000).toFixed(1)}만원`}
                             </p>
-                            <p className="mt-0.5 text-xs text-slate-600">
-                              현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
-                            </p>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                              <span>
+                                현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
+                              </span>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(`/settings/events?start_date=${record.date}&add=1`);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.stopPropagation();
+                                    router.push(`/settings/events?start_date=${record.date}&add=1`);
+                                  }
+                                }}
+                                className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-sky-300 hover:bg-slate-700 cursor-pointer"
+                              >
+                                + 사정 기록
+                              </span>
+                            </div>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
                             <p className="text-lg font-bold text-sky-400">{(record.totalRevenue / 10000).toFixed(0)}만원</p>

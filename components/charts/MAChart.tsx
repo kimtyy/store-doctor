@@ -3,10 +3,11 @@
 import { useMemo, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  Tooltip, Legend, ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts';
 import { COST_RATIO_THRESHOLDS } from '@/lib/analytics/costRatio';
 import { detectCrosses } from '@/lib/analytics/movingAverage';
+import { ClampedChartEventArea, STORE_EVENT_TYPE_META } from '@/lib/storeEvents';
 
 export interface MAChartDataPoint {
   date: string;
@@ -39,6 +40,7 @@ export interface MAChartProps {
   data: MAChartDataPoint[];
   availability: DataAvailability;
   storeCostRatioAvg60?: number | null;
+  events?: ClampedChartEventArea[];
 }
 
 type TabKey = 'revenue' | 'cost' | 'profit' | 'costRatio';
@@ -102,7 +104,7 @@ const DEFAULT_VISIBLE_BY_TAB: Record<TabKey, Record<MAKey, boolean>> = {
   costRatio: { ma5: false, ma20: true, ma60: true, ma120: false },
 };
 
-export default function MAChart({ data, availability, storeCostRatioAvg60 = null }: MAChartProps) {
+export default function MAChart({ data, availability, storeCostRatioAvg60 = null, events = [] }: MAChartProps) {
   const [tab, setTab] = useState<TabKey>('revenue');
   const cfg = TABS.find((t) => t.key === tab)!;
   const [visibleByTab, setVisibleByTab] =
@@ -277,6 +279,17 @@ export default function MAChart({ data, availability, storeCostRatioAvg60 = null
               wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
               formatter={(value) => <span style={{ color: '#94a3b8' }}>{value}</span>}
             />
+            {events.map((ev) => (
+              <ReferenceArea
+                key={ev.id}
+                x1={ev.x1}
+                x2={ev.x2}
+                fill={ev.fill}
+                stroke={ev.stroke}
+                strokeOpacity={0.5}
+                ifOverflow="extendDomain"
+              />
+            ))}
             {cfg.isCostRatio && (
               <>
                 <ReferenceLine
@@ -346,6 +359,25 @@ export default function MAChart({ data, availability, storeCostRatioAvg60 = null
           </LineChart>
         </ResponsiveContainer>
       </div>
+
+      {/* 이벤트 기간 음영 범례 */}
+      {events.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-1 pt-0.5 text-[11px] text-slate-400">
+          <span className="text-slate-500">매장 사정:</span>
+          {Array.from(new Set(events.map((e) => e.type))).map((type) => {
+            const meta = STORE_EVENT_TYPE_META[type] ?? STORE_EVENT_TYPE_META.other;
+            return (
+              <span key={type} className="inline-flex items-center gap-1">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm border"
+                  style={{ backgroundColor: meta.chartFill, borderColor: meta.chartStroke }}
+                />
+                <span>{meta.shortLabel}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* 원가율 기준선 범례 및 안내 문구 (차트 바깥 분리로 선 겹침 방지) */}
       {cfg.isCostRatio && (

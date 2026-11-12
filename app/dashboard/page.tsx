@@ -18,6 +18,7 @@ import CostRatioAlertCard from '@/components/diagnosis/CostRatioAlertCard';
 import AdminHeaderBadge from '@/components/ui/AdminHeaderBadge';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
+import { clampEventsToChartDates, StoreEventRecord } from '@/lib/storeEvents';
 
 interface MonthlyMenuComparisonItem {
   name: string;
@@ -103,6 +104,7 @@ export default function DashboardPage() {
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [monthlyRising, setMonthlyRising] = useState<MonthlyMenuComparisonItem[]>([]);
   const [monthlyFalling, setMonthlyFalling] = useState<MonthlyMenuComparisonItem[]>([]);
+  const [storeEvents, setStoreEvents] = useState<StoreEventRecord[]>([]);
 
   // role 체크: owner/manager는 분석 섹션 표시, staff는 숨김
   // 'loading' 상태 동안 분석 섹션을 스켈레톤으로 표시해 깜빡임 방지
@@ -380,6 +382,35 @@ export default function DashboardPage() {
       costRatioMa120: crMap[d.date]?.ma120 ?? null,
     }));
   }, [nonEventSalesData, purchaseByDate, costRatioDays]);
+
+  const chartFullDates = useMemo(
+    () => nonEventSalesData.map((d) => d.date).sort(),
+    [nonEventSalesData]
+  );
+
+  useEffect(() => {
+    if (chartFullDates.length < 2) {
+      setStoreEvents([]);
+      return;
+    }
+    const from = chartFullDates[0];
+    const to = chartFullDates[chartFullDates.length - 1];
+    fetch(`/api/store-events?from=${from}&to=${to}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.data) setStoreEvents(d.data);
+      })
+      .catch(() => {});
+  }, [chartFullDates]);
+
+  const clampedChartEvents = useMemo(() => {
+    const clamped = clampEventsToChartDates(storeEvents, chartFullDates);
+    return clamped.map((ev) => ({
+      ...ev,
+      x1: ev.x1.slice(-5),
+      x2: ev.x2.slice(-5),
+    }));
+  }, [storeEvents, chartFullDates]);
 
   const costRatioBaseline60 = useMemo(
     () => getLatestCostRatioBaseline60(costRatioDays),
@@ -898,6 +929,7 @@ export default function DashboardPage() {
                       data={chartData}
                       availability={dataAvailability}
                       storeCostRatioAvg60={storeCostRatioAvg60}
+                      events={clampedChartEvents}
                     />
                   </div>
                 </div>
