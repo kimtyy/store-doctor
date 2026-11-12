@@ -32,7 +32,7 @@ export async function POST(request: Request) {
 {
   "date": "2026-05-11",
   "menuItems": [
-    {"name": "설맥치킨", "quantity": 1, "amount": 18900},
+    {"name": "대표메뉴", "quantity": 1, "amount": 18900},
     {"name": "손살양념치킨", "quantity": 1, "amount": 10900}
   ]
 }

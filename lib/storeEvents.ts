@@ -51,8 +51,8 @@ export const STORE_EVENT_TYPE_META: Record<StoreEventType, StoreEventTypeMeta> =
   },
   military: {
     key: 'military',
-    label: '군부대(훈련·통제·휴가)',
-    shortLabel: '군부대',
+    label: '주변 기관 일정(군부대·학교·공장 등)',
+    shortLabel: '주변 기관 일정(군부대·학교·공장 등)',
     chartFill: 'rgba(245, 158, 11, 0.18)',
     chartStroke: 'rgba(251, 191, 36, 0.55)',
     badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
@@ -235,27 +235,55 @@ export function mergeStoreEventsWithHolidays(
 
   const userHolidays = merged.filter((e) => e.type === 'holiday');
 
-  for (const h of getHolidaysInRange(fromDate, toDate)) {
-    const overlapsUserHoliday = userHolidays.some(
-      (uh) => uh.start_date <= h.endDate && h.startDate <= uh.end_date
-    );
-    if (overlapsUserHoliday) continue;
+  const addDaysIso = (iso: string, delta: number): string => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + delta);
+    return d.toISOString().slice(0, 10);
+  };
 
-    merged.push({
-      id: `auto-holiday-${h.startDate}-${h.title}`,
-      store_id: 'auto',
-      start_date: h.startDate,
-      end_date: h.endDate,
-      title: h.title,
-      type: 'holiday',
-      impact: 'unknown', // 상권별로 다르므로 단정하지 않음
-      recurring_yearly: false,
-      memo: null,
-      created_by: null,
-      created_at: '',
-      updated_at: '',
-      isAutoHoliday: true,
-    });
+  for (const h of getHolidaysInRange(fromDate, toDate)) {
+    const remainingDates: string[] = [];
+    for (let cur = h.startDate; cur <= h.endDate; cur = addDaysIso(cur, 1)) {
+      const covered = userHolidays.some((uh) => uh.start_date <= cur && cur <= uh.end_date);
+      if (!covered) {
+        remainingDates.push(cur);
+      }
+    }
+    if (remainingDates.length === 0) continue;
+
+    // 겹치는 날만 제외하고 남은 날을 연속 구간으로 다시 묶음
+    const segments: Array<{ start: string; end: string }> = [];
+    let segStart = remainingDates[0];
+    let segEnd = remainingDates[0];
+    for (let i = 1; i < remainingDates.length; i++) {
+      const expectedNext = addDaysIso(segEnd, 1);
+      if (remainingDates[i] === expectedNext) {
+        segEnd = remainingDates[i];
+      } else {
+        segments.push({ start: segStart, end: segEnd });
+        segStart = remainingDates[i];
+        segEnd = remainingDates[i];
+      }
+    }
+    segments.push({ start: segStart, end: segEnd });
+
+    for (const seg of segments) {
+      merged.push({
+        id: `auto-holiday-${seg.start}-${h.title}`,
+        store_id: 'auto',
+        start_date: seg.start,
+        end_date: seg.end,
+        title: h.title,
+        type: 'holiday',
+        impact: 'unknown', // 상권별로 다르므로 단정하지 않음
+        recurring_yearly: false,
+        memo: null,
+        created_by: null,
+        created_at: '',
+        updated_at: '',
+        isAutoHoliday: true,
+      });
+    }
   }
 
   return merged.sort((a, b) => a.start_date.localeCompare(b.start_date));

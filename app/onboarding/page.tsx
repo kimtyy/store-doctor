@@ -41,7 +41,7 @@ export default function OnboardingPage({
               name="name"
               required
               className="w-full bg-white text-slate-800 placeholder-slate-400 rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="예: 설맥 현리점"
+              placeholder="예: 우리동네 분식"
             />
           </div>
 
