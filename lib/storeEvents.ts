@@ -1,5 +1,5 @@
 /**
- * 매장 사정(이벤트) 공통 상수·검증·공휴일 병합·기간 영향 분석 모듈 (1-N)
+ * 매장 사정(이벤트) 공통 상수·검증·공휴일 병합·기간 영향 분석 모듈 (1-N / 1-N2)
  */
 
 import { getHolidaysInRange } from '@/lib/holidays';
@@ -162,6 +162,12 @@ export function validateStoreEventInput(input: {
   if (!isValidEventType(input.type)) {
     return { ok: false, error: '올바르지 않은 매장 사정 유형입니다.' };
   }
+  if (input.type === 'holiday' && Boolean(input.recurring_yearly)) {
+    return {
+      ok: false,
+      error: '명절·공휴일은 매년 날짜가 바뀌어 자동 표시되므로 매년 반복을 설정할 수 없습니다.',
+    };
+  }
   const impact = input.impact === undefined || input.impact === '' ? 'unknown' : input.impact;
   if (!isValidEventImpact(impact)) {
     return { ok: false, error: '올바르지 않은 매출 영향 선택입니다.' };
@@ -186,7 +192,8 @@ export function validateStoreEventInput(input: {
 
 /**
  * 매년 반복(recurring_yearly=true) DB 이벤트를 조회 범위 연도에 맞춰 투영하고,
- * 공휴일(holidays.ts)을 자동 합산해 날짜순으로 반환
+ * 공휴일(holidays.ts)을 자동 합산해 날짜순으로 반환.
+ * - 사용자가 type='holiday'로 기록한 행과 기간이 겹치는 자동 공휴일은 사용자 기록을 우선하고 자동 줄을 생략(중복 방지).
  */
 export function mergeStoreEventsWithHolidays(
   dbEvents: StoreEventRecord[],
@@ -203,7 +210,7 @@ export function mergeStoreEventsWithHolidays(
       merged.push(ev);
       seenIds.add(`${ev.id}::${ev.start_date}`);
     }
-    if (ev.recurring_yearly && !isNaN(startYear) && !isNaN(endYear)) {
+    if (ev.recurring_yearly && ev.type !== 'holiday' && !isNaN(startYear) && !isNaN(endYear)) {
       const origStartYear = parseInt(ev.start_date.slice(0, 4), 10);
       const origEndYear = parseInt(ev.end_date.slice(0, 4), 10);
       const yearSpan = origEndYear - origStartYear;
@@ -226,7 +233,14 @@ export function mergeStoreEventsWithHolidays(
     }
   }
 
+  const userHolidays = merged.filter((e) => e.type === 'holiday');
+
   for (const h of getHolidaysInRange(fromDate, toDate)) {
+    const overlapsUserHoliday = userHolidays.some(
+      (uh) => uh.start_date <= h.endDate && h.startDate <= uh.end_date
+    );
+    if (overlapsUserHoliday) continue;
+
     merged.push({
       id: `auto-holiday-${h.startDate}-${h.title}`,
       store_id: 'auto',
@@ -247,9 +261,93 @@ export function mergeStoreEventsWithHolidays(
   return merged.sort((a, b) => a.start_date.localeCompare(b.start_date));
 }
 
+const DOW_LABELS = ['일', '월', '화', '수', '목', '금', '토'] as const;
+const DOW_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // 월~일 순 표기
+
+export interface StorePeakWeekdays {
+  peakDayIndices: number[];
+  peakDayLabels: string[];
+  peakLabelText: string;
+  sampleDays: number;
+  usedFallback: boolean;
+  dowAverages: Array<{ dow: number; label: string; days: number; avgRevenue: number }>;
+}
+
+/**
+ * 매장 최근 90일 매출 있는 날 기준 요일별 일평균 상위 2개 요일(매출 집중 요일) 산출
+ * - 데이터 28일 미만이면 토·일 기본값
+ */
+export function computeStorePeakWeekdays(
+  recentSalesRows: Array<{ date: string; net_revenue?: number | null }>
+): StorePeakWeekdays {
+  const buckets = Array.from({ length: 7 }, () => ({ sum: 0, days: 0 }));
+  const validRows = recentSalesRows.filter((s) => (s.net_revenue ?? 0) > 0);
+
+  for (const s of validRows) {
+    const [y, m, d] = s.date.split('-').map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    buckets[dow].sum += s.net_revenue ?? 0;
+    buckets[dow].days += 1;
+  }
+
+  const dowAverages = DOW_DISPLAY_ORDER.map((dow) => ({
+    dow,
+    label: DOW_LABELS[dow],
+    days: buckets[dow].days,
+    avgRevenue: buckets[dow].days > 0 ? Math.round(buckets[dow].sum / buckets[dow].days) : 0,
+  }));
+
+  if (validRows.length < 28) {
+    return {
+      peakDayIndices: [6, 0],
+      peakDayLabels: ['토', '일'],
+      peakLabelText: '토·일',
+      sampleDays: validRows.length,
+      usedFallback: true,
+      dowAverages,
+    };
+  }
+
+  const ranked = [...dowAverages]
+    .filter((d) => d.days > 0)
+    .sort((a, b) => b.avgRevenue - a.avgRevenue)
+    .slice(0, 2);
+
+  const selectedIndices = ranked.length >= 2 ? ranked.map((r) => r.dow) : [6, 0];
+  const orderedIndices = DOW_DISPLAY_ORDER.filter((d) => selectedIndices.includes(d));
+  const labels = orderedIndices.map((d) => DOW_LABELS[d]);
+
+  return {
+    peakDayIndices: orderedIndices,
+    peakDayLabels: labels,
+    peakLabelText: labels.join('·'),
+    sampleDays: validRows.length,
+    usedFallback: false,
+    dowAverages,
+  };
+}
+
+export interface EventSegmentStats {
+  days: number;
+  peakDays: number;
+  peakSharePct: number;
+  totalRevenue: number;
+  avgRevenue: number;
+  avgPaymentCount: number | null;
+}
+
+export interface PerEventStat extends EventSegmentStats {
+  id: string;
+  title: string;
+  start_date: string;
+  end_date: string;
+}
+
 export interface EventPeriodSalesComparison {
-  hasEvents: boolean;
+  hasManualEvents: boolean;
+  hasAnyEvents: boolean;
   canCompare: boolean;
+  peakLabelText: string;
   eventDays: number;
   normalDays: number;
   eventAvgRevenue: number;
@@ -257,13 +355,66 @@ export interface EventPeriodSalesComparison {
   revenueDiffPct: number | null;
   eventAvgPaymentCount: number | null;
   normalAvgPaymentCount: number | null;
+  eventSegment: EventSegmentStats;
+  normalSegment: EventSegmentStats;
+  holidaySegment: EventSegmentStats; // 자동 공휴일 구간
+  perEventStats: PerEventStat[];
+  hasWeekdaySkew: boolean;
+  weekdaySkewMessage: string | null;
+}
+
+function calcSegmentStats(
+  rows: Array<{
+    date: string;
+    net_revenue?: number | null;
+    tables_used?: number | null;
+    guest_count?: number | null;
+  }>,
+  peakDaySet: Set<number>
+): EventSegmentStats {
+  const days = rows.length;
+  if (days === 0) {
+    return {
+      days: 0,
+      peakDays: 0,
+      peakSharePct: 0,
+      totalRevenue: 0,
+      avgRevenue: 0,
+      avgPaymentCount: null,
+    };
+  }
+  let totalRevenue = 0;
+  let peakDays = 0;
+  let paySum = 0;
+  let payDays = 0;
+
+  for (const r of rows) {
+    totalRevenue += r.net_revenue ?? 0;
+    const [y, m, d] = r.date.split('-').map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (peakDaySet.has(dow)) peakDays += 1;
+    const pay = getPaymentCount(r);
+    if (pay !== null) {
+      paySum += pay;
+      payDays += 1;
+    }
+  }
+
+  return {
+    days,
+    peakDays,
+    peakSharePct: Number(((peakDays / days) * 100).toFixed(1)),
+    totalRevenue,
+    avgRevenue: Math.round(totalRevenue / days),
+    avgPaymentCount: payDays > 0 ? Number((paySum / payDays).toFixed(1)) : null,
+  };
 }
 
 /**
- * 이벤트 기간 일평균 vs 그 외 기간 일평균 비교 (1-N)
- * - 매출이 있는 날만 계산
- * - 여러 이벤트가 겹치면 하나라도 걸린 날은 이벤트 기간으로 분류
- * - 한쪽이라도 0일이면 canCompare=false ("비교 불가")
+ * 사정 기간(사용자 기록 store_events) vs 그 외 평소(자동 공휴일 포함) 일평균 비교 (1-N2)
+ * - 자동 공휴일은 사정 기간 판정에서 제외해 "그 외(평소)"에 포함하되 별도 holidaySegment 로도 산출
+ * - 사용자 기록 holiday 는 사정 기간에 포함
+ * - 매출이 있는 날만 계산, 한쪽이 0일이면 canCompare=false ("비교 불가")
  */
 export function analyzeEventPeriodSales(
   salesRows: Array<{
@@ -272,74 +423,118 @@ export function analyzeEventPeriodSales(
     tables_used?: number | null;
     guest_count?: number | null;
   }>,
-  events: StoreEventRecord[]
+  events: StoreEventRecord[],
+  peakWeekdays?: StorePeakWeekdays
 ): EventPeriodSalesComparison {
   const validSales = salesRows.filter((s) => (s.net_revenue ?? 0) > 0);
-  if (events.length === 0 || validSales.length === 0) {
-    return {
-      hasEvents: events.length > 0,
-      canCompare: false,
-      eventDays: 0,
-      normalDays: validSales.length,
-      eventAvgRevenue: 0,
-      normalAvgRevenue: 0,
-      revenueDiffPct: null,
-      eventAvgPaymentCount: null,
-      normalAvgPaymentCount: null,
-    };
-  }
+  const peakIndices = peakWeekdays?.peakDayIndices ?? [6, 0];
+  const peakLabelText = peakWeekdays?.peakLabelText ?? '토·일';
+  const peakSet = new Set(peakIndices);
 
-  let eventRevSum = 0;
-  let eventDays = 0;
-  let eventPaySum = 0;
-  let eventPayDays = 0;
+  const manualEvents = events.filter((e) => !e.isAutoHoliday);
+  const autoHolidays = events.filter((e) => e.isAutoHoliday);
 
-  let normalRevSum = 0;
-  let normalDays = 0;
-  let normalPaySum = 0;
-  let normalPayDays = 0;
+  const eventRows: typeof validSales = [];
+  const normalRows: typeof validSales = [];
+  const holidayRows: typeof validSales = [];
 
   for (const s of validSales) {
-    const isEventDay = events.some((ev) => ev.start_date <= s.date && s.date <= ev.end_date);
-    const rev = s.net_revenue ?? 0;
-    const pay = getPaymentCount(s);
-
-    if (isEventDay) {
-      eventDays += 1;
-      eventRevSum += rev;
-      if (pay !== null) {
-        eventPaySum += pay;
-        eventPayDays += 1;
-      }
+    const isManualEventDay = manualEvents.some(
+      (ev) => ev.start_date <= s.date && s.date <= ev.end_date
+    );
+    if (isManualEventDay) {
+      eventRows.push(s);
     } else {
-      normalDays += 1;
-      normalRevSum += rev;
-      if (pay !== null) {
-        normalPaySum += pay;
-        normalPayDays += 1;
-      }
+      normalRows.push(s);
+    }
+
+    const isAutoHolidayDay = autoHolidays.some(
+      (ev) => ev.start_date <= s.date && s.date <= ev.end_date
+    );
+    if (isAutoHolidayDay) {
+      holidayRows.push(s);
     }
   }
 
-  const canCompare = eventDays > 0 && normalDays > 0;
-  const eventAvgRevenue = eventDays > 0 ? Math.round(eventRevSum / eventDays) : 0;
-  const normalAvgRevenue = normalDays > 0 ? Math.round(normalRevSum / normalDays) : 0;
+  const eventSegment = calcSegmentStats(eventRows, peakSet);
+  const normalSegment = calcSegmentStats(normalRows, peakSet);
+  const holidaySegment = calcSegmentStats(holidayRows, peakSet);
+
+  const perEventStats: PerEventStat[] = manualEvents.map((ev) => {
+    const rows = validSales.filter((s) => ev.start_date <= s.date && s.date <= ev.end_date);
+    return {
+      id: ev.id,
+      title: ev.title,
+      start_date: ev.start_date,
+      end_date: ev.end_date,
+      ...calcSegmentStats(rows, peakSet),
+    };
+  });
+
+  const canCompare = manualEvents.length > 0 && eventSegment.days > 0 && normalSegment.days > 0;
   const revenueDiffPct =
-    canCompare && normalAvgRevenue > 0
-      ? Number((((eventAvgRevenue - normalAvgRevenue) / normalAvgRevenue) * 100).toFixed(1))
+    canCompare && normalSegment.avgRevenue > 0
+      ? Number(
+          (((eventSegment.avgRevenue - normalSegment.avgRevenue) / normalSegment.avgRevenue) * 100).toFixed(1)
+        )
       : null;
 
+  const hasWeekdaySkew =
+    canCompare && Math.abs(eventSegment.peakSharePct - normalSegment.peakSharePct) >= 15;
+
   return {
-    hasEvents: true,
+    hasManualEvents: manualEvents.length > 0,
+    hasAnyEvents: events.length > 0,
     canCompare,
-    eventDays,
-    normalDays,
-    eventAvgRevenue,
-    normalAvgRevenue,
+    peakLabelText,
+    eventDays: eventSegment.days,
+    normalDays: normalSegment.days,
+    eventAvgRevenue: eventSegment.avgRevenue,
+    normalAvgRevenue: normalSegment.avgRevenue,
     revenueDiffPct,
-    eventAvgPaymentCount: eventPayDays > 0 ? Number((eventPaySum / eventPayDays).toFixed(1)) : null,
-    normalAvgPaymentCount: normalPayDays > 0 ? Number((normalPaySum / normalPayDays).toFixed(1)) : null,
+    eventAvgPaymentCount: eventSegment.avgPaymentCount,
+    normalAvgPaymentCount: normalSegment.avgPaymentCount,
+    eventSegment,
+    normalSegment,
+    holidaySegment,
+    perEventStats,
+    hasWeekdaySkew,
+    weekdaySkewMessage: hasWeekdaySkew ? '요일 구성이 달라 단순 비교에 한계' : null,
   };
+}
+
+const LUNAR_HOLIDAY_FAMILIES = [
+  { key: '설날', pattern: /(설날|설 연휴|설연휴)/ },
+  { key: '추석', pattern: /추석/ },
+  { key: '부처님오신날', pattern: /(부처님|석가탄신)/ },
+] as const;
+
+/**
+ * 이번 달 또는 다음 달의 음력 명절(설날·추석·부처님오신날)과 같은 이름의
+ * 작년 사용자 기록(type='holiday')을 찾아 반환 (AI 프롬프트 참고용)
+ */
+export function findLastYearSameLunarHolidays(
+  targetEvents: StoreEventRecord[],
+  allManualEvents: StoreEventRecord[],
+  targetYear: number
+): StoreEventRecord[] {
+  const matchedFamilies = new Set<string>();
+  for (const ev of targetEvents) {
+    if (ev.type !== 'holiday') continue;
+    for (const fam of LUNAR_HOLIDAY_FAMILIES) {
+      if (fam.pattern.test(ev.title)) matchedFamilies.add(fam.key);
+    }
+  }
+  if (matchedFamilies.size === 0) return [];
+
+  const prevYearStr = String(targetYear - 1);
+  return allManualEvents.filter((ev) => {
+    if (ev.type !== 'holiday' || ev.isAutoHoliday) return false;
+    if (!ev.start_date.startsWith(prevYearStr)) return false;
+    return LUNAR_HOLIDAY_FAMILIES.some(
+      (fam) => matchedFamilies.has(fam.key) && fam.pattern.test(ev.title)
+    );
+  });
 }
 
 export interface ClampedChartEventArea {
@@ -389,4 +584,3 @@ export function clampEventsToChartDates(
 
   return areas;
 }
-

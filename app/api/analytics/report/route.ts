@@ -20,6 +20,8 @@ import { MenuMasterRecord } from '@/lib/menus';
 import { getHolidaysInRange } from '@/lib/holidays';
 import {
   analyzeEventPeriodSales,
+  computeStorePeakWeekdays,
+  findLastYearSameLunarHolidays,
   mergeStoreEventsWithHolidays,
   STORE_EVENT_IMPACT_LABELS,
   STORE_EVENT_TYPE_META,
@@ -399,8 +401,17 @@ export async function GET(request: Request) {
       recommendedFood
     };
 
-    // 매장 사정(이벤트) 기간 vs 그 외 기간 일평균 비교 (1-N)
-    const eventSalesComparison = analyzeEventPeriodSales(sales, currentEvents);
+    // 매장 사정(이벤트) 기간 vs 그 외 기간 일평균 비교 (1-N / 1-N2)
+    const endDateObj = new Date(`${toStr}T00:00:00Z`);
+    endDateObj.setUTCDate(endDateObj.getUTCDate() - 89);
+    const recent90FromStr = endDateObj.toISOString().slice(0, 10);
+    const recent90Sales = (past6MonthSalesData ?? []).filter(
+      (r: { date: string; net_revenue: number }) => r.date >= recent90FromStr && r.date <= toStr
+    );
+    const peakWeekdays = computeStorePeakWeekdays(recent90Sales);
+    const eventSalesComparison = analyzeEventPeriodSales(sales, currentEvents, peakWeekdays);
+    const lastYearSameLunarEvents = findLastYearSameLunarHolidays(currentEvents, rawStoreEvents, year);
+    const nextMonthSameLunarEvents = findLastYearSameLunarHolidays(nextMonthEvents, rawStoreEvents, nextMonthYear);
     const hasManualEventsThisMonth = currentEvents.some((e) => !e.isAutoHoliday);
     const showEventPromptBanner =
       prevStats.hasData &&
@@ -624,13 +635,49 @@ export async function GET(request: Request) {
         .join(' / ');
     };
 
+    const formatSegmentSummary = (
+      label: string,
+      seg: {
+        days: number;
+        peakDays: number;
+        avgRevenue: number;
+        avgPaymentCount: number | null;
+      }
+    ): string => {
+      const payText = seg.avgPaymentCount !== null ? ` (일평균 결제 ${seg.avgPaymentCount}건)` : '';
+      return `${label}(${seg.days}일 · 매출 집중 요일 ${eventSalesComparison.peakLabelText} ${seg.peakDays}일) 일평균 ${seg.avgRevenue}원${payText}`;
+    };
+
+    const comparisonLine = eventSalesComparison.canCompare
+      ? `사정 기간 vs 평소 일평균(매출 있는 날 기준): ${formatSegmentSummary('사정 기간', eventSalesComparison.eventSegment)} vs ${formatSegmentSummary('그 외 평소', eventSalesComparison.normalSegment)} (차이 ${eventSalesComparison.revenueDiffPct !== null ? `${eventSalesComparison.revenueDiffPct >= 0 ? '+' : ''}${eventSalesComparison.revenueDiffPct}%` : '-'})`
+      : '사정 기간 vs 평소 일평균: 비교 불가';
+
+    const holidayLine =
+      eventSalesComparison.holidaySegment.days > 0
+        ? formatSegmentSummary('공휴일(자동)', eventSalesComparison.holidaySegment)
+        : null;
+
+    const perEventLine =
+      eventSalesComparison.perEventStats.length > 0
+        ? `이벤트별 일평균: ${eventSalesComparison.perEventStats
+            .map((p) => formatSegmentSummary(p.title, p))
+            .join(' / ')}`
+        : null;
+
     const eventPromptSection = [
       `이번 달 매장 사정: ${formatEventsForPrompt(currentEvents)}`,
       `전월 매장 사정: ${formatEventsForPrompt(prevEvents)}`,
       `전년 동월 매장 사정: ${formatEventsForPrompt(lastYearEvents)}`,
-      eventSalesComparison.canCompare
-        ? `사정 기간 vs 평소 일평균: 사정 기간(${eventSalesComparison.eventDays}일) 일평균 ${eventSalesComparison.eventAvgRevenue}원${eventSalesComparison.eventAvgPaymentCount !== null ? ` (결제 ${eventSalesComparison.eventAvgPaymentCount}건)` : ''} vs 평소(${eventSalesComparison.normalDays}일) 일평균 ${eventSalesComparison.normalAvgRevenue}원${eventSalesComparison.normalAvgPaymentCount !== null ? ` (결제 ${eventSalesComparison.normalAvgPaymentCount}건)` : ''} (차이 ${eventSalesComparison.revenueDiffPct !== null ? `${eventSalesComparison.revenueDiffPct >= 0 ? '+' : ''}${eventSalesComparison.revenueDiffPct}%` : '-'})`
-        : '사정 기간 vs 평소 일평균: 비교 불가',
+      ...(lastYearSameLunarEvents.length > 0
+        ? [`작년 같은 명절 사용자 기록: ${formatEventsForPrompt(lastYearSameLunarEvents)}`]
+        : []),
+      comparisonLine,
+      ...(holidayLine ? [holidayLine] : []),
+      ...(perEventLine ? [perEventLine] : []),
+      ...(eventSalesComparison.hasWeekdaySkew && eventSalesComparison.weekdaySkewMessage
+        ? [`요일 구성 주의: ${eventSalesComparison.weekdaySkewMessage}`]
+        : []),
+      '사정 기간과 평소 기간의 차이가 작으면, 사정만으로 전월 대비 변동을 설명할 수 없다고 솔직히 말하고 다른 가능성(계절·요일·기타)을 함께 제시할 것. 단정하지 말 것.',
     ].join('\n');
 
     const aiPrompt = `${metricDefinitions}
@@ -648,7 +695,7 @@ ${reportFormatRule}`;
 ${eventPromptSection}
 비용 그룹별 상세(금액 vs 비율 분리): ${groupSummaryLines}
 ${prevMonthSummary}${lastYearSection ? `\n${lastYearSection}` : ''}
-다음달(${nextMonth}월) 예측 데이터: 예측 매출 범위 ${predictedMin}원 ~ ${predictedMax}원, 계절성: ${prediction.seasonality || '일반'}, 공휴일: ${prediction.holidays.length > 0 ? prediction.holidays.join(', ') : '없음'}, 다음달 예정·반복 매장 사정: ${formatEventsForPrompt(nextMonthEvents)}, 주말 일수: ${weekendCount}일
+다음달(${nextMonth}월) 예측 데이터: 예측 매출 범위 ${predictedMin}원 ~ ${predictedMax}원, 계절성: ${prediction.seasonality || '일반'}, 공휴일: ${prediction.holidays.length > 0 ? prediction.holidays.join(', ') : '없음'}, 다음달 예정·반복 매장 사정: ${formatEventsForPrompt(nextMonthEvents)}${nextMonthSameLunarEvents.length > 0 ? `, 작년 같은 명절 사용자 기록: ${formatEventsForPrompt(nextMonthSameLunarEvents)}` : ''}, 주말 일수: ${weekendCount}일
 이번 달·전월 실적, 기록된 매장 사정(평소 일평균 추세 포함), 다음 달 공휴일·예정 사정을 반영해 다음 달을 대비한 구체적인 운영 및 발주 조언을 작성해 주세요.${lowInputDirective}
 ${reportFormatRule}`;
 
@@ -775,6 +822,7 @@ ${reportFormatRule}`;
         lastYear: lastYearEvents,
         nextMonth: nextMonthEvents,
         comparison: eventSalesComparison,
+        peakWeekdays,
         hasManualEventsThisMonth,
         showEventPromptBanner,
       },

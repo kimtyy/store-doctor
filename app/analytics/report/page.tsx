@@ -700,29 +700,72 @@ function MonthlyReportContent() {
                     })}
                   </div>
 
-                  {/* 이벤트 기간 일평균 vs 그 외 기간 일평균 */}
+                  {/* 이벤트 기간 일평균 vs 그 외 기간 일평균 (1-N2) */}
                   {evCmp && (
-                    <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                      <p className="text-xs font-bold text-slate-600 mb-2">사정 기간 vs 평소 일평균 비교 (매출 있는 날 기준)</p>
+                    <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2.5">
+                      <p className="text-xs font-bold text-slate-600">
+                        사정 기간 vs 평소 일평균 비교 (매출 있는 날 기준 · 매출 집중 요일: {evCmp.peakLabelText})
+                      </p>
                       {!evCmp.canCompare ? (
-                        <p className="text-xs text-slate-500">비교 불가 (사정 기간 또는 평소 영업일 중 한쪽이 0일)</p>
+                        <p className="text-xs text-slate-500">
+                          {evCmp.hasManualEvents
+                            ? '비교 불가 (사정 기간 또는 평소 영업일 중 한쪽이 0일)'
+                            : '비교 불가 (기록된 매장 사정 없음 · 자동 공휴일은 평소 기간에 포함)'}
+                        </p>
                       ) : (
-                        <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                           <div className="rounded-lg bg-white border border-slate-200 p-2.5">
-                            <p className="text-slate-500">사정 기간 ({evCmp.eventDays}일)</p>
-                            <p className="text-base font-extrabold text-slate-900 mt-0.5">{fmt(evCmp.eventAvgRevenue)}원</p>
+                            <p className="text-slate-500">
+                              사정 기간 ({evCmp.eventSegment.days}일 · 매출 집중 요일 {evCmp.peakLabelText} {evCmp.eventSegment.peakDays}일)
+                            </p>
+                            <p className="text-base font-extrabold text-slate-900 mt-0.5">{fmt(evCmp.eventSegment.avgRevenue)}원</p>
                             <p className="text-slate-500 mt-0.5">
-                              {evCmp.eventAvgPaymentCount !== null ? `일평균 결제 ${evCmp.eventAvgPaymentCount}건` : '결제 건수 미입력'}
+                              {evCmp.eventSegment.avgPaymentCount !== null
+                                ? `일평균 결제 ${evCmp.eventSegment.avgPaymentCount}건`
+                                : '결제 건수 미입력'}
                             </p>
                           </div>
                           <div className="rounded-lg bg-white border border-slate-200 p-2.5">
-                            <p className="text-slate-500">그 외 평소 ({evCmp.normalDays}일)</p>
-                            <p className="text-base font-extrabold text-slate-900 mt-0.5">{fmt(evCmp.normalAvgRevenue)}원</p>
+                            <p className="text-slate-500">
+                              그 외 평소 ({evCmp.normalSegment.days}일 · 매출 집중 요일 {evCmp.peakLabelText} {evCmp.normalSegment.peakDays}일)
+                            </p>
+                            <p className="text-base font-extrabold text-slate-900 mt-0.5">{fmt(evCmp.normalSegment.avgRevenue)}원</p>
                             <p className="text-slate-500 mt-0.5">
-                              {evCmp.normalAvgPaymentCount !== null ? `일평균 결제 ${evCmp.normalAvgPaymentCount}건` : '결제 건수 미입력'}
+                              {evCmp.normalSegment.avgPaymentCount !== null
+                                ? `일평균 결제 ${evCmp.normalSegment.avgPaymentCount}건`
+                                : '결제 건수 미입력'}
                             </p>
                           </div>
                         </div>
+                      )}
+                      {evCmp.holidaySegment.days > 0 && (
+                        <p className="text-xs text-slate-600">
+                          공휴일 일평균 ({evCmp.holidaySegment.days}일 · 매출 집중 요일 {evCmp.peakLabelText} {evCmp.holidaySegment.peakDays}일):{' '}
+                          <span className="font-semibold text-slate-800">{fmt(evCmp.holidaySegment.avgRevenue)}원</span>
+                          {evCmp.holidaySegment.avgPaymentCount !== null ? ` (일평균 결제 ${evCmp.holidaySegment.avgPaymentCount}건)` : ''}
+                        </p>
+                      )}
+                      {evCmp.perEventStats.length > 0 && (
+                        <div className="space-y-1 border-t border-slate-200 pt-2">
+                          <p className="text-[11px] font-semibold text-slate-500">사정별 일평균</p>
+                          <div className="flex flex-wrap gap-2">
+                            {evCmp.perEventStats.map((evStat) => (
+                              <span
+                                key={evStat.id}
+                                className="rounded-md bg-white border border-slate-200 px-2 py-1 text-[11px] text-slate-700"
+                              >
+                                {evStat.title} ({evStat.days}일 · 집중요일 {evStat.peakDays}일):{' '}
+                                <strong className="text-slate-900">{fmt(evStat.avgRevenue)}원</strong>
+                                {evStat.avgPaymentCount !== null ? ` / ${evStat.avgPaymentCount}건` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {evCmp.hasWeekdaySkew && evCmp.weekdaySkewMessage && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                          {evCmp.weekdaySkewMessage}
+                        </p>
                       )}
                     </div>
                   )}

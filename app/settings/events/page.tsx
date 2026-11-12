@@ -265,7 +265,7 @@ function StoreEventsInner() {
                   type="text"
                   required
                   maxLength={40}
-                  placeholder="예: 호국훈련, 맹호부대 외출 통제, 매장 1주년 할인"
+                  placeholder="예: 지역 축제, 단축영업, 매장 1주년 할인"
                   value={form.title}
                   onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
                   className={inputCls}
@@ -282,7 +282,13 @@ function StoreEventsInner() {
                       <button
                         key={t}
                         type="button"
-                        onClick={() => setForm((prev) => ({ ...prev, type: t }))}
+                        onClick={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            type: t,
+                            recurring_yearly: t === 'holiday' ? false : prev.recurring_yearly,
+                          }))
+                        }
                         className={`rounded-xl border px-3 py-2 text-xs font-medium text-left transition ${
                           active
                             ? meta.darkBadgeClass
@@ -316,15 +322,23 @@ function StoreEventsInner() {
                 </div>
               </div>
 
-              <label className="flex items-center gap-2.5 text-sm text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.recurring_yearly}
-                  onChange={(e) => setForm((prev) => ({ ...prev, recurring_yearly: e.target.checked }))}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-sky-500"
-                />
-                <span>매년 같은 날짜에 반복</span>
-              </label>
+              <div>
+                <label className="flex items-center gap-2.5 text-sm text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.type === 'holiday' ? false : form.recurring_yearly}
+                    disabled={form.type === 'holiday'}
+                    onChange={(e) => setForm((prev) => ({ ...prev, recurring_yearly: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-sky-500 disabled:opacity-50"
+                  />
+                  <span className={form.type === 'holiday' ? 'text-slate-500' : ''}>매년 같은 날짜에 반복</span>
+                </label>
+                {form.type === 'holiday' && (
+                  <p className="mt-1.5 text-xs text-amber-300">
+                    설·추석은 날짜가 매년 바뀌어 자동 표시됩니다. 영향만 기록해 두면 AI 가 다음 해 같은 명절에 참고합니다.
+                  </p>
+                )}
+              </div>
 
               <div>
                 <label className="text-xs text-slate-400">메모 (선택, 200자 이내)</label>
