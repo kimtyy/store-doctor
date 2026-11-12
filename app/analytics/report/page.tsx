@@ -6,6 +6,7 @@ import Link from 'next/link';
 import TermTooltip from '@/components/ui/TermTooltip';
 import {
   calcComparisonMetricDelta,
+  calcPaymentCountComparison,
   ComparisonMetricKind,
 } from '@/lib/analytics/periodComparison';
 import { MenuPeriodAnalysis } from '@/lib/analytics/menuAnalysis';
@@ -201,9 +202,14 @@ function MonthlyReportContent() {
       csv += csvRow('영업이익률', c.operatingProfitRatio ?? 0, p.operatingProfitRatio ?? 0, l.operatingProfitRatio ?? 0, 'ratio', true);
       csv += csvRow('일평균매출', c.avgDailySales, p.avgDailySales, l.avgDailySales, 'amount');
       const payNoteC = c.paymentDataStatus === 'partial' ? ` (일부 데이터 ${c.paymentDaysCount}/${c.openDays}일)` : '';
-      csv += c.tablesUsed > 0
-        ? csvRow(`결제 건수${payNoteC}`, c.tablesUsed ?? 0, p.tablesUsed ?? 0, l.tablesUsed ?? 0, 'amount', false, '건')
-        : `결제 건수,미입력,${hasPrev ? (p.tablesUsed > 0 ? `${p.tablesUsed}건` : '미입력') : '데이터 없음'},-,${hasLast ? (l.tablesUsed > 0 ? `${l.tablesUsed}건` : '미입력') : '데이터 없음'},-\n`;
+      const payNoteP = p.paymentDataStatus === 'partial' ? ` (일부 데이터 ${p.paymentDaysCount}/${p.openDays}일)` : '';
+      const payNoteL = l.paymentDataStatus === 'partial' ? ` (일부 데이터 ${l.paymentDaysCount}/${l.openDays}일)` : '';
+      const payPrevDelta = calcPaymentCountComparison(c, p).formatted;
+      const payLastDelta = calcPaymentCountComparison(c, l).formatted;
+      const payCurrVal = c.tablesUsed > 0 ? `${c.tablesUsed}건${payNoteC}` : '미입력';
+      const payPrevVal = !hasPrev ? '데이터 없음' : p.tablesUsed > 0 ? `${p.tablesUsed}건${payNoteP}` : '미입력';
+      const payLastVal = !hasLast ? '데이터 없음' : l.tablesUsed > 0 ? `${l.tablesUsed}건${payNoteL}` : '미입력';
+      csv += `결제 건수,${payCurrVal},${payPrevVal},${payPrevDelta},${payLastVal},${payLastDelta}\n`;
       csv += c.avgSpend > 0
         ? csvRow(`결제 1건당 매출${payNoteC}`, c.avgSpend, p.avgSpend, l.avgSpend, 'amount')
         : `결제 1건당 매출,미입력,${hasPrev ? (p.avgSpend > 0 ? p.avgSpend : '미입력') : '데이터 없음'},-,${hasLast ? (l.avgSpend > 0 ? l.avgSpend : '미입력') : '데이터 없음'},-\n`;
@@ -224,8 +230,8 @@ function MonthlyReportContent() {
         const lDelta = calcComparisonMetricDelta(g.sharePct, lShare, 'ratio', !!ml?.hasMenuData).formatted;
         csv += `"${g.label}",${g.amount},${g.sharePct.toFixed(1)}%,${pDelta},${lDelta}\n`;
       });
-      csv += `주류 원가율,${mc.liquorCostRatio !== null ? mc.liquorCostRatio.toFixed(1) + '%' : '없음'}\n`;
-      csv += `안주 원가율,${mc.foodCostRatio !== null ? mc.foodCostRatio.toFixed(1) + '%' : '없음'}\n`;
+      csv += `주류 원가율,${mc.dataStatus === 'partial' ? '-' : mc.liquorCostRatio !== null ? mc.liquorCostRatio.toFixed(1) + '%' : '없음'}\n`;
+      csv += `안주 원가율,${mc.dataStatus === 'partial' ? '-' : mc.foodCostRatio !== null ? mc.foodCostRatio.toFixed(1) + '%' : '없음'}\n`;
       csv += `[주류 세부 분류]\n종류,판매수량,매출,주류내 비중\n`;
       mc.liquorSubGroups.forEach((s) => {
         csv += `"${s.label}",${s.quantity},${s.amount},${s.shareOfLiquorPct.toFixed(1)}%\n`;
@@ -858,60 +864,64 @@ function MonthlyReportContent() {
                         {(data.comparison.current.tablesUsed ?? 0) > 0 ? `${fmt(data.comparison.current.tablesUsed)}건` : '미입력'}
                       </td>
                       <td className="p-3 bg-slate-50/50">
-                        {!hasPrevData ? (
-                          <span className="text-xs text-slate-400">데이터 없음</span>
-                        ) : (data.comparison.prev.tablesUsed ?? 0) === 0 ? (
-                          <span className="text-xs text-slate-400">미입력</span>
-                        ) : data.comparison.current.paymentDataStatus === 'partial' ||
-                          data.comparison.prev.paymentDataStatus === 'partial' ? (
-                          <div className="flex flex-col items-center sm:items-end justify-center">
-                            <span className="font-semibold text-slate-700 text-sm">
-                              {fmt(data.comparison.prev.tablesUsed)}건
-                            </span>
-                            {data.comparison.prev.paymentDataStatus === 'partial' && (
-                              <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1 py-0.5 mt-0.5">
-                                일부 데이터({data.comparison.prev.paymentDaysCount}/{data.comparison.prev.openDays}일)
-                              </span>
-                            )}
-                          </div>
-                        ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
-                          <ComparisonCell
-                            current={data.comparison.current.tablesUsed}
-                            base={data.comparison.prev.tablesUsed}
-                            formatter={fmt}
-                            suffix="건"
-                          />
-                        ) : (
-                          <span className="text-xs text-slate-400">미입력</span>
-                        )}
+                        {(() => {
+                          if (!hasPrevData) return <span className="text-xs text-slate-400">데이터 없음</span>;
+                          if ((data.comparison.prev.tablesUsed ?? 0) === 0) return <span className="text-xs text-slate-400">미입력</span>;
+                          const cmp = calcPaymentCountComparison(data.comparison.current, data.comparison.prev);
+                          if (!cmp.canCompare) {
+                            return (
+                              <div className="flex flex-col items-center sm:items-end justify-center">
+                                <span className="font-semibold text-slate-700 text-sm">
+                                  {fmt(data.comparison.prev.tablesUsed)}건
+                                </span>
+                                {data.comparison.prev.paymentDataStatus === 'partial' && (
+                                  <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1 py-0.5 mt-0.5">
+                                    일부 데이터({data.comparison.prev.paymentDaysCount}/{data.comparison.prev.openDays}일)
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-slate-400 mt-0.5">-</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <ComparisonCell
+                              current={data.comparison.current.tablesUsed}
+                              base={data.comparison.prev.tablesUsed}
+                              formatter={fmt}
+                              suffix="건"
+                            />
+                          );
+                        })()}
                       </td>
                       <td className="p-3">
-                        {!hasLastYearData ? (
-                          <span className="text-xs text-slate-400">데이터 없음</span>
-                        ) : (data.comparison.lastYear.tablesUsed ?? 0) === 0 ? (
-                          <span className="text-xs text-slate-400">미입력</span>
-                        ) : data.comparison.current.paymentDataStatus === 'partial' ||
-                          data.comparison.lastYear.paymentDataStatus === 'partial' ? (
-                          <div className="flex flex-col items-center sm:items-end justify-center">
-                            <span className="font-semibold text-slate-700 text-sm">
-                              {fmt(data.comparison.lastYear.tablesUsed)}건
-                            </span>
-                            {data.comparison.lastYear.paymentDataStatus === 'partial' && (
-                              <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1 py-0.5 mt-0.5">
-                                일부 데이터({data.comparison.lastYear.paymentDaysCount}/{data.comparison.lastYear.openDays}일)
-                              </span>
-                            )}
-                          </div>
-                        ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
-                          <ComparisonCell
-                            current={data.comparison.current.tablesUsed}
-                            base={data.comparison.lastYear.tablesUsed}
-                            formatter={fmt}
-                            suffix="건"
-                          />
-                        ) : (
-                          <span className="text-xs text-slate-400">미입력</span>
-                        )}
+                        {(() => {
+                          if (!hasLastYearData) return <span className="text-xs text-slate-400">데이터 없음</span>;
+                          if ((data.comparison.lastYear.tablesUsed ?? 0) === 0) return <span className="text-xs text-slate-400">미입력</span>;
+                          const cmp = calcPaymentCountComparison(data.comparison.current, data.comparison.lastYear);
+                          if (!cmp.canCompare) {
+                            return (
+                              <div className="flex flex-col items-center sm:items-end justify-center">
+                                <span className="font-semibold text-slate-700 text-sm">
+                                  {fmt(data.comparison.lastYear.tablesUsed)}건
+                                </span>
+                                {data.comparison.lastYear.paymentDataStatus === 'partial' && (
+                                  <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1 py-0.5 mt-0.5">
+                                    일부 데이터({data.comparison.lastYear.paymentDaysCount}/{data.comparison.lastYear.openDays}일)
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-slate-400 mt-0.5">-</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <ComparisonCell
+                              current={data.comparison.current.tablesUsed}
+                              base={data.comparison.lastYear.tablesUsed}
+                              formatter={fmt}
+                              suffix="건"
+                            />
+                          );
+                        })()}
                       </td>
                     </tr>
                     <tr>

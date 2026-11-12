@@ -62,7 +62,9 @@ export async function PATCH(request: Request) {
     const { data: allRowsData, error: listErr } = await supabase
       .from('menu_master')
       .select('id, menu_name, aliases, category, liquor_sub_category')
-      .eq('store_id', STORE_ID);
+      .eq('store_id', STORE_ID)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
     if (listErr) throw new Error(listErr.message);
     const allRows = (allRowsData ?? []) as MenuMasterRowLite[];
 
@@ -133,7 +135,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'menuName이 필요합니다.' }, { status: 400 });
     }
 
-    const { menuName, alias, category, liquorSubCategory, newName } = body as {
+    const { id: rowId, menuName, alias, category, liquorSubCategory, newName } = body as {
+      id?: string;
       menuName: string;
       alias?: string;
       category?: string;
@@ -151,7 +154,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // Canonical name: if renaming, use newName; otherwise menuName
+    // 기존 행은 id(있으면) 또는 canonical key 로 찾는다
     const cleanOrigName = normalizeMenuDisplayName(menuName);
     const canonicalName =
       newName && newName.trim() && newName.trim() !== menuName
@@ -161,19 +164,22 @@ export async function PATCH(request: Request) {
     const origKey = normalizeMenuCanonicalKey(cleanOrigName);
     const targetKey = normalizeMenuCanonicalKey(canonicalName);
 
-    const existingExact = allRows.find((r) => r.menu_name === canonicalName);
-    const origRow = isRename ? allRows.find((r) => r.menu_name === cleanOrigName) : existingExact;
+    const existing =
+      (rowId ? allRows.find((r) => r.id === rowId) : undefined) ??
+      allRows.find((r) => r.menu_name === cleanOrigName) ??
+      findCanonicalRowMatch(allRows, origKey) ??
+      null;
 
-    // 새 행 생성 또는 이름 변경 전 canonical key 충돌 검사 (409)
-    const conflict = findCanonicalRowMatch(allRows, targetKey, origRow?.id ?? null);
-    if (conflict && !existingExact) {
-      return NextResponse.json(
-        { error: `이미 등록된 메뉴입니다: ${conflict.menu_name}` },
-        { status: 409 }
-      );
+    // 충돌 검사(409)는 새 행 생성이거나 이름의 canonical key가 바뀌는 경우에만 수행
+    if (!existing || normalizeMenuCanonicalKey(existing.menu_name) !== targetKey) {
+      const conflict = findCanonicalRowMatch(allRows, targetKey, existing?.id ?? null);
+      if (conflict) {
+        return NextResponse.json(
+          { error: `이미 등록된 메뉴입니다: ${conflict.menu_name}` },
+          { status: 409 }
+        );
+      }
     }
-
-    const existing = existingExact ?? null;
 
     if (existing) {
       const updatePayload: Record<string, unknown> = {};
@@ -268,34 +274,44 @@ export async function PUT(request: Request) {
     const { data: existingRowsData, error: existingErr } = await supabase
       .from('menu_master')
       .select('id, menu_name, aliases, category, liquor_sub_category')
-      .eq('store_id', STORE_ID);
+      .eq('store_id', STORE_ID)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
     if (existingErr) throw new Error(existingErr.message);
     const existingRows = (existingRowsData ?? []) as MenuMasterRowLite[];
 
     let savedCount = 0;
     const skippedDuplicates: Array<{ menuName: string; existingName: string }> = [];
-    const seenBatchKeys = new Map<string, string>(); // key -> menuName
+    const seenNewKeys = new Map<string, string>(); // key -> menuName (새 행·이름 변경만 배치 내 충돌 검사)
 
     for (const raw of items) {
       const menuName = normalizeMenuDisplayName(String(raw.menuName ?? ''));
       if (!menuName) continue;
       const candKey = normalizeMenuCanonicalKey(menuName);
 
-      // 기존 마스터 또는 배치 내 canonical key 중복 체크 (자기 자신 id 수정은 허용)
-      const dupInDb = findCanonicalRowMatch(existingRows, candKey, raw.id ?? null);
-      if (dupInDb && (!raw.id || dupInDb.id !== raw.id)) {
-        // 기존 행과 이름이 정확히 같고 id가 없는 upsert 케이스가 아니라면 canonical 중복으로 건너뜀
-        if (!(!raw.id && dupInDb.menu_name === menuName)) {
+      // 기존 행은 id(있으면) 또는 정확/canonical key 로 찾는다
+      const existingRow =
+        (raw.id ? existingRows.find((r) => r.id === raw.id) : undefined) ??
+        existingRows.find((r) => r.menu_name === menuName) ??
+        findCanonicalRowMatch(existingRows, candKey);
+
+      const isNewOrKeyChanged =
+        !existingRow || normalizeMenuCanonicalKey(existingRow.menu_name) !== candKey;
+
+      // 충돌 검사는 새 행 생성이거나 이름의 canonical key가 바뀌는 경우에만 수행
+      if (isNewOrKeyChanged) {
+        const dupInDb = findCanonicalRowMatch(existingRows, candKey, existingRow?.id ?? null);
+        if (dupInDb) {
           skippedDuplicates.push({ menuName, existingName: dupInDb.menu_name });
           continue;
         }
+        const dupInBatch = seenNewKeys.get(candKey);
+        if (dupInBatch) {
+          skippedDuplicates.push({ menuName, existingName: dupInBatch });
+          continue;
+        }
+        seenNewKeys.set(candKey, menuName);
       }
-      const dupInBatch = seenBatchKeys.get(candKey);
-      if (dupInBatch) {
-        skippedDuplicates.push({ menuName, existingName: dupInBatch });
-        continue;
-      }
-      seenBatchKeys.set(candKey, menuName);
 
       const category = raw.category && isValidMenuRawCategory(raw.category) ? raw.category : null;
       const liquorSub =
@@ -314,11 +330,12 @@ export async function PUT(request: Request) {
         aliases,
       };
 
-      if (raw.id) {
+      const targetId = raw.id ?? existingRow?.id ?? null;
+      if (targetId) {
         const { error: updErr } = await supabase
           .from('menu_master')
           .update(payload)
-          .eq('id', raw.id)
+          .eq('id', targetId)
           .eq('store_id', STORE_ID);
         if (updErr) throw new Error(updErr.message);
       } else {

@@ -6,6 +6,7 @@ import {
   getComparisonPeriodBounds,
   calcPeriodStats,
   calcComparisonMetricDelta,
+  calcPaymentCountComparison,
   LOW_INPUT_RATE_THRESHOLD,
 } from '@/lib/analytics/periodComparison';
 import {
@@ -446,12 +447,19 @@ export async function GET(request: Request) {
       currentStats.paymentDataStatus === 'partial'
         ? ` (일부 데이터 ${currentStats.paymentDaysCount}/${currentStats.openDays}일)`
         : '';
+    const prevPayCoverageNote =
+      prevStats.paymentDataStatus === 'partial'
+        ? ` (전월 일부 데이터 ${prevStats.paymentDaysCount}/${prevStats.openDays}일)`
+        : '';
     if (currentStats.tablesUsed > 0) {
-      const hasPrevTables = prevStats.hasData && prevStats.tablesUsed > 0;
-      const cntDelta = hasPrevTables
-        ? calcComparisonMetricDelta(currentStats.tablesUsed, prevStats.tablesUsed, 'amount', true).formatted
-        : '전월 데이터 없음';
-      paymentDeltaLines.push(`결제 건수: 이번달 ${currentStats.tablesUsed}건${paymentCoverageNote} (${cntDelta})`);
+      const cntCmp = calcPaymentCountComparison(currentStats, prevStats);
+      const cntDelta =
+        !prevStats.hasData || prevStats.tablesUsed <= 0
+          ? '전월 데이터 없음'
+          : cntCmp.formatted;
+      paymentDeltaLines.push(
+        `결제 건수: 이번달 ${currentStats.tablesUsed}건${paymentCoverageNote}${prevPayCoverageNote} (${cntDelta})`
+      );
     } else {
       paymentDeltaLines.push('결제 건수: 없음');
     }
@@ -460,9 +468,18 @@ export async function GET(request: Request) {
       const avgDelta = hasPrevAvg
         ? calcComparisonMetricDelta(currentStats.avgSpend, prevStats.avgSpend, 'amount', true).formatted
         : '전월 데이터 없음';
-      paymentDeltaLines.push(`결제 1건당 매출(순매출 기준): 이번달 ${currentStats.avgSpend}원${paymentCoverageNote} (${avgDelta})`);
+      paymentDeltaLines.push(
+        `결제 1건당 매출(순매출 기준): 이번달 ${currentStats.avgSpend}원${paymentCoverageNote}${prevPayCoverageNote} (${avgDelta})`
+      );
     } else {
       paymentDeltaLines.push('결제 1건당 매출: 없음');
+    }
+    if (
+      currentStats.paymentDataStatus === 'partial' ||
+      prevStats.paymentDataStatus === 'partial' ||
+      lastYearStats.paymentDataStatus === 'partial'
+    ) {
+      paymentDeltaLines.push('주의: 일부 데이터 기간의 결제 건수 합계는 비교하지 말 것');
     }
 
     let menuPromptSection = '메뉴별 매출 데이터: 없음';

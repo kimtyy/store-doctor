@@ -62,10 +62,13 @@ export async function POST(request: Request) {
       const supabase = createClient(supabaseUrl, supabaseServiceKey, {
         auth: { autoRefreshToken: false, persistSession: false },
       });
-      const { data: masters } = await supabase
+      const { data: masters, error: mastersError } = await supabase
         .from('menu_master')
         .select('menu_name, aliases, category')
         .eq('store_id', STORE_ID);
+      if (mastersError) {
+        console.error('[parse/menu-sales] menu_master 조회 실패:', mastersError.message);
+      }
 
       if (masters && masters.length > 0) {
         const { correctMenuName } = await import('../../../../lib/menuCorrection');

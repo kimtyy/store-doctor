@@ -211,8 +211,8 @@ export default function MenuMasterPage() {
           .map((d: { menuName: string; existingName: string }) => `${d.menuName}→${d.existingName}`)
           .join(', ');
         setMessage({
-          type: 'success',
-          text: `✅ ${body.count}개 저장 완료 (중복 건너뜀 ${skipped.length}건: ${dupList})`,
+          type: body.count > 0 ? 'success' : 'error',
+          text: `${body.count}개 저장, ${skipped.length}개는 이미 등록된 이름이라 저장하지 않았습니다: ${dupList}`,
         });
       } else {
         setMessage({ type: 'success', text: `✅ ${body.count}개 저장 완료` });

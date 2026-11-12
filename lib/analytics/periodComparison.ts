@@ -284,6 +284,29 @@ export interface MetricDelta {
 }
 
 /**
+ * 결제 건수 합계 증감 비교 공통 함수 (1-L3)
+ * - 이번 달·비교 대상 중 하나라도 paymentDataStatus === 'partial' 이면 증감을 "-"로 반환
+ */
+export function calcPaymentCountComparison(
+  current: Pick<PeriodStats, 'tablesUsed' | 'paymentDataStatus'>,
+  base: Pick<PeriodStats, 'tablesUsed' | 'paymentDataStatus' | 'hasData'>
+): { canCompare: boolean; formatted: string } {
+  if (
+    !base.hasData ||
+    current.tablesUsed <= 0 ||
+    base.tablesUsed <= 0 ||
+    current.paymentDataStatus === 'partial' ||
+    base.paymentDataStatus === 'partial'
+  ) {
+    return { canCompare: false, formatted: '-' };
+  }
+  return {
+    canCompare: true,
+    formatted: calcComparisonMetricDelta(current.tablesUsed, base.tablesUsed, 'amount', true).formatted,
+  };
+}
+
+/**
  * 기간 비교 지표의 증감 계산/포맷 공통 함수
  * - amount: 변화율(%) — 예: +12.3%, −50.0%
  * - ratio: %p 차이 — 예: +7.1%p, −5.7%p
