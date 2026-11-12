@@ -130,7 +130,7 @@ export async function GET(request: Request) {
       { data: currentMenuSalesData },
       { data: prevMenuSalesData },
       { data: lastYearMenuSalesData },
-      { data: menuMasterData }
+      { data: menuMasterData, error: menuMasterError }
     ] = await Promise.all([
       storeQuery,
       salesQuery,
@@ -146,6 +146,13 @@ export async function GET(request: Request) {
       lastYearMenuSalesQuery,
       menuMasterQuery
     ]);
+
+    if (menuMasterError) {
+      return NextResponse.json(
+        { error: `메뉴 마스터를 불러오지 못했습니다: ${menuMasterError.message}` },
+        { status: 500 }
+      );
+    }
 
     const sales = salesData ?? [];
     const prevSales = prevSalesData ?? [];
@@ -501,30 +508,39 @@ export async function GET(request: Request) {
         .map((m) => `${m.name} ${m.amount}원(${m.sharePct.toFixed(1)}%)`)
         .join(', ');
 
+      const isMenuPartial = currentMenuAnalysis.dataStatus === 'partial';
       const liqCostText =
-        currentMenuAnalysis.liquorCostRatio !== null
+        !isMenuPartial && currentMenuAnalysis.liquorCostRatio !== null
           ? `${currentMenuAnalysis.liquorCostRatio.toFixed(1)}%${
-              prevMenuAnalysis.hasMenuData && prevMenuAnalysis.liquorCostRatio !== null
+              prevMenuAnalysis.hasMenuData &&
+              prevMenuAnalysis.dataStatus !== 'partial' &&
+              prevMenuAnalysis.liquorCostRatio !== null
                 ? ` (${calcComparisonMetricDelta(currentMenuAnalysis.liquorCostRatio, prevMenuAnalysis.liquorCostRatio, 'ratio', true).formatted})`
                 : ''
             }`
           : '없음';
       const foodCostText =
-        currentMenuAnalysis.foodCostRatio !== null
+        !isMenuPartial && currentMenuAnalysis.foodCostRatio !== null
           ? `${currentMenuAnalysis.foodCostRatio.toFixed(1)}%${
-              prevMenuAnalysis.hasMenuData && prevMenuAnalysis.foodCostRatio !== null
+              prevMenuAnalysis.hasMenuData &&
+              prevMenuAnalysis.dataStatus !== 'partial' &&
+              prevMenuAnalysis.foodCostRatio !== null
                 ? ` (${calcComparisonMetricDelta(currentMenuAnalysis.foodCostRatio, prevMenuAnalysis.foodCostRatio, 'ratio', true).formatted})`
                 : ''
             }`
           : '없음';
 
-      menuPromptSection = [
-        `메뉴 데이터 상태: ${currentMenuAnalysis.dataStatus === 'partial' ? `일부 데이터 (${currentMenuAnalysis.daysWithMenuData}/${currentMenuAnalysis.totalSalesDays}일)` : `완전 (${currentMenuAnalysis.daysWithMenuData}일)`}`,
+      const menuLines = [
+        `메뉴 매출·비중은 순매출 기준`,
+        `메뉴 데이터 상태: ${isMenuPartial ? `일부 데이터 (${currentMenuAnalysis.daysWithMenuData}/${currentMenuAnalysis.totalSalesDays}일)` : `완전 (${currentMenuAnalysis.daysWithMenuData}일)`}`,
         `카테고리 비중(비율 변화는 %p): 주류 ${currentMenuAnalysis.majorShares.liquor.toFixed(1)}% (${lSharePrev}), 안주·식사 ${currentMenuAnalysis.majorShares.food.toFixed(1)}% (${fSharePrev}), 기타 ${currentMenuAnalysis.majorShares.other.toFixed(1)}%`,
         `주류 세부: ${subSummary || '없음'}`,
-        `카테고리별 원가율(비율 변화는 %p): 주류 원가율 ${liqCostText}, 안주 원가율 ${foodCostText}`,
-        `상위 대표 메뉴: ${top3Text || '없음'} / 하위권 메뉴: ${bottomText || '없음'}`,
-      ].join('\n');
+      ];
+      if (!isMenuPartial) {
+        menuLines.push(`카테고리별 원가율(비율 변화는 %p): 주류 원가율 ${liqCostText}, 안주 원가율 ${foodCostText}`);
+      }
+      menuLines.push(`상위 대표 메뉴: ${top3Text || '없음'} / 하위권 메뉴: ${bottomText || '없음'}`);
+      menuPromptSection = menuLines.join('\n');
     }
 
     const aiPrompt = `${metricDefinitions}

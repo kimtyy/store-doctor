@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
+import { calcServerAvgSpend, resolvePaymentCountInput } from '@/lib/analytics/periodComparison';
 
 interface SalesMenuItem {
   name: string;
@@ -86,6 +87,11 @@ export async function POST(request: Request) {
       console.error('Weather fetch error:', err);
     }
 
+    const paymentCount = resolvePaymentCountInput(receipt.tablesUsed, receipt.guestCount);
+    const resolvedGuestCount = receipt.guestCount && receipt.guestCount > 0 ? receipt.guestCount : paymentCount;
+    // 클라이언트 avgSpend 무시: 서버에서 항상 순매출 ÷ 결제 건수로 재계산
+    const serverAvgSpend = calcServerAvgSpend(receipt.netRevenue || 0, paymentCount);
+
     const { data: salesData, error: salesError } = await supabase
       .from('daily_sales')
       .insert({
@@ -103,14 +109,9 @@ export async function POST(request: Request) {
         cash_amount: receipt.cashAmount || 0,
         card_count: receipt.cardCount || 0,
         card_amount: receipt.cardAmount || 0,
-        tables_used: receipt.tablesUsed || receipt.guestCount || 0,
-        guest_count: receipt.guestCount || receipt.tablesUsed || 0,
-        avg_spend:
-          receipt.avgSpend && receipt.avgSpend > 0
-            ? receipt.avgSpend
-            : (receipt.tablesUsed || receipt.guestCount || 0) > 0 && (receipt.totalRevenue || 0) > 0
-              ? Math.round((receipt.totalRevenue || 0) / (receipt.tablesUsed || receipt.guestCount || 1))
-              : 0,
+        tables_used: paymentCount,
+        guest_count: resolvedGuestCount,
+        avg_spend: serverAvgSpend,
         open_time: receipt.openTime || null,
         close_time: receipt.closeTime || null,
         first_order_time: receipt.firstOrderTime || null,

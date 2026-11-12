@@ -1,22 +1,20 @@
 import { DailySales } from '../../types/sales';
 import { parseClaudeJson } from '../claude';
+import { calcServerAvgSpend, resolvePaymentCountInput } from '../analytics/periodComparison';
 
 export function parsePosReceiptResponse(rawText: string): DailySales {
   const parsed = parseClaudeJson<Record<string, unknown>>(rawText);
 
   const totalRevenue = Number(parsed.totalRevenue ?? 0) || 0;
   const serviceAmount = Number(parsed.serviceAmount ?? parsed.serviceCharge ?? 0) || 0;
-  const rawTablesUsed = Number(parsed.tablesUsed ?? 0) || 0;
+  const netRevenue = Number(parsed.netRevenue ?? 0) || 0;
+  const paymentCount = resolvePaymentCountInput(
+    Number(parsed.tablesUsed ?? 0),
+    Number(parsed.guestCount ?? 0)
+  );
   const rawGuestCount = Number(parsed.guestCount ?? 0) || 0;
-  const paymentCount = rawTablesUsed > 0 ? rawTablesUsed : rawGuestCount;
   const resolvedGuestCount = rawGuestCount > 0 ? rawGuestCount : paymentCount;
-  const rawAvgSpend = Number(parsed.avgSpend ?? 0) || 0;
-  const resolvedAvgSpend =
-    rawAvgSpend > 0
-      ? rawAvgSpend
-      : paymentCount > 0 && totalRevenue > 0
-        ? Math.round(totalRevenue / paymentCount)
-        : 0;
+  const resolvedAvgSpend = calcServerAvgSpend(netRevenue, paymentCount);
 
   return {
     date: String(parsed.date ?? ''),
@@ -26,7 +24,7 @@ export function parsePosReceiptResponse(rawText: string): DailySales {
     serviceAmount,
     actualSales: Number(parsed.actualSales ?? (totalRevenue - serviceAmount)),
     tax: Number(parsed.tax ?? 0),
-    netRevenue: Number(parsed.netRevenue ?? 0),
+    netRevenue,
     cashCount: Number(parsed.cashCount ?? 0),
     cashAmount: Number(parsed.cashAmount ?? 0),
     cardCount: Number(parsed.cardCount ?? 0),

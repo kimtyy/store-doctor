@@ -242,14 +242,14 @@ export function resolveMenuWithIndex(
  */
 export function suggestLiquorSubCategory(menuName: string): LiquorSubCategoryKey {
   const k = normalizeMenuCanonicalKey(menuName);
-  if (/(막걸리|동동주|청하|백세주|매화수|전통주|산사춘|복분자|산삼주|일품진로|화요)/.test(k)) {
+  if (/(참이슬|진로|일품진로|처음처럼|새로|한라산|이슬토닉|한라토닉|처처토닉|대선|좋은데이|소주)/.test(k)) {
+    return 'soju';
+  }
+  if (/(막걸리|동동주|청하|백세주|매화수|전통주|산사춘|복분자|산삼주|화요)/.test(k)) {
     return 'makgeolli';
   }
-  if (/(생맥주|눈꽃맥주|과일생맥|피쳐|피처|생맥|\d+cc)/.test(k) && !/(카스|테라|켈리)/.test(k) ? true : /(생맥|피쳐|피처|눈꽃맥주|눈꽃과일)/.test(k)) {
+  if (/(생맥|피쳐|피처|눈꽃맥주|눈꽃과일|과일생맥)/.test(k) || (/\d+cc/.test(k) && !/(카스|테라|켈리)/.test(k))) {
     return 'draft_beer';
-  }
-  if (/(참이슬|진로|처음처럼|새로|한라산|이슬토닉|한라토닉|처처토닉|대선|좋은데이|소주)/.test(k)) {
-    return 'soju';
   }
   if (/(에일|ipa|수제|크래프트|상상페일|스카이파인|스타우트|바이젠|필스너)/.test(k)) {
     return 'craft_beer';

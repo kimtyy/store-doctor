@@ -9,7 +9,11 @@ import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '../../components/PeriodSelector';
 import TermTooltip from '../../components/ui/TermTooltip';
-import { getPaymentCount } from '../../lib/analytics/periodComparison';
+import {
+  calcServerAvgSpend,
+  getPaymentCount,
+  resolvePaymentCountInput,
+} from '../../lib/analytics/periodComparison';
 
 type Tab = 'input' | 'history';
 type ParseMode = 'full' | 'menu_only' | 'manual';
@@ -358,9 +362,12 @@ export default function SalesInputPage() {
           tax: record.tax ?? 0,
           cashAmount: record.cashAmount ?? 0,
           cardAmount: record.cardAmount ?? 0,
-          tablesUsed: getPaymentCount(record) ?? 0,
-          guestCount: getPaymentCount(record) ?? 0,
-          avgSpend: record.avgSpend ?? 0,
+          tablesUsed: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          guestCount: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          avgSpend: calcServerAvgSpend(
+            record.netRevenue,
+            resolvePaymentCountInput(record.tablesUsed, record.guestCount)
+          ),
           menuItems: record.menuItems ? [...record.menuItems] : [],
         },
       }));
@@ -417,6 +424,7 @@ export default function SalesInputPage() {
   }
 
   function handleAddMenuMode(record: DailySales) {
+    const payCount = resolvePaymentCountInput(record.tablesUsed, record.guestCount);
     setEditableReceipt({
       date: record.date,
       totalRevenue: record.totalRevenue,
@@ -424,7 +432,8 @@ export default function SalesInputPage() {
       cashAmount: record.cashAmount ?? 0,
       cardAmount: record.cardAmount ?? 0,
       serviceAmount: record.serviceAmount ?? 0,
-      guestCount: record.guestCount ?? 0,
+      tablesUsed: payCount,
+      guestCount: payCount,
       tax: record.tax ?? 0,
       discount: record.discount ?? 0,
       actualSales: record.actualSales ?? record.totalRevenue,
@@ -1158,7 +1167,18 @@ export default function SalesInputPage() {
                                   className={iClsDark}
                                 />
                               </div>
-                              <div><label className="text-xs text-slate-400">결제 1건당 매출 <TermTooltip term="결제 1건당 매출" /></label><input type="number" value={draft.avgSpend} onChange={(e) => patchDraft(record.id!, { avgSpend: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div>
+                                <label className="text-xs text-slate-400">결제 1건당 매출 <TermTooltip term="결제 1건당 매출" /></label>
+                                {(() => {
+                                  const draftPayCnt = resolvePaymentCountInput(draft.tablesUsed, draft.guestCount);
+                                  const computedAvg = calcServerAvgSpend(draft.netRevenue, draftPayCnt);
+                                  return (
+                                    <div className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900/70 p-2.5 text-sm font-semibold text-slate-300">
+                                      {draftPayCnt > 0 ? `${computedAvg.toLocaleString()}원` : '-'}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
                             </div>
 
                             <div>

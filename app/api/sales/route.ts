@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { getUserRole } from '@/utils/supabase/getUserRole';
+import { calcServerAvgSpend, resolvePaymentCountInput } from '@/lib/analytics/periodComparison';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,14 +104,10 @@ export async function PATCH(request: Request) {
     }
 
     const serviceAmount = receipt.serviceAmount ?? 0;
-    const resolvedPaymentCount = receipt.tablesUsed ?? receipt.guestCount ?? 0;
-    const resolvedGuestCount = receipt.guestCount ?? receipt.tablesUsed ?? 0;
-    const resolvedAvgSpend =
-      receipt.avgSpend && receipt.avgSpend > 0
-        ? receipt.avgSpend
-        : resolvedPaymentCount > 0 && receipt.totalRevenue > 0
-          ? Math.round(receipt.totalRevenue / resolvedPaymentCount)
-          : 0;
+    const resolvedPaymentCount = resolvePaymentCountInput(receipt.tablesUsed, receipt.guestCount);
+    const resolvedGuestCount = receipt.guestCount && receipt.guestCount > 0 ? receipt.guestCount : resolvedPaymentCount;
+    // 클라이언트 avgSpend 무시: 서버에서 항상 순매출 ÷ 결제 건수로 재계산
+    const serverAvgSpend = calcServerAvgSpend(receipt.netRevenue || 0, resolvedPaymentCount);
     const updateFields: Record<string, unknown> = {
       total_revenue: receipt.totalRevenue,
       service_charge: serviceAmount,
@@ -122,7 +119,7 @@ export async function PATCH(request: Request) {
       card_amount: receipt.cardAmount ?? 0,
       tables_used: resolvedPaymentCount,
       guest_count: resolvedGuestCount,
-      avg_spend: resolvedAvgSpend,
+      avg_spend: serverAvgSpend,
       note: receipt.note ?? null,
     };
     if (receipt.date) updateFields.date = receipt.date;

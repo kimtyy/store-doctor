@@ -153,6 +153,30 @@ export interface PeriodStats {
 export const LOW_INPUT_RATE_THRESHOLD = 0.8;
 
 /**
+ * 결제 건수 입력 폴백 공통 함수 (1-L2)
+ * tablesUsed > 0 ? tablesUsed : (guestCount > 0 ? guestCount : 0)
+ */
+export function resolvePaymentCountInput(
+  tablesUsed?: number | null,
+  guestCount?: number | null
+): number {
+  const tables = Number(tablesUsed ?? 0) || 0;
+  if (tables > 0) return tables;
+  const guests = Number(guestCount ?? 0) || 0;
+  if (guests > 0) return guests;
+  return 0;
+}
+
+/**
+ * 결제 1건당 매출 서버/클라이언트 공통 계산 (순매출 기준)
+ * round(netRevenue ÷ paymentCount), 건수 없으면 0
+ */
+export function calcServerAvgSpend(netRevenue: number, paymentCount: number): number {
+  if (paymentCount <= 0 || netRevenue <= 0) return 0;
+  return Math.round(netRevenue / paymentCount);
+}
+
+/**
  * 결제 건수(tables_used) 읽기 폴백 단일 공통 함수 (1-L 후속)
  * - DB 과거 행을 수정하지 않고, tables_used 우선 → 없으면 guest_count 폴백 → 둘 다 0/없으면 null
  */
@@ -162,11 +186,11 @@ export function getPaymentCount(row: {
   tablesUsed?: number | null;
   guestCount?: number | null;
 }): number | null {
-  const tables = row.tables_used ?? row.tablesUsed ?? 0;
-  if (tables > 0) return tables;
-  const guests = row.guest_count ?? row.guestCount ?? 0;
-  if (guests > 0) return guests;
-  return null;
+  const count = resolvePaymentCountInput(
+    row.tables_used ?? row.tablesUsed,
+    row.guest_count ?? row.guestCount
+  );
+  return count > 0 ? count : null;
 }
 
 export function calcPeriodStats(

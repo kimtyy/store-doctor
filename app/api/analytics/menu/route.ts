@@ -62,7 +62,7 @@ export async function GET(request: Request) {
       query = query.eq('is_event', false);
     }
 
-    const [{ data, error }, { data: masterRows }] = await Promise.all([
+    const [{ data, error }, { data: masterRows, error: masterError }] = await Promise.all([
       query.order('date', { ascending: false }),
       supabase
         .from('menu_master')
@@ -72,6 +72,12 @@ export async function GET(request: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (masterError) {
+      return NextResponse.json(
+        { error: `메뉴 마스터를 불러오지 못했습니다: ${masterError.message}` },
+        { status: 500 }
+      );
     }
 
     const masterIndex = buildMenuMasterIndex(masterRows ?? []);

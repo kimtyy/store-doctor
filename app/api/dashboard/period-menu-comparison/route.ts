@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,21 +111,20 @@ export async function GET(request: Request) {
   const periods = getPeriodDates(endDateStr, periodType);
 
   try {
-    // 1. menu_master 카테고리 매핑 로드
-    const { data: masterRows } = await supabase
+    // 1. menu_master 카테고리 매핑 로드 (buildMenuMasterIndex/resolveMenuWithIndex 공통 사용)
+    const { data: masterRows, error: masterError } = await supabase
       .from('menu_master')
-      .select('menu_name, category, aliases')
+      .select('menu_name, category, liquor_sub_category, aliases')
       .eq('store_id', STORE_ID);
 
-    const masterCategoryMap: Record<string, string> = {};
-    for (const m of masterRows || []) {
-      if (m.category) {
-        masterCategoryMap[m.menu_name.trim()] = m.category.trim();
-        for (const alias of m.aliases || []) {
-          masterCategoryMap[alias.trim()] = m.category.trim();
-        }
-      }
+    if (masterError) {
+      return NextResponse.json(
+        { error: `메뉴 마스터를 불러오지 못했습니다: ${masterError.message}` },
+        { status: 500 }
+      );
     }
+
+    const masterIndex = buildMenuMasterIndex(masterRows ?? []);
 
     // 2. 이전 기간 시작일부터 이번 기간 종료일까지 daily_sales + sales_menu_items 조회
     const { data: sales, error: salesError } = await supabase
@@ -142,6 +142,7 @@ export async function GET(request: Request) {
     const currentQtyMap: Record<string, number> = {};
     const previousQtyMap: Record<string, number> = {};
     const menuCategories: Record<string, string> = {};
+    const canonicalDisplayNames: Record<string, string> = {};
     const allNames = new Set<string>();
 
     for (const s of sales || []) {
@@ -152,13 +153,17 @@ export async function GET(request: Request) {
       if (!isCurrent && !isPrevious) continue;
 
       for (const item of (s.sales_menu_items || [])) {
-        const name = item.name?.trim();
-        if (!name) continue;
+        const rawName = item.name?.trim();
+        if (!rawName) continue;
         const qty = Number(item.quantity) || 0;
         if (qty <= 0) continue;
 
+        const resolved = resolveMenuWithIndex(rawName, masterIndex, item.category);
+        const name = resolved.canonicalName;
+        if (!canonicalDisplayNames[name]) canonicalDisplayNames[name] = name;
+
         allNames.add(name);
-        const cat = item.category?.trim() || masterCategoryMap[name] || '';
+        const cat = resolved.rawCategory || item.category?.trim() || '';
         if (cat && !menuCategories[name]) {
           menuCategories[name] = cat;
         }
@@ -189,7 +194,7 @@ export async function GET(request: Request) {
 
       const itemObj: PeriodMenuComparisonItem = {
         name,
-        category: menuCategories[name] || masterCategoryMap[name] || undefined,
+        category: menuCategories[name] || undefined,
         thisPeriodQty,
         lastPeriodQty,
         thisMonthQty: thisPeriodQty,

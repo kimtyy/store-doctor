@@ -862,6 +862,18 @@ function MonthlyReportContent() {
                           <span className="text-xs text-slate-400">데이터 없음</span>
                         ) : (data.comparison.prev.tablesUsed ?? 0) === 0 ? (
                           <span className="text-xs text-slate-400">미입력</span>
+                        ) : data.comparison.current.paymentDataStatus === 'partial' ||
+                          data.comparison.prev.paymentDataStatus === 'partial' ? (
+                          <div className="flex flex-col items-center sm:items-end justify-center">
+                            <span className="font-semibold text-slate-700 text-sm">
+                              {fmt(data.comparison.prev.tablesUsed)}건
+                            </span>
+                            {data.comparison.prev.paymentDataStatus === 'partial' && (
+                              <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1 py-0.5 mt-0.5">
+                                일부 데이터({data.comparison.prev.paymentDaysCount}/{data.comparison.prev.openDays}일)
+                              </span>
+                            )}
+                          </div>
                         ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
                           <ComparisonCell
                             current={data.comparison.current.tablesUsed}
@@ -878,6 +890,18 @@ function MonthlyReportContent() {
                           <span className="text-xs text-slate-400">데이터 없음</span>
                         ) : (data.comparison.lastYear.tablesUsed ?? 0) === 0 ? (
                           <span className="text-xs text-slate-400">미입력</span>
+                        ) : data.comparison.current.paymentDataStatus === 'partial' ||
+                          data.comparison.lastYear.paymentDataStatus === 'partial' ? (
+                          <div className="flex flex-col items-center sm:items-end justify-center">
+                            <span className="font-semibold text-slate-700 text-sm">
+                              {fmt(data.comparison.lastYear.tablesUsed)}건
+                            </span>
+                            {data.comparison.lastYear.paymentDataStatus === 'partial' && (
+                              <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1 py-0.5 mt-0.5">
+                                일부 데이터({data.comparison.lastYear.paymentDaysCount}/{data.comparison.lastYear.openDays}일)
+                              </span>
+                            )}
+                          </div>
                         ) : (data.comparison.current.tablesUsed ?? 0) > 0 ? (
                           <ComparisonCell
                             current={data.comparison.current.tablesUsed}
@@ -1176,52 +1200,88 @@ function MonthlyReportContent() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-indigo-900">주류 원가율</span>
                         <span className="text-lg font-extrabold text-indigo-950">
-                          {mc.liquorCostRatio !== null ? `${mc.liquorCostRatio.toFixed(1)}%` : '데이터 없음'}
+                          {mc.dataStatus === 'partial'
+                            ? '-'
+                            : mc.liquorCostRatio !== null
+                              ? `${mc.liquorCostRatio.toFixed(1)}%`
+                              : '데이터 없음'}
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] text-slate-600">
-                        주류 매입 {fmt(mc.liquorCost)}원 ÷ 주류 매출 {fmt(mc.majorAmounts.liquor)}원
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
-                        <span>
-                          전월:{' '}
-                          {mp?.hasMenuData && mc.liquorCostRatio !== null && mp.liquorCostRatio !== null
-                            ? `${mp.liquorCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.liquorCostRatio, mp.liquorCostRatio, 'ratio', true).formatted})`
-                            : '데이터 없음'}
-                        </span>
-                        <span>
-                          전년:{' '}
-                          {ml?.hasMenuData && mc.liquorCostRatio !== null && ml.liquorCostRatio !== null
-                            ? `${ml.liquorCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.liquorCostRatio, ml.liquorCostRatio, 'ratio', true).formatted})`
-                            : '데이터 없음'}
-                        </span>
-                      </div>
+                      {mc.dataStatus === 'partial' ? (
+                        <p className="mt-1 text-[11px] text-amber-800">
+                          메뉴 입력이 일부라 계산하지 않았습니다
+                        </p>
+                      ) : (
+                        <>
+                          <p className="mt-1 text-[11px] text-slate-600">
+                            주류 매입 {fmt(mc.liquorCost)}원 ÷ 주류 매출 {fmt(mc.majorAmounts.liquor)}원
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
+                            <span>
+                              전월:{' '}
+                              {mp?.hasMenuData &&
+                              mp.dataStatus !== 'partial' &&
+                              mc.liquorCostRatio !== null &&
+                              mp.liquorCostRatio !== null
+                                ? `${mp.liquorCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.liquorCostRatio, mp.liquorCostRatio, 'ratio', true).formatted})`
+                                : '데이터 없음'}
+                            </span>
+                            <span>
+                              전년:{' '}
+                              {ml?.hasMenuData &&
+                              ml.dataStatus !== 'partial' &&
+                              mc.liquorCostRatio !== null &&
+                              ml.liquorCostRatio !== null
+                                ? `${ml.liquorCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.liquorCostRatio, ml.liquorCostRatio, 'ratio', true).formatted})`
+                                : '데이터 없음'}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="rounded-xl border border-orange-200 bg-orange-50/50 p-3.5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-orange-900">안주 원가율</span>
                         <span className="text-lg font-extrabold text-orange-950">
-                          {mc.foodCostRatio !== null ? `${mc.foodCostRatio.toFixed(1)}%` : '데이터 없음'}
+                          {mc.dataStatus === 'partial'
+                            ? '-'
+                            : mc.foodCostRatio !== null
+                              ? `${mc.foodCostRatio.toFixed(1)}%`
+                              : '데이터 없음'}
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] text-slate-600">
-                        식자재 매입 {fmt(mc.foodPurchaseCost)}원 ÷ 안주·식사 매출 {fmt(mc.majorAmounts.food)}원
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
-                        <span>
-                          전월:{' '}
-                          {mp?.hasMenuData && mc.foodCostRatio !== null && mp.foodCostRatio !== null
-                            ? `${mp.foodCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.foodCostRatio, mp.foodCostRatio, 'ratio', true).formatted})`
-                            : '데이터 없음'}
-                        </span>
-                        <span>
-                          전년:{' '}
-                          {ml?.hasMenuData && mc.foodCostRatio !== null && ml.foodCostRatio !== null
-                            ? `${ml.foodCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.foodCostRatio, ml.foodCostRatio, 'ratio', true).formatted})`
-                            : '데이터 없음'}
-                        </span>
-                      </div>
+                      {mc.dataStatus === 'partial' ? (
+                        <p className="mt-1 text-[11px] text-amber-800">
+                          메뉴 입력이 일부라 계산하지 않았습니다
+                        </p>
+                      ) : (
+                        <>
+                          <p className="mt-1 text-[11px] text-slate-600">
+                            식자재 매입 {fmt(mc.foodPurchaseCost)}원 ÷ 안주·식사 매출 {fmt(mc.majorAmounts.food)}원
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
+                            <span>
+                              전월:{' '}
+                              {mp?.hasMenuData &&
+                              mp.dataStatus !== 'partial' &&
+                              mc.foodCostRatio !== null &&
+                              mp.foodCostRatio !== null
+                                ? `${mp.foodCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.foodCostRatio, mp.foodCostRatio, 'ratio', true).formatted})`
+                                : '데이터 없음'}
+                            </span>
+                            <span>
+                              전년:{' '}
+                              {ml?.hasMenuData &&
+                              ml.dataStatus !== 'partial' &&
+                              mc.foodCostRatio !== null &&
+                              ml.foodCostRatio !== null
+                                ? `${ml.foodCostRatio.toFixed(1)}% (${calcComparisonMetricDelta(mc.foodCostRatio, ml.foodCostRatio, 'ratio', true).formatted})`
+                                : '데이터 없음'}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
 

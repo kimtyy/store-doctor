@@ -205,7 +205,18 @@ export default function MenuMasterPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? '저장 실패');
-      setMessage({ type: 'success', text: `✅ ${body.count}개 저장 완료` });
+      const skipped = Array.isArray(body?.skippedDuplicates) ? body.skippedDuplicates : [];
+      if (skipped.length > 0) {
+        const dupList = skipped
+          .map((d: { menuName: string; existingName: string }) => `${d.menuName}→${d.existingName}`)
+          .join(', ');
+        setMessage({
+          type: 'success',
+          text: `✅ ${body.count}개 저장 완료 (중복 건너뜀 ${skipped.length}건: ${dupList})`,
+        });
+      } else {
+        setMessage({ type: 'success', text: `✅ ${body.count}개 저장 완료` });
+      }
       await load();
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '저장 실패' });

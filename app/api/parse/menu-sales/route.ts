@@ -69,6 +69,8 @@ export async function POST(request: Request) {
 
       if (masters && masters.length > 0) {
         const { correctMenuName } = await import('../../../../lib/menuCorrection');
+        const { buildMenuMasterIndex, resolveMenuWithIndex } = await import('../../../../lib/menus');
+        const masterIndex = buildMenuMasterIndex(masters);
         parsed.menuItems = parsed.menuItems.map((item: any) => {
           const res = correctMenuName(
             item.name,
@@ -82,8 +84,8 @@ export async function POST(request: Request) {
           if (res.status === 'exact' || res.status === 'auto') {
             return {
               ...item,
-              name: res.correctedName,
-              category: res.category ?? undefined,
+              name: resolveMenuWithIndex(res.correctedName, masterIndex, res.category).canonicalName,
+              category: resolveMenuWithIndex(res.correctedName, masterIndex, res.category).rawCategory ?? undefined,
               _originalName: res.originalName,
               _correctionStatus: res.status,
             };

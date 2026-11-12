@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 import {
   buildMenuMasterIndex,
   findSimilarMenuPairs,
@@ -22,9 +23,34 @@ function makeClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+interface MenuMasterRowLite {
+  id: string;
+  menu_name: string;
+  aliases: string[] | null;
+  category: string | null;
+  liquor_sub_category: string | null;
+}
+
+function findCanonicalRowMatch(
+  rows: MenuMasterRowLite[],
+  candidateKey: string,
+  excludeId?: string | null
+): MenuMasterRowLite | undefined {
+  if (!candidateKey) return undefined;
+  return rows.find((row) => {
+    if (excludeId && row.id === excludeId) return false;
+    if (normalizeMenuCanonicalKey(row.menu_name) === candidateKey) return true;
+    return (row.aliases ?? []).some((a) => normalizeMenuCanonicalKey(a) === candidateKey);
+  });
+}
+
 export async function PATCH(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const role = await getUserRole();
+  if (role === 'staff') {
+    return NextResponse.json({ error: '메뉴 관리는 사장님 계정만 할 수 있습니다.' }, { status: 403 });
+  }
 
   try {
     const supabase = makeClient();
@@ -33,28 +59,25 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '요청 본문이 비어 있습니다.' }, { status: 400 });
     }
 
-    // 1) 유사 메뉴 별칭 통합 액션 (기존 sales_menu_items 히스토리는 수정하지 않고 menu_master.aliases만 병합)
+    const { data: allRowsData, error: listErr } = await supabase
+      .from('menu_master')
+      .select('id, menu_name, aliases, category, liquor_sub_category')
+      .eq('store_id', STORE_ID);
+    if (listErr) throw new Error(listErr.message);
+    const allRows = (allRowsData ?? []) as MenuMasterRowLite[];
+
+    // 1) 유사 메뉴 별칭 통합 액션 (canonical key 기준으로 대상·별칭 행 조회)
     if (body.action === 'mergeAlias') {
       const targetMenuName = normalizeMenuDisplayName(String(body.targetMenuName ?? ''));
       const aliasName = normalizeMenuDisplayName(String(body.aliasName ?? ''));
-      if (!targetMenuName || !aliasName || targetMenuName === aliasName) {
+      const targetKey = normalizeMenuCanonicalKey(targetMenuName);
+      const aliasKey = normalizeMenuCanonicalKey(aliasName);
+      if (!targetMenuName || !aliasName || !targetKey || !aliasKey || targetKey === aliasKey) {
         return NextResponse.json({ error: '통합할 대상 메뉴명과 별칭이 올바르지 않습니다.' }, { status: 400 });
       }
 
-      const [{ data: targetRow }, { data: aliasRow }] = await Promise.all([
-        supabase
-          .from('menu_master')
-          .select('id, menu_name, aliases, category, liquor_sub_category')
-          .eq('store_id', STORE_ID)
-          .eq('menu_name', targetMenuName)
-          .maybeSingle(),
-        supabase
-          .from('menu_master')
-          .select('id, menu_name, aliases, category, liquor_sub_category')
-          .eq('store_id', STORE_ID)
-          .eq('menu_name', aliasName)
-          .maybeSingle(),
-      ]);
+      const targetRow = findCanonicalRowMatch(allRows, targetKey);
+      const aliasRow = findCanonicalRowMatch(allRows, aliasKey, targetRow?.id ?? null);
 
       const mergedAliasSet = new Set<string>(targetRow?.aliases ?? []);
       mergedAliasSet.add(aliasName);
@@ -129,20 +152,28 @@ export async function PATCH(request: Request) {
     }
 
     // Canonical name: if renaming, use newName; otherwise menuName
+    const cleanOrigName = normalizeMenuDisplayName(menuName);
     const canonicalName =
       newName && newName.trim() && newName.trim() !== menuName
         ? normalizeMenuDisplayName(newName)
-        : normalizeMenuDisplayName(menuName);
-    const isRename = canonicalName !== normalizeMenuDisplayName(menuName);
+        : cleanOrigName;
+    const isRename = canonicalName !== cleanOrigName;
+    const origKey = normalizeMenuCanonicalKey(cleanOrigName);
+    const targetKey = normalizeMenuCanonicalKey(canonicalName);
 
-    const { data: existing, error: fetchError } = await supabase
-      .from('menu_master')
-      .select('id, aliases, category, liquor_sub_category')
-      .eq('menu_name', canonicalName)
-      .eq('store_id', STORE_ID)
-      .maybeSingle();
+    const existingExact = allRows.find((r) => r.menu_name === canonicalName);
+    const origRow = isRename ? allRows.find((r) => r.menu_name === cleanOrigName) : existingExact;
 
-    if (fetchError) throw new Error(fetchError.message);
+    // 새 행 생성 또는 이름 변경 전 canonical key 충돌 검사 (409)
+    const conflict = findCanonicalRowMatch(allRows, targetKey, origRow?.id ?? null);
+    if (conflict && !existingExact) {
+      return NextResponse.json(
+        { error: `이미 등록된 메뉴입니다: ${conflict.menu_name}` },
+        { status: 409 }
+      );
+    }
+
+    const existing = existingExact ?? null;
 
     if (existing) {
       const updatePayload: Record<string, unknown> = {};
@@ -203,6 +234,10 @@ export async function PATCH(request: Request) {
 export async function PUT(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const role = await getUserRole();
+  if (role === 'staff') {
+    return NextResponse.json({ error: '메뉴 관리는 사장님 계정만 할 수 있습니다.' }, { status: 403 });
+  }
 
   try {
     const supabase = makeClient();
@@ -230,10 +265,37 @@ export async function PUT(request: Request) {
       }
     }
 
+    const { data: existingRowsData, error: existingErr } = await supabase
+      .from('menu_master')
+      .select('id, menu_name, aliases, category, liquor_sub_category')
+      .eq('store_id', STORE_ID);
+    if (existingErr) throw new Error(existingErr.message);
+    const existingRows = (existingRowsData ?? []) as MenuMasterRowLite[];
+
     let savedCount = 0;
+    const skippedDuplicates: Array<{ menuName: string; existingName: string }> = [];
+    const seenBatchKeys = new Map<string, string>(); // key -> menuName
+
     for (const raw of items) {
       const menuName = normalizeMenuDisplayName(String(raw.menuName ?? ''));
       if (!menuName) continue;
+      const candKey = normalizeMenuCanonicalKey(menuName);
+
+      // 기존 마스터 또는 배치 내 canonical key 중복 체크 (자기 자신 id 수정은 허용)
+      const dupInDb = findCanonicalRowMatch(existingRows, candKey, raw.id ?? null);
+      if (dupInDb && (!raw.id || dupInDb.id !== raw.id)) {
+        // 기존 행과 이름이 정확히 같고 id가 없는 upsert 케이스가 아니라면 canonical 중복으로 건너뜀
+        if (!(!raw.id && dupInDb.menu_name === menuName)) {
+          skippedDuplicates.push({ menuName, existingName: dupInDb.menu_name });
+          continue;
+        }
+      }
+      const dupInBatch = seenBatchKeys.get(candKey);
+      if (dupInBatch) {
+        skippedDuplicates.push({ menuName, existingName: dupInBatch });
+        continue;
+      }
+      seenBatchKeys.set(candKey, menuName);
 
       const category = raw.category && isValidMenuRawCategory(raw.category) ? raw.category : null;
       const liquorSub =
@@ -268,7 +330,7 @@ export async function PUT(request: Request) {
       savedCount += 1;
     }
 
-    return NextResponse.json({ success: true, count: savedCount });
+    return NextResponse.json({ success: true, count: savedCount, skippedDuplicates });
   } catch (err) {
     const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -278,6 +340,10 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const role = await getUserRole();
+  if (role === 'staff') {
+    return NextResponse.json({ error: '메뉴 관리는 사장님 계정만 할 수 있습니다.' }, { status: 403 });
+  }
 
   try {
     const { searchParams } = new URL(request.url);
@@ -317,12 +383,26 @@ export async function GET() {
     const masterRows = data ?? [];
     const masterIndex = buildMenuMasterIndex(masterRows);
 
-    // 매출 내역에서 아직 menu_master에 없는 메뉴 + 미분류 메뉴 집계 (유사 이름 제안 포함)
-    const { data: salesRows } = await supabase
-      .from('daily_sales')
-      .select('id')
-      .eq('store_id', STORE_ID);
-    const salesIds = (salesRows ?? []).map((r) => r.id as string);
+    // 매출 내역에서 아직 menu_master에 없는 메뉴 + 미분류 메뉴 집계 (daily_sales!inner 조인 + 1000행 페이지네이션)
+    const itemRows: Array<{ name: string | null; category: string | null }> = [];
+    const PAGE_SIZE = 1000;
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const { data: pageRows, error: itemsError } = await supabase
+        .from('sales_menu_items')
+        .select('name, category, daily_sales!inner(store_id)')
+        .eq('daily_sales.store_id', STORE_ID)
+        .order('id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (itemsError) {
+        return NextResponse.json(
+          { error: `매출 메뉴 내역을 불러오지 못했습니다: ${itemsError.message}` },
+          { status: 500 }
+        );
+      }
+      if (!pageRows || pageRows.length === 0) break;
+      itemRows.push(...pageRows);
+      if (pageRows.length < PAGE_SIZE) break;
+    }
 
     const unmappedMap = new Map<
       string,
@@ -342,35 +422,28 @@ export async function GET() {
       }
     }
 
-    if (salesIds.length > 0) {
-      const { data: itemRows } = await supabase
-        .from('sales_menu_items')
-        .select('name, category')
-        .in('daily_sale_id', salesIds);
-
-      for (const row of itemRows ?? []) {
-        if (!row.name) continue;
-        const resolved = resolveMenuWithIndex(row.name, masterIndex, row.category);
-        if (!resolved.canonicalKey) continue;
-        const existingEntry = allCanonicalKeys.get(resolved.canonicalKey);
-        if (existingEntry) {
-          existingEntry.count += 1;
-        } else {
-          allCanonicalKeys.set(resolved.canonicalKey, {
-            name: resolved.canonicalName,
-            count: 1,
-            isMaster: resolved.matchedMaster,
-          });
-        }
-        if (!resolved.matchedMaster && !unmappedMap.has(resolved.canonicalKey)) {
-          const suggestion = suggestMenuClassification(resolved.canonicalName, row.category);
-          unmappedMap.set(resolved.canonicalKey, {
-            name: resolved.canonicalName,
-            category: row.category ?? null,
-            suggestedCategory: suggestion.suggestedCategory,
-            suggestedLiquorSub: suggestion.suggestedLiquorSub,
-          });
-        }
+    for (const row of itemRows ?? []) {
+      if (!row.name) continue;
+      const resolved = resolveMenuWithIndex(row.name, masterIndex, row.category);
+      if (!resolved.canonicalKey) continue;
+      const existingEntry = allCanonicalKeys.get(resolved.canonicalKey);
+      if (existingEntry) {
+        existingEntry.count += 1;
+      } else {
+        allCanonicalKeys.set(resolved.canonicalKey, {
+          name: resolved.canonicalName,
+          count: 1,
+          isMaster: resolved.matchedMaster,
+        });
+      }
+      if (!resolved.matchedMaster && !unmappedMap.has(resolved.canonicalKey)) {
+        const suggestion = suggestMenuClassification(resolved.canonicalName, row.category);
+        unmappedMap.set(resolved.canonicalKey, {
+          name: resolved.canonicalName,
+          category: row.category ?? null,
+          suggestedCategory: suggestion.suggestedCategory,
+          suggestedLiquorSub: suggestion.suggestedLiquorSub,
+        });
       }
     }
 
