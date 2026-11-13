@@ -249,7 +249,7 @@ export function parseOkposMenuDaily(
     if (totalQty !== sumQty || totalAmt !== sumAmt) {
       return {
         ok: false,
-        error: `메뉴 '${rawName}'의 합계 수량/금액이 일자별 합과 일치하지 않습니다. (수량: ${totalQty} vs ${sumQty}, 금액: ${totalAmt} vs ${sumAmt})`,
+        error: '파일 안의 합계가 맞지 않아요. OKPOS에서 다시 받아 주세요.',
       };
     }
 
@@ -274,7 +274,7 @@ export function parseOkposMenuDaily(
       if (dailyColSumQty[day] !== expectedDayQty || dailyColSumAmt[day] !== expectedDayAmt) {
         return {
           ok: false,
-          error: `${day}일자 합계 행과 메뉴별 합계가 일치하지 않습니다. (수량: ${dailyColSumQty[day]} vs ${expectedDayQty}, 금액: ${dailyColSumAmt[day]} vs ${expectedDayAmt})`,
+          error: '파일 안의 합계가 맞지 않아요. OKPOS에서 다시 받아 주세요.',
         };
       }
     }

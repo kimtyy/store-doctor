@@ -68,3 +68,4 @@ export function getSeoulStartOfDayUtc(date: Date = new Date()): string {
   const kstDateStr = kstFormatter.format(date);
   return new Date(`${kstDateStr}T00:00:00+09:00`).toISOString();
 }
+
