@@ -19,6 +19,13 @@ export default function SettingsPage() {
   const [loanRepayment, setLoanRepayment] = useState<number | ''>('');
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // 매장 위치 설정 상태
+  const [storeAddress, setStoreAddress] = useState<string>('');
+  const [storeLatitude, setStoreLatitude] = useState<number | ''>('');
+  const [storeLongitude, setStoreLongitude] = useState<number | ''>('');
+  const [quickCoordInput, setQuickCoordInput] = useState<string>('');
+  const [savingLocation, setSavingLocation] = useState(false);
+
   // 구독 관리 상태
   const [subscription, setSubscription] = useState<any>(null);
   const [loadingSubscription, setLoadingSubscription] = useState(true);
@@ -47,6 +54,9 @@ export default function SettingsPage() {
         if (data.data) {
           setOwnerSalary(data.data.owner_salary || '');
           setLoanRepayment(data.data.loan_repayment || '');
+          setStoreAddress(data.data.address || '');
+          setStoreLatitude(data.data.latitude ?? '');
+          setStoreLongitude(data.data.longitude ?? '');
         }
       })
       .catch(() => {});
@@ -97,6 +107,57 @@ export default function SettingsPage() {
       setMessage({ type: 'error', text: '설정 저장 중 오류가 발생했습니다.' });
     } finally {
       setSavingSettings(false);
+    }
+  }
+
+  // 좌표 쉼표/공백 분리 입력 도우미
+  function handleCoordPaste(raw: string) {
+    setQuickCoordInput(raw);
+    const cleaned = raw.trim();
+    if (!cleaned) return;
+    const parts = cleaned.split(/[\s,;/]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const p1 = Number(parts[0]);
+      const p2 = Number(parts[1]);
+      if (!isNaN(p1) && !isNaN(p2)) {
+        if (p1 >= 33 && p1 <= 39 && p2 >= 124 && p2 <= 132) {
+          setStoreLatitude(p1);
+          setStoreLongitude(p2);
+        } else if (p2 >= 33 && p2 <= 39 && p1 >= 124 && p1 <= 132) {
+          setStoreLatitude(p2);
+          setStoreLongitude(p1);
+        } else {
+          setStoreLatitude(p1);
+          setStoreLongitude(p2);
+        }
+      }
+    }
+  }
+
+  // 매장 위치 설정 저장 (소유자 전용)
+  async function handleSaveLocation() {
+    if (userRole !== 'owner') return;
+    setSavingLocation(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/stores/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: storeAddress,
+          latitude: storeLatitude === '' ? null : Number(storeLatitude),
+          longitude: storeLongitude === '' ? null : Number(storeLongitude),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || '저장 실패');
+      }
+      setMessage({ type: 'success', text: '매장 위치 설정이 저장되었습니다.' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || '매장 위치 저장 중 오류가 발생했습니다.' });
+    } finally {
+      setSavingLocation(false);
     }
   }
 
@@ -451,6 +512,102 @@ export default function SettingsPage() {
             >
               {savingSettings ? '저장 중...' : '저장하기'}
             </button>
+          </div>
+
+          {/* 매장 위치 설정 (날씨 연동) */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
+            <div>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <span>📍</span> 매장 위치 설정 (날씨 연동)
+                </h2>
+                {userRole !== 'owner' && (
+                  <span className="text-[11px] text-slate-500 font-medium">소유자 전용</span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                대시보드 오늘 영업 참고 날씨와 매출 저장 시 날씨 정보에 반영됩니다.
+              </p>
+            </div>
+
+            {/* 안내 문구 */}
+            <div className="rounded-2xl border border-sky-800/40 bg-sky-950/20 p-3 text-xs text-sky-200">
+              💡 네이버/카카오 지도에서 가게를 길게 눌러 나오는 좌표를 붙여 넣으세요.
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">매장 주소 (선택)</label>
+                <input
+                  type="text"
+                  value={storeAddress}
+                  disabled={userRole !== 'owner'}
+                  onChange={(e) => setStoreAddress(e.target.value)}
+                  placeholder="예: 경기도 가평군 조종면 현리"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-sm text-slate-100 disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  좌표 한 칸 붙여넣기 (도우미)
+                </label>
+                <input
+                  type="text"
+                  value={quickCoordInput}
+                  disabled={userRole !== 'owner'}
+                  onChange={(e) => handleCoordPaste(e.target.value)}
+                  placeholder="예: 37.8256, 127.3505 붙여넣기"
+                  className="w-full rounded-2xl border border-dashed border-sky-700/60 bg-slate-950/80 p-3 text-sm text-sky-200 placeholder-slate-500 disabled:opacity-50"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    위도 (Latitude) <span className="text-slate-500 text-[10px]">33~39</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={storeLatitude}
+                    disabled={userRole !== 'owner'}
+                    onChange={(e) => setStoreLatitude(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="37.8256"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-sm text-slate-100 disabled:opacity-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    경도 (Longitude) <span className="text-slate-500 text-[10px]">124~132</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={storeLongitude}
+                    disabled={userRole !== 'owner'}
+                    onChange={(e) => setStoreLongitude(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="127.3505"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-sm text-slate-100 disabled:opacity-50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {userRole === 'owner' ? (
+              <button
+                type="button"
+                onClick={handleSaveLocation}
+                disabled={savingLocation}
+                className="w-full rounded-2xl bg-sky-700 px-6 py-4 text-base font-semibold text-white transition hover:bg-sky-600 disabled:opacity-40"
+              >
+                {savingLocation ? '위치 저장 중...' : '매장 위치 저장하기'}
+              </button>
+            ) : (
+              <p className="text-xs text-slate-500 text-center py-2">
+                매장 위치 설정은 소유자(Owner) 계정만 변경할 수 있습니다.
+              </p>
+            )}
           </div>
 
           {/* 데이터 정규화 */}

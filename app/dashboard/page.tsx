@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/utils/supabase/client';
 import { calculateMovingAverage } from '@/lib/analytics/movingAverage';
 import MAChart from '@/components/charts/MAChart';
@@ -41,25 +42,7 @@ function calcNullableMA(values: (number | null)[], period: number): (number | nu
 }
 
 // ── Weather ──────────────────────────────────────────────────────────────────
-
-interface WeatherInfo {
-  emoji: string;
-  text: string;
-  temp: number;
-  comment: string;
-}
-
-function getWeatherInfo(code: number, temp: number): WeatherInfo {
-  if (code === 0)  return { emoji: '☀️',  text: '맑음',    temp, comment: '맑은 날씨 — 야외 활동이 늘어나는 시간대를 노려보세요' };
-  if (code <= 2)   return { emoji: '🌤',  text: '구름 조금', temp, comment: '대체로 맑아 좋은 영업 날씨예요' };
-  if (code === 3)  return { emoji: '☁️',  text: '흐림',    temp, comment: '흐린 날씨 — 평소와 비슷한 매출이 예상됩니다' };
-  if (code <= 48)  return { emoji: '🌫',  text: '안개',    temp, comment: '안개 — 이른 시간 손님이 줄 수 있어요' };
-  if (code <= 55)  return { emoji: '🌦',  text: '이슬비',   temp, comment: '이슬비 — 포장·배달 수요가 늘 수 있어요' };
-  if (code <= 65)  return { emoji: '🌧',  text: '비',      temp, comment: '비 — 포장·배달 위주로 준비하세요' };
-  if (code <= 75)  return { emoji: '❄️',  text: '눈',      temp, comment: '눈 — 도로 상황에 따라 방문이 줄 수 있어요' };
-  if (code <= 82)  return { emoji: '🌦',  text: '소나기',   temp, comment: '소나기 예보 — 우산 준비를 권장해요' };
-  return             { emoji: '⛈',   text: '천둥번개',  temp, comment: '악천후 — 매출에 영향이 있을 수 있어요' };
-}
+import { WeatherInfo, getWeatherInfo } from '@/lib/weather';
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -100,6 +83,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
+  const [weatherError, setWeatherError] = useState<boolean>(false);
+  const [hasLocation, setHasLocation] = useState<boolean | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [monthlyRising, setMonthlyRising] = useState<MonthlyMenuComparisonItem[]>([]);
@@ -237,19 +223,35 @@ export default function DashboardPage() {
     };
   }, [recentPeriodValue]);
 
-  useEffect(() => {
-    fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=37.8&longitude=127.7' +
-      '&current=temperature_2m,weather_code&timezone=Asia%2FSeoul&forecast_days=1'
-    )
-      .then(r => r.json())
-      .then(data => {
-        const code = data.current?.weather_code ?? 0;
-        const temp = Math.round(data.current?.temperature_2m ?? 0);
-        setWeather(getWeatherInfo(code, temp));
-      })
-      .catch(() => {});
+  const loadWeather = useCallback(async () => {
+    setWeatherLoading(true);
+    setWeatherError(false);
+    try {
+      const res = await fetch('/api/weather/today');
+      if (!res.ok) {
+        setWeatherError(true);
+        return;
+      }
+      const data = await res.json();
+      if (!data.ok) {
+        setWeatherError(true);
+        return;
+      }
+      setHasLocation(data.hasLocation);
+      if (data.hasLocation && data.weather) {
+        setWeather(data.weather);
+      }
+    } catch (err) {
+      console.error('날씨 불러오기 실패:', err);
+      setWeatherError(true);
+    } finally {
+      setWeatherLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadWeather();
+  }, [loadWeather]);
 
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
 
@@ -644,20 +646,49 @@ export default function DashboardPage() {
                 </h2>
 
                 {/* Weather */}
-                {weather ? (
+                {weatherLoading ? (
+                  <div className="h-16 rounded-2xl bg-slate-800/40 animate-pulse mb-5" />
+                ) : weatherError ? (
+                  <div className="flex items-center justify-between mb-5 rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3 text-xs text-slate-400">
+                    <span>날씨 정보를 불러오지 못했어요</span>
+                    <button
+                      type="button"
+                      onClick={loadWeather}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
+                    >
+                      다시 시도
+                    </button>
+                  </div>
+                ) : hasLocation === false ? (
+                  <div className="flex items-center justify-between mb-5 rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3 text-xs text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span>📍</span>
+                      <span>설정에서 매장 위치를 입력하면 날씨가 나옵니다</span>
+                    </div>
+                    <Link
+                      href="/settings"
+                      className="text-xs text-sky-400 hover:text-sky-300 font-semibold underline shrink-0"
+                    >
+                      위치 설정 →
+                    </Link>
+                  </div>
+                ) : weather ? (
                   <div className="flex items-center gap-3 mb-5 rounded-2xl bg-slate-950/60 px-4 py-3">
                     <span className="text-3xl">{weather.emoji}</span>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-100">
-                        {weather.text}
-                        <span className="ml-2 text-slate-400 font-normal">{weather.temp}°C</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-100 flex items-center flex-wrap gap-x-2">
+                        <span>{weather.text}</span>
+                        <span className="text-slate-400 font-normal">{weather.temp}°C</span>
+                        {weather.eveningTemp !== undefined && (
+                          <span className="text-xs text-indigo-300 font-normal bg-indigo-950/60 border border-indigo-800/50 px-2 py-0.5 rounded-full">
+                            오늘 저녁 {weather.eveningTemp}°C
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">{weather.comment}</p>
                     </div>
                   </div>
-                ) : (
-                  <div className="h-16 rounded-2xl bg-slate-800/40 animate-pulse mb-5" />
-                )}
+                ) : null}
 
                 {/* Same weekday comparison */}
                 {sameDayComparison && (

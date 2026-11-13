@@ -4,6 +4,7 @@ import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 import { calcServerAvgSpend, resolvePaymentCountInput } from '@/lib/analytics/periodComparison';
+import { codeToWeatherCondition } from '@/lib/weather';
 
 interface SalesMenuItem {
   name: string;
@@ -62,24 +63,69 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '매출 데이터가 필요합니다.' }, { status: 400 });
     }
 
-    // Fetch weather data for the receipt date
-    let weatherCondition = null;
-    let temperature = null;
+    // Fetch weather data for the receipt date using store coordinates
+    let weatherCondition: string | null = null;
+    let temperature: number | null = null;
     try {
-      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=37.8&longitude=127.7&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul&start_date=${receipt.date}&end_date=${receipt.date}`);
-      if (weatherRes.ok) {
-        const weatherData = await weatherRes.json();
+      // 1. 매장 좌표 조회 (W-1: 매장 좌표 사용, 좌표 없으면 날씨 생략)
+      const { data: storeRow } = await supabase
+        .from('stores')
+        .select('latitude, longitude')
+        .eq('id', STORE_ID)
+        .single();
+
+      if (storeRow?.latitude !== null && storeRow?.latitude !== undefined &&
+          storeRow?.longitude !== null && storeRow?.longitude !== undefined) {
+        const lat = Number(storeRow.latitude).toFixed(2);
+        const lon = Number(storeRow.longitude).toFixed(2);
+
+        // 2. 90일 이전 여부 확인
+        const targetDate = new Date(receipt.date);
+        const today = new Date();
+        const diffDays = Math.floor((today.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        let weatherData: any = null;
+
+        if (diffDays > 90) {
+          // 과거 90일 이전: 1차 archive-api 시도
+          const archiveUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${receipt.date}&end_date=${receipt.date}&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul`;
+          try {
+            const archiveRes = await fetch(archiveUrl, { signal: AbortSignal.timeout(5000) });
+            if (archiveRes.ok) {
+              weatherData = await archiveRes.json();
+            }
+          } catch (archErr) {
+            console.warn('Archive weather API failed, trying forecast past_days fallback:', archErr);
+          }
+
+          // archive 실패 시 2차 forecast(past_days) fallback 시도
+          if (!weatherData?.daily?.weather_code) {
+            const fallbackUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${receipt.date}&end_date=${receipt.date}&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul&past_days=92`;
+            try {
+              const fallbackRes = await fetch(fallbackUrl, { signal: AbortSignal.timeout(5000) });
+              if (fallbackRes.ok) {
+                weatherData = await fallbackRes.json();
+              }
+            } catch (fbErr) {
+              console.warn('Forecast fallback weather API failed:', fbErr);
+            }
+          }
+        } else {
+          // 90일 이내: forecast API 호출
+          const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${receipt.date}&end_date=${receipt.date}&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul`;
+          const weatherRes = await fetch(forecastUrl, { signal: AbortSignal.timeout(5000) });
+          if (weatherRes.ok) {
+            weatherData = await weatherRes.json();
+          }
+        }
+
         const code = weatherData?.daily?.weather_code?.[0];
         const temp = weatherData?.daily?.temperature_2m_mean?.[0];
 
         if (code !== undefined) {
-          if (code <= 2) weatherCondition = '맑음';
-          else if (code === 3 || code <= 48) weatherCondition = '흐림';
-          else if (code <= 67 || (code >= 80 && code <= 82) || code >= 95) weatherCondition = '비';
-          else if (code <= 77 || code === 85 || code === 86) weatherCondition = '눈';
-          else weatherCondition = '흐림';
+          weatherCondition = codeToWeatherCondition(code);
         }
-        if (temp !== undefined) {
+        if (temp !== undefined && temp !== null && !isNaN(temp)) {
           temperature = Math.round(temp);
         }
       }
