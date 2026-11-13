@@ -1,5 +1,12 @@
-import crypto from 'node:crypto';
+import crypto from 'crypto';
 import { normalizeMenuDisplayName, normalizeMenuCanonicalKey } from '@/lib/menus';
+export {
+  detectYearMonthFromFileName,
+  getNextYearMonth,
+  getSeoulTodayStr,
+  getSeoulStartOfDayUtc,
+} from './okposDate';
+import { getSeoulTodayStr } from './okposDate';
 
 export interface OkposDaySale {
   day: number; // 1 ~ 31
@@ -88,20 +95,30 @@ function parseNum(raw: string): number {
 /**
  * HTML 테이블 파싱 (정규식 기반 순경량 파서, 외부 의존성 없음)
  */
-function extractTableCells(html: string): string[][] {
-  const rows: string[][] = [];
+interface ExtractedRow {
+  cells: string[];
+  isSummary: boolean;
+}
+
+function extractTableCells(html: string): ExtractedRow[] {
+  const rows: ExtractedRow[] = [];
   const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  const tdRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+  const tdRegex = /<t[dh]([^>]*)>([\s\S]*?)<\/t[dh]>/gi;
 
   let trMatch: RegExpExecArray | null;
   while ((trMatch = trRegex.exec(html)) !== null) {
     const trContent = trMatch[1];
     const cells: string[] = [];
+    let isSummary = false;
     let tdMatch: RegExpExecArray | null;
     tdRegex.lastIndex = 0;
     while ((tdMatch = tdRegex.exec(trContent)) !== null) {
+      const tdAttrs = tdMatch[1];
+      if (/class=[\w"']*summary/i.test(tdAttrs)) {
+        isSummary = true;
+      }
       // 태그 및 엔티티 제거
-      let cellText = tdMatch[1].replace(/<[^>]+>/g, '').trim();
+      let cellText = tdMatch[2].replace(/<[^>]+>/g, '').trim();
       // HTML 엔티티 치환 (&nbsp; -> U+00A0, &amp; -> & 등)
       cellText = cellText
         .replace(/&nbsp;/gi, '\u00A0')
@@ -113,21 +130,10 @@ function extractTableCells(html: string): string[][] {
       cells.push(cellText);
     }
     if (cells.length > 0) {
-      rows.push(cells);
+      rows.push({ cells, isSummary });
     }
   }
   return rows;
-}
-
-/**
- * 오늘 날짜 (Asia/Seoul YYYY-MM-DD)
- */
-export function getSeoulTodayStr(): string {
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  const y = kst.getFullYear();
-  const m = String(kst.getMonth() + 1).padStart(2, '0');
-  const d = String(kst.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 /**
@@ -168,34 +174,32 @@ export function parseOkposMenuDaily(
   const expectedCols = 3 + 2 * daysInMonth;
 
   // 행별 열 수 확인
-  // 첫 번째 행 또는 대부분의 행의 열 수가 expectedCols와 맞아야 함
-  const actualCols = allRows[0].length;
+  // 첫 번째 행의 열 수가 expectedCols와 맞아야 함
+  const actualCols = allRows[0].cells.length;
   if (actualCols !== expectedCols) {
+    const fileDays = Math.floor((actualCols - 3) / 2);
     return {
       ok: false,
       yearMonth,
       daysInMonth,
       expectedColumns: expectedCols,
       actualColumns: actualCols,
-      error: `선택한 달은 ${daysInMonth}일(${expectedCols}열)인데 파일은 ${actualCols}열입니다. 연·월을 확인해 주세요.`,
+      error: `이 파일은 ${fileDays}일치인데 ${daysInMonth}일 달(${yearMonth.replace('-', '년 ')}월)로 지정됐어요. 파일 순서를 확인해 주세요.`,
     };
   }
 
-  // 마지막 행(합계 행) 검사
-  // OKPOS 포맷: 마지막 행은 첫 칸이 메뉴 건수 또는 "합계", 2·3열은 빈칸 또는 합계, 4열부터 일별 수량·금액 합계
-  let dataRows = allRows;
-  let summaryRow: string[] | null = null;
-  const lastRow = allRows[allRows.length - 1];
-  const lastRowFirst = lastRow[0].trim();
-  // 보통 숫자(메뉴 개수)이거나 '합계' 또는 2~3열이 비어있음
-  if (
-    lastRowFirst.includes('합계') ||
-    lastRowFirst.includes('소계') ||
-    /^\d+$/.test(lastRowFirst) && (lastRow[1] === '' || lastRow[2] === '')
-  ) {
-    summaryRow = lastRow;
-    dataRows = allRows.slice(0, allRows.length - 1);
+  // 마지막 행(합계 행) 검사 (C-1: td class에 '…summary' 필수)
+  const lastRowData = allRows[allRows.length - 1];
+  if (!lastRowData.isSummary) {
+    return {
+      ok: false,
+      yearMonth,
+      error: 'OKPOS 보고서 형식이 아니에요.',
+    };
   }
+
+  const summaryRow = lastRowData.cells;
+  const dataRows = allRows.slice(0, allRows.length - 1).map((r) => r.cells);
 
   // 메뉴 행 파싱 및 검증
   const menuRows: OkposParsedMenuRow[] = [];

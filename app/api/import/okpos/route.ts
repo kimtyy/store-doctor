@@ -6,8 +6,8 @@ import { getUserRole } from '@/utils/supabase/getUserRole';
 import {
   parseOkposMenuDaily,
   OkposParseResult,
-  OkposParsedMenuRow,
   OkposDaySale,
+  getSeoulStartOfDayUtc,
 } from '@/lib/parsers/okposMenuDaily';
 import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
@@ -49,12 +49,12 @@ export async function GET() {
 
     return NextResponse.json({ batches: data ?? [] });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : '가져오기 내역 조회 실패';
+    const msg = err instanceof Error ? err.message : '가져오기 묶음 목록을 불러오지 못했습니다.';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
-// POST /api/import/okpos - 미리보기(preview) 또는 실제 저장(save)
+// POST /api/import/okpos - 미리보기(action=preview) 또는 실제 저장(action=save)
 export async function POST(request: Request) {
   const normalSupabase = createServerClient();
   const { data: { user } } = await normalSupabase.auth.getUser();
@@ -72,12 +72,16 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const action = (formData.get('action') as string) || 'preview';
     const yearMonth = formData.get('year_month') as string;
-    const mode = (formData.get('mode') as string) || 'fill'; // 'fill' | 'overwrite'
+    const mode = (formData.get('mode') as string) || 'fill'; // 'fill' 만 지원
+    const fillZeroSales = formData.get('fill_zero_sales') === 'true';
     const file = formData.get('file') as File | null;
     const rawHtml = formData.get('html_text') as string | null;
 
     if (!file && !rawHtml) {
       return NextResponse.json({ error: '파일을 첨부하거나 HTML 텍스트를 입력해 주세요.' }, { status: 400 });
+    }
+    if (file && file.size > 4 * 1024 * 1024) {
+      return NextResponse.json({ error: '파일 크기가 4MB를 초과했습니다. 4MB 이하 파일만 올릴 수 있어요.' }, { status: 413 });
     }
     if (!yearMonth) {
       return NextResponse.json({ error: '연·월(YYYY-MM)을 선택해 주세요.' }, { status: 400 });
@@ -108,26 +112,69 @@ export async function POST(request: Request) {
     const isDuplicateFile = (dupBatches ?? []).length > 0;
     const duplicateBatchInfo = isDuplicateFile ? dupBatches![0] : null;
 
-    // 2. 이미 앱에 등록된 해당 월의 일별 매출 조회
+    // 2. 이미 해당 연·월에 취소되지 않은 묶음이 있는지 확인 (B-2)
+    const { data: ymBatches } = await supabase
+      .from('import_batches')
+      .select('id, file_name, created_at')
+      .eq('store_id', STORE_ID)
+      .eq('year_month', yearMonth)
+      .is('undone_at', null);
+
+    const isAlreadyImported = (ymBatches ?? []).length > 0;
+
+    // 3. 이미 앱에 등록된 해당 월의 일별 매출 조회
     const fromDate = `${yearMonth}-01`;
     const toDate = `${yearMonth}-${String(parsed.daysInMonth).padStart(2, '0')}`;
-    const { data: existingSales } = await supabase
+    const { data: existingSales, error: salesErr } = await supabase
       .from('daily_sales')
-      .select('date, net_revenue, total_revenue')
+      .select('id, date, net_revenue, total_revenue, actual_sales, tax, discount, service_charge, service_amount, cash_count, cash_amount, card_count, card_amount, tables_used, guest_count, avg_spend, input_method, import_batch_id')
       .eq('store_id', STORE_ID)
       .gte('date', fromDate)
       .lte('date', toDate);
 
-    const existingSalesMap = new Map<string, { net_revenue: number; total_revenue: number }>();
+    if (salesErr) throw salesErr;
+
+    const existingSalesMap = new Map<string, typeof existingSales[0]>();
+    const zeroSaleCandidates: typeof existingSales = [];
     for (const s of existingSales ?? []) {
-      existingSalesMap.set(s.date, { net_revenue: s.net_revenue, total_revenue: s.total_revenue });
+      existingSalesMap.set(s.date, s);
+      if (s.net_revenue === 0) {
+        zeroSaleCandidates.push(s);
+      }
     }
 
-    // 3. menu_master 및 aliases 대조 -> 처음 보는 메뉴 목록 추출
-    const { data: masterRows } = await supabase
+    // 0원인 날 중 sales_menu_items가 0건인 날 확인 (C-8)
+    const zeroSalesDaysMap = new Map<string, typeof existingSales[0]>();
+    if (zeroSaleCandidates.length > 0) {
+      const candidateIds = zeroSaleCandidates.map((c) => c.id);
+      const { data: existingMenuItems, error: miCheckErr } = await supabase
+        .from('sales_menu_items')
+        .select('daily_sale_id')
+        .in('daily_sale_id', candidateIds);
+
+      if (!miCheckErr) {
+        const salesWithMenus = new Set((existingMenuItems ?? []).map((m) => m.daily_sale_id));
+        for (const candidate of zeroSaleCandidates) {
+          if (!salesWithMenus.has(candidate.id)) {
+            zeroSalesDaysMap.set(candidate.date, candidate);
+          }
+        }
+      }
+    }
+
+    // 4. menu_master 및 aliases 대조 -> 처음 보는 메뉴 목록 추출 (C-4: 조회 오류 시 500 한국어 안내)
+    const { data: masterRows, error: masterErr } = await supabase
       .from('menu_master')
       .select('menu_name, category, aliases')
       .eq('store_id', STORE_ID);
+
+    if (masterErr) {
+      console.error('menu_master 조회 오류:', masterErr);
+      return NextResponse.json(
+        { error: '메뉴 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.' },
+        { status: 500 }
+      );
+    }
 
     const masterIndex = buildMenuMasterIndex(masterRows ?? []);
     const newMenusSet = new Set<string>();
@@ -140,7 +187,7 @@ export async function POST(request: Request) {
     }
     const newMenus = Array.from(newMenusSet);
 
-    // 4. 겹치는 날짜 및 차이(1% 또는 1,000원 초과) 분석
+    // 5. 겹치는 날짜 및 차이 분석 + 0원 채우기 대상 일자 수집
     const existingDaysCount = existingSalesMap.size;
     const conflictingDays: Array<{
       date: string;
@@ -152,28 +199,35 @@ export async function POST(request: Request) {
 
     let daysToInsert = 0;
     let daysToOverwrite = 0;
+    const zeroSalesDates: string[] = [];
 
     for (const ds of parsed.daySummaries ?? []) {
       if (ds.isFutureDate || ds.isZeroRevenue) continue;
 
       const appSale = existingSalesMap.get(ds.date);
       if (appSale) {
-        daysToOverwrite++;
-        const diffAmt = Math.abs(appSale.net_revenue - ds.netRevenue);
-        const diffPct = appSale.net_revenue > 0 ? (diffAmt / appSale.net_revenue) * 100 : 100;
-        if (diffAmt > 1000 || diffPct > 1.0) {
-          conflictingDays.push({
-            date: ds.date,
-            appNetRevenue: appSale.net_revenue,
-            fileNetRevenue: ds.netRevenue,
-            diffAmount: diffAmt,
-            diffPercent: Math.round(diffPct * 10) / 10,
-          });
+        if (zeroSalesDaysMap.has(ds.date)) {
+          zeroSalesDates.push(ds.date);
+        } else {
+          daysToOverwrite++;
+          const diffAmt = Math.abs(appSale.net_revenue - ds.netRevenue);
+          const diffPct = appSale.net_revenue > 0 ? (diffAmt / appSale.net_revenue) * 100 : 100;
+          if (diffAmt > 1000 || diffPct > 1.0) {
+            conflictingDays.push({
+              date: ds.date,
+              appNetRevenue: appSale.net_revenue,
+              fileNetRevenue: ds.netRevenue,
+              diffAmount: diffAmt,
+              diffPercent: Math.round(diffPct * 10) / 10,
+            });
+          }
         }
       } else {
         daysToInsert++;
       }
     }
+
+    const daysToFillZero = zeroSalesDates.length;
 
     // --- Action: PREVIEW ---
     if (action === 'preview') {
@@ -185,6 +239,7 @@ export async function POST(request: Request) {
           fileSha256,
           isDuplicateFile,
           duplicateBatchInfo,
+          isAlreadyImported,
           totalAmount: parsed.grandTotalAmount,
           netRevenue: parsed.grandNetRevenue,
           tax: parsed.grandTax,
@@ -193,6 +248,8 @@ export async function POST(request: Request) {
           zeroRevenueDays: parsed.zeroRevenueDays ?? [],
           existingDaysCount,
           daysToInsert,
+          daysToFillZero,
+          zeroSalesDates,
           daysToOverwrite,
           conflictingDays,
           newMenusCount: newMenus.length,
@@ -213,6 +270,30 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: '올바른 가져오기 모드를 선택해 주세요. (fill)' }, { status: 400 });
       }
 
+      // B-2: 남발 방지 - 하루 60회 상한 검사 (Asia/Seoul 00:00 KST = UTC)
+      const startOfDayUtc = getSeoulStartOfDayUtc();
+      const { count: todayBatchCount, error: countErr } = await supabase
+        .from('import_batches')
+        .select('*', { count: 'exact', head: true })
+        .eq('store_id', STORE_ID)
+        .gte('created_at', startOfDayUtc);
+
+      if (!countErr && (todayBatchCount ?? 0) >= 60) {
+        return NextResponse.json(
+          { error: '오늘 가져오기 횟수를 모두 썼어요. 내일 다시 해 주세요.' },
+          { status: 400 }
+        );
+      }
+
+      // B-2 & C-8: 등록할 날짜(신규 빈 날짜 + 0원 채우기)가 0이면 batch 미생성 및 거부
+      const totalAvailableDays = daysToInsert + (fillZeroSales ? daysToFillZero : 0);
+      if (totalAvailableDays === 0) {
+        if (isAlreadyImported) {
+          return NextResponse.json({ error: '이미 가져온 달입니다. 등록할 빈 날짜가 없습니다.' }, { status: 400 });
+        }
+        return NextResponse.json({ error: '등록할 빈 날짜가 없습니다.' }, { status: 400 });
+      }
+
       // 1. import_batches 레코드 생성
       const { data: batchData, error: batchErr } = await supabase
         .from('import_batches')
@@ -227,6 +308,7 @@ export async function POST(request: Request) {
           total_amount: parsed.grandTotalAmount ?? 0,
           mode: 'fill',
           created_by: user.id,
+          updated_zero_sales: [],
         })
         .select('*')
         .single();
@@ -237,54 +319,152 @@ export async function POST(request: Request) {
 
       const batchId = batchData.id;
       let totalDaysWritten = 0;
+      let zeroDaysFilledCount = 0;
+      let skippedDaysCount = 0;
       let totalMenuRowsWritten = 0;
+      const updatedZeroSalesList: Array<{
+        id: string;
+        date: string;
+        original: Record<string, any>;
+      }> = [];
 
       try {
         // 일자별 처리
         for (const ds of parsed.daySummaries ?? []) {
           if (ds.isFutureDate || ds.isZeroRevenue) continue;
 
+          let dailySaleId: string;
           const exists = existingSalesMap.has(ds.date);
+
           if (exists) {
-            // 빈 날짜만 채우기: 기존 매출이 있는 날은 건너뜀 (안전 모드)
-            continue;
+            const existingSale = existingSalesMap.get(ds.date)!;
+            const isZeroEligible = fillZeroSales && zeroSalesDaysMap.has(ds.date);
+
+            if (!isZeroEligible) {
+              // 0원 채우기 대상이 아니면 건너뜀
+              skippedDaysCount++;
+              continue;
+            }
+
+            // C-8 (2): 저장 시 경쟁 상태 방지 - 메뉴 행 0건 재확인
+            const { count: currentMenuCount } = await supabase
+              .from('sales_menu_items')
+              .select('*', { count: 'exact', head: true })
+              .eq('daily_sale_id', existingSale.id);
+
+            if ((currentMenuCount ?? 0) > 0) {
+              skippedDaysCount++;
+              continue;
+            }
+
+            // 원본 전체 스냅샷 저장
+            const originalSnapshot = {
+              total_revenue: existingSale.total_revenue,
+              actual_sales: existingSale.actual_sales,
+              net_revenue: existingSale.net_revenue,
+              tax: existingSale.tax,
+              discount: existingSale.discount,
+              service_charge: existingSale.service_charge,
+              service_amount: existingSale.service_amount,
+              cash_count: existingSale.cash_count,
+              cash_amount: existingSale.cash_amount,
+              card_count: existingSale.card_count,
+              card_amount: existingSale.card_amount,
+              tables_used: existingSale.tables_used,
+              guest_count: existingSale.guest_count,
+              avg_spend: existingSale.avg_spend,
+              input_method: existingSale.input_method,
+              import_batch_id: existingSale.import_batch_id,
+            };
+
+            // UPDATE 실행 (WHERE id = ? AND store_id = ? AND net_revenue = 0)
+            const { data: updSaleData, error: updSaleErr } = await supabase
+              .from('daily_sales')
+              .update({
+                total_revenue: ds.totalAmount,
+                actual_sales: ds.totalAmount,
+                net_revenue: ds.netRevenue,
+                tax: ds.tax,
+                discount: 0,
+                service_charge: 0,
+                service_amount: 0,
+                cash_count: 0,
+                cash_amount: 0,
+                card_count: 0,
+                card_amount: 0,
+                tables_used: 0,
+                guest_count: 0,
+                avg_spend: 0,
+                input_method: 'excel_upload',
+                import_batch_id: batchId,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingSale.id)
+              .eq('store_id', STORE_ID)
+              .eq('net_revenue', 0)
+              .select('id');
+
+            if (updSaleErr || !updSaleData || updSaleData.length === 0) {
+              skippedDaysCount++;
+              continue;
+            }
+
+            dailySaleId = existingSale.id;
+            updatedZeroSalesList.push({
+              id: existingSale.id,
+              date: ds.date,
+              original: originalSnapshot,
+            });
+            zeroDaysFilledCount++;
+          } else {
+            // 신규 INSERT
+            const { data: saleData, error: saleErr } = await supabase
+              .from('daily_sales')
+              .insert({
+                store_id: STORE_ID,
+                date: ds.date,
+                total_revenue: ds.totalAmount,
+                actual_sales: ds.totalAmount,
+                discount: 0,
+                service_charge: 0,
+                service_amount: 0,
+                tax: ds.tax,
+                net_revenue: ds.netRevenue,
+                cash_count: 0,
+                cash_amount: 0,
+                card_count: 0,
+                card_amount: 0,
+                tables_used: 0,
+                guest_count: 0,
+                avg_spend: 0,
+                input_method: 'excel_upload',
+                import_batch_id: batchId,
+                created_by: user.id,
+                is_event: false,
+                weather_condition: null,
+                temperature: null,
+              })
+              .select('id')
+              .single();
+
+            if (saleErr) {
+              // C-2: unique 위반(23505)은 실패가 아니라 건너뛰기로 처리
+              if (
+                saleErr.code === '23505' ||
+                saleErr.message?.includes('duplicate key') ||
+                saleErr.message?.includes('unique constraint')
+              ) {
+                skippedDaysCount++;
+                continue;
+              }
+              throw saleErr;
+            }
+
+            dailySaleId = saleData.id;
+            totalDaysWritten++;
           }
 
-          // daily_sales 행 삽입
-          const { data: saleData, error: saleErr } = await supabase
-            .from('daily_sales')
-            .insert({
-              store_id: STORE_ID,
-              date: ds.date,
-              total_revenue: ds.totalAmount,
-              actual_sales: ds.totalAmount,
-              discount: 0,
-              service_charge: 0,
-              service_amount: 0,
-              tax: ds.tax,
-              net_revenue: ds.netRevenue,
-              cash_count: 0,
-              cash_amount: 0,
-              card_count: 0,
-              card_amount: 0,
-              tables_used: 0,
-              guest_count: 0,
-              avg_spend: 0,
-              input_method: 'excel_upload',
-              import_batch_id: batchId,
-              created_by: user.id,
-              is_event: false,
-              weather_condition: null,
-              temperature: null,
-            })
-            .select('id')
-            .single();
-
-          if (saleErr || !saleData) throw (saleErr || new Error('daily_sales 저장 실패'));
-          const dailySaleId = saleData.id;
-          totalDaysWritten++;
-
-          // 해당 일자의 메뉴 항목 수집
+          // 해당 일자의 메뉴 항목 수집 및 등록
           const dayMenuItems: Array<{
             daily_sale_id: string;
             import_batch_id: string;
@@ -296,7 +476,6 @@ export async function POST(request: Request) {
 
           for (const m of parsed.menuRows ?? []) {
             const saleOnDay: OkposDaySale | undefined = m.dailySales[ds.day - 1];
-            // 수량 0 & 금액 0 행은 저장 안 함. 서비스(수량>0 & 금액 0)는 저장.
             if (!saleOnDay || (saleOnDay.quantity <= 0 && saleOnDay.amount <= 0)) {
               continue;
             }
@@ -313,7 +492,6 @@ export async function POST(request: Request) {
           }
 
           if (dayMenuItems.length > 0) {
-            // 배치 분할 insert (최대 100건씩)
             for (let i = 0; i < dayMenuItems.length; i += 100) {
               const chunk = dayMenuItems.slice(i, i + 100);
               const { error: miErr } = await supabase.from('sales_menu_items').insert(chunk);
@@ -323,36 +501,69 @@ export async function POST(request: Request) {
           }
         }
 
-        // import_batches 업데이트 (성공한 일수·메뉴행수)
-        await supabase
+        // C-3: days_written 갱신 쿼리에 store_id 조건 + 오류 확인
+        const { error: updBatchErr } = await supabase
           .from('import_batches')
           .update({
-            days_written: totalDaysWritten,
+            days_written: totalDaysWritten + zeroDaysFilledCount,
             menu_rows: totalMenuRowsWritten,
+            updated_zero_sales: updatedZeroSalesList,
           })
+          .eq('store_id', STORE_ID)
           .eq('id', batchId);
+
+        if (updBatchErr) throw updBatchErr;
 
         return NextResponse.json({
           ok: true,
           batchId,
           daysWritten: totalDaysWritten,
+          zeroDaysFilled: zeroDaysFilledCount,
+          skippedDays: skippedDaysCount,
           menuRowsWritten: totalMenuRowsWritten,
-          mode,
-          message: `${yearMonth} 매출 가져오기가 완료되었습니다. (${totalDaysWritten}일 기록, 메뉴 ${totalMenuRowsWritten}건)`,
+          message: `${yearMonth} 가져오기 완료: 신규 ${totalDaysWritten}일, 0원 채움 ${zeroDaysFilledCount}일 (건너뜀 ${skippedDaysCount}일)`,
         });
       } catch (saveError) {
-        // 실패 시 롤백: 이번 batch_id 및 store_id로 쓰인 daily_sales 삭제 및 batch 레코드 삭제
+        // C-8 (3) & C-3: 롤백 순서
         console.error('OKPOS 가져오기 중 오류 발생, 롤백 수행:', saveError);
-        await supabase
+        // ① updated_zero_sales 복원: 메뉴 삭제 후 스냅샷 복원
+        for (const item of updatedZeroSalesList) {
+          try {
+            await supabase
+              .from('sales_menu_items')
+              .delete()
+              .eq('daily_sale_id', item.id)
+              .eq('import_batch_id', batchId);
+            await supabase
+              .from('daily_sales')
+              .update({
+                ...item.original,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('store_id', STORE_ID)
+              .eq('id', item.id);
+          } catch (rErr) {
+            console.error('롤백 중 0원 날 복원 실패:', rErr);
+          }
+        }
+
+        // ② 신규 행 삭제
+        const updatedIds = updatedZeroSalesList.map((z) => z.id);
+        let delQuery = supabase
           .from('daily_sales')
           .delete()
           .eq('store_id', STORE_ID)
           .eq('import_batch_id', batchId);
-        await supabase
-          .from('import_batches')
-          .delete()
-          .eq('store_id', STORE_ID)
-          .eq('id', batchId);
+        if (updatedIds.length > 0) {
+          delQuery = delQuery.not('id', 'in', `(${updatedIds.join(',')})`);
+        }
+        const { error: delErr } = await delQuery;
+        if (delErr) {
+          console.error('롤백 중 daily_sales 삭제 실패:', delErr);
+        } else {
+          // daily_sales 삭제가 성공했을 때만 import_batches 행 삭제
+          await supabase.from('import_batches').delete().eq('store_id', STORE_ID).eq('id', batchId);
+        }
         throw saveError;
       }
     }
@@ -382,7 +593,7 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const batchId = searchParams.get('id');
     if (!batchId) {
-      return NextResponse.json({ error: '취소할 묶음 ID(id)가 필요합니다.' }, { status: 400 });
+      return NextResponse.json({ error: '취소할 묶음 ID가 필요합니다.' }, { status: 400 });
     }
 
     const supabase = makeAdminClient();
@@ -401,14 +612,54 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: '이미 취소된 가져오기 묶음입니다.' }, { status: 400 });
     }
 
-    // 해당 batchId로 생성된 daily_sales 삭제 (sales_menu_items는 CASCADE 삭제)
-    const { error: delErr } = await supabase
+    // C-8 (3): 취소 순서 (매우 중요)
+    const updatedZeroSales: Array<{ id: string; date: string; original: Record<string, any> }> =
+      batch.updated_zero_sales || [];
+
+    // ① updated_zero_sales 의 행들: 그 날 sales_menu_items 중 import_batch_id = batchId 인 행 삭제
+    // -> daily_sales 를 스냅샷으로 복원 (import_batch_id 도 원래 값=null 로)
+    for (const item of updatedZeroSales) {
+      const { error: delMenuErr } = await supabase
+        .from('sales_menu_items')
+        .delete()
+        .eq('daily_sale_id', item.id)
+        .eq('import_batch_id', batchId);
+
+      if (delMenuErr) {
+        throw new Error(`0원 날 메뉴 복원 중 오류가 발생했습니다: ${delMenuErr.message}`);
+      }
+
+      const { error: restoreErr } = await supabase
+        .from('daily_sales')
+        .update({
+          ...item.original,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('store_id', STORE_ID)
+        .eq('id', item.id);
+
+      if (restoreErr) {
+        throw new Error(`0원 날 매출 복원 중 오류가 발생했습니다: ${restoreErr.message}`);
+      }
+    }
+
+    // ② 그 다음에만 신규 행 삭제
+    // ①이 하나라도 실패하면 ②를 실행하지 않고 undone_at 도 기록하지 않고 throw 됨
+    const updatedIds = updatedZeroSales.map((z) => z.id);
+    let delNewQuery = supabase
       .from('daily_sales')
       .delete()
       .eq('store_id', STORE_ID)
       .eq('import_batch_id', batchId);
 
-    if (delErr) throw delErr;
+    if (updatedIds.length > 0) {
+      delNewQuery = delNewQuery.not('id', 'in', `(${updatedIds.join(',')})`);
+    }
+
+    const { error: delNewErr } = await delNewQuery;
+    if (delNewErr) {
+      throw new Error(`신규 등록 매출 삭제 중 오류가 발생했습니다: ${delNewErr.message}`);
+    }
 
     // import_batches에 undone_at 기록
     const { error: updErr } = await supabase
@@ -421,11 +672,10 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      message: `${batch.year_month} 가져오기가 취소되었습니다. (해당 묶음으로 생성된 매출 행 삭제 완료)`,
+      message: `${batch.year_month} 가져오기가 취소되었습니다. (신규 매출 삭제 및 0원 날 복원 완료)`,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : '가져오기 취소 중 오류가 발생했습니다.';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
-

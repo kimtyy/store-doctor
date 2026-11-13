@@ -24,8 +24,16 @@ export default function SettingsPage() {
   const [loadingSubscription, setLoadingSubscription] = useState(true);
   const [cancellingSubscription, setCancellingSubscription] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   useEffect(() => {
+    fetch('/api/me/role')
+      .then(res => res.json())
+      .then(data => {
+        if (data.role) setUserRole(data.role);
+      })
+      .catch(() => {});
+
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('notice') === 'already_subscribed') {
@@ -313,19 +321,21 @@ export default function SettingsPage() {
             </div>
           </a>
 
-          {/* 과거 매출 가져오기(OKPOS) */}
-          <a
-            href="/settings/import"
-            className="block rounded-3xl border border-indigo-900/50 bg-indigo-950/20 p-6 hover:border-indigo-700/60 transition"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-indigo-200">📂 과거 매출 가져오기 (OKPOS)</h2>
-                <p className="mt-1 text-xs text-indigo-300/80">OKPOS 웹 &quot;메뉴별×일자&quot; 엑셀 파일로 과거 몇 년치 매출을 한 번에 등록</p>
+          {/* 과거 매출 가져오기(OKPOS) - 소유자에게만 표시 */}
+          {userRole === 'owner' && (
+            <a
+              href="/settings/import"
+              className="block rounded-3xl border border-indigo-900/50 bg-indigo-950/20 p-6 hover:border-indigo-700/60 transition"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-indigo-200">📂 과거 매출 가져오기 (OKPOS)</h2>
+                  <p className="mt-1 text-xs text-indigo-300/80">OKPOS 웹 &quot;메뉴별×일자&quot; 엑셀 파일로 과거 몇 년치 매출을 한 번에 등록</p>
+                </div>
+                <span className="text-indigo-400 text-lg">→</span>
               </div>
-              <span className="text-indigo-400 text-lg">→</span>
-            </div>
-          </a>
+            </a>
+          )}
 
           {/* 매장 사정 기록 */}
           <a
