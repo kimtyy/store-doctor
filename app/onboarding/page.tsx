@@ -84,6 +84,22 @@ export default function OnboardingPage({
       </div>
 
       <div className="space-y-4">
+        <div className="bg-sky-50 border border-sky-100 rounded-xl p-5">
+          <h3 className="font-bold text-sky-900 mb-2 flex items-center gap-2">
+            <span>📂</span> OKPOS 과거 매출이 있으신가요?
+          </h3>
+          <p className="text-sm text-sky-800 leading-relaxed mb-3">
+            OKPOS 웹의 &quot;메뉴별×일자&quot; 엑셀 파일이 있다면, 몇 년치 매출과 메뉴 판매 이력을 한 번에 올려 즉시 기간 비교 및 120일 이동평균선 분석을 확인하실 수 있습니다.
+          </p>
+          <a
+            href="/settings/import"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700 bg-white border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50 transition"
+          >
+            <span>POS 과거 매출 올리기</span>
+            <span>→</span>
+          </a>
+        </div>
+
         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
           <h3 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
             <span>💡</span> 데이터 입력 안내

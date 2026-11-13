@@ -1172,7 +1172,7 @@ export default function SalesInputPage() {
                             </p>
                             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                               <span>
-                                현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
+                                현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'} · 결제 1건당 {(record.avgSpend ?? 0) > 0 ? `${(record.avgSpend ?? 0).toLocaleString()}원` : '-'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
                               </span>
                               <span
                                 role="button"
