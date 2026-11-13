@@ -650,12 +650,14 @@ export default function OkposImportPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-28">
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
         {/* 휴대폰 상단 안내 (A-5) */}
-        <div className="rounded-2xl border border-sky-800/40 bg-sky-950/30 p-3 text-xs text-sky-200 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span>💡</span>
-            <span>PC에서 진행하시면 여러 달 파일을 한 번에 올리기 편합니다.</span>
+        <div className="rounded-2xl border border-sky-800/40 bg-sky-950/30 p-3 text-xs text-sky-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-start gap-2">
+            <span className="shrink-0 mt-0.5">💡</span>
+            <span className="leading-relaxed">PC에서 진행하시면 여러 달 파일을 한 번에 올리기 편합니다.</span>
           </div>
-          <span className="text-[11px] text-sky-400 font-semibold whitespace-nowrap">스캔 횟수에 포함되지 않습니다</span>
+          <span className="text-[11px] text-sky-400 font-semibold shrink-0 self-start sm:self-auto pl-6 sm:pl-0">
+            스캔 횟수에 포함되지 않습니다
+          </span>
         </div>
 
         {/* 헤더 */}
