@@ -74,16 +74,20 @@ export async function POST(request: Request) {
     const yearMonth = formData.get('year_month') as string;
     const mode = (formData.get('mode') as string) || 'fill'; // 'fill' | 'overwrite'
     const file = formData.get('file') as File | null;
+    const rawHtml = formData.get('html_text') as string | null;
 
-    if (!file) {
-      return NextResponse.json({ error: '파일을 첨부해 주세요.' }, { status: 400 });
+    if (!file && !rawHtml) {
+      return NextResponse.json({ error: '파일을 첨부하거나 HTML 텍스트를 입력해 주세요.' }, { status: 400 });
     }
     if (!yearMonth) {
       return NextResponse.json({ error: '연·월(YYYY-MM)을 선택해 주세요.' }, { status: 400 });
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const parsed: OkposParseResult = parseOkposMenuDaily(arrayBuffer, yearMonth);
+    const buffer: Uint8Array = file
+      ? new Uint8Array(await file.arrayBuffer())
+      : Buffer.from(rawHtml || '', 'utf8');
+
+    const parsed: OkposParseResult = parseOkposMenuDaily(buffer, yearMonth);
 
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
@@ -91,7 +95,7 @@ export async function POST(request: Request) {
 
     const supabase = makeAdminClient();
     const fileSha256 = parsed.fileSha256!;
-    const fileName = file.name;
+    const fileName = file ? file.name : `붙여넣기 ${yearMonth}`;
 
     // 1. 중복 파일(sha256) 여부 확인
     const { data: dupBatches } = await supabase
@@ -419,3 +423,4 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+

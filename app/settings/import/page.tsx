@@ -52,7 +52,10 @@ interface PreviewData {
 }
 
 interface QueueItem {
-  file: File;
+  file?: File;
+  htmlText?: string;
+  name: string;
+  sizeText?: string;
   yearMonth: string;
   preview?: PreviewData;
   error?: string;
@@ -69,7 +72,37 @@ export default function OkposImportPage() {
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [generalMessage, setGeneralMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [pastedHtml, setPastedHtml] = useState('');
+  const [pastedYm, setPastedYm] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [showPasteBox, setShowPasteBox] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 붙여넣기 텍스트 대기열 추가
+  const handleAddPastedHtml = () => {
+    if (!pastedHtml.trim()) return;
+    const name = `붙여넣기 ${pastedYm}`;
+    const bytes = new TextEncoder().encode(pastedHtml).length;
+    const sizeText = `${(bytes / 1024).toFixed(1)} KB (텍스트)`;
+
+    setQueue((prev) => [
+      ...prev,
+      {
+        htmlText: pastedHtml,
+        name,
+        sizeText,
+        yearMonth: pastedYm,
+        loading: false,
+        saveStatus: 'idle',
+      },
+    ]);
+
+    setPastedHtml('');
+    setShowPasteBox(false);
+  };
 
   // 최근 가져온 묶음 조회
   const loadBatches = async () => {
@@ -126,6 +159,8 @@ export default function OkposImportPage() {
 
       newItems.push({
         file: f,
+        name: f.name,
+        sizeText: `${(f.size / 1024).toFixed(1)} KB`,
         yearMonth: detectedYm,
         loading: false,
         saveStatus: 'idle',
@@ -151,7 +186,11 @@ export default function OkposImportPage() {
       const fd = new FormData();
       fd.append('action', 'preview');
       fd.append('year_month', item.yearMonth);
-      fd.append('file', item.file);
+      if (item.file) {
+        fd.append('file', item.file);
+      } else if (item.htmlText) {
+        fd.append('html_text', item.htmlText);
+      }
 
       const res = await fetch('/api/import/okpos', {
         method: 'POST',
@@ -217,7 +256,11 @@ export default function OkposImportPage() {
       fd.append('action', 'save');
       fd.append('year_month', item.yearMonth);
       fd.append('mode', mode);
-      fd.append('file', item.file);
+      if (item.file) {
+        fd.append('file', item.file);
+      } else if (item.htmlText) {
+        fd.append('html_text', item.htmlText);
+      }
 
       const res = await fetch('/api/import/okpos', {
         method: 'POST',
@@ -394,6 +437,49 @@ export default function OkposImportPage() {
                 <span className="text-xs text-slate-500 mt-1">한 개 또는 여러 달 파일을 한꺼번에 선택할 수 있습니다.</span>
               </label>
             </div>
+
+            {/* 보조: HTML 텍스트 직접 붙여넣기 (접힘) */}
+            <div className="pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowPasteBox((v) => !v)}
+                className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5"
+              >
+                <span>{showPasteBox ? '▼' : '▶'}</span>
+                <span>파일 대신 HTML 표 텍스트 직접 붙여넣기 (보조)</span>
+              </button>
+
+              {showPasteBox && (
+                <div className="mt-3 space-y-3 bg-slate-950/80 p-4 rounded-2xl border border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-slate-400">대상 연·월:</label>
+                    <input
+                      type="month"
+                      value={pastedYm}
+                      onChange={(e) => setPastedYm(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-100"
+                    />
+                  </div>
+                  <textarea
+                    rows={6}
+                    value={pastedHtml}
+                    onChange={(e) => setPastedHtml(e.target.value)}
+                    placeholder="OKPOS 보고서 웹페이지의 표 소스(HTML) 또는 내용을 여기에 붙여넣으세요..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-slate-100 font-mono placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      disabled={!pastedHtml.trim()}
+                      onClick={handleAddPastedHtml}
+                      className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-40"
+                    >
+                      붙여넣은 내용 대기열에 추가
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -418,8 +504,8 @@ export default function OkposImportPage() {
                   <div key={idx} className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                       <div className="min-w-0">
-                        <p className="font-bold text-slate-100 text-sm truncate">{item.file.name}</p>
-                        <p className="text-xs text-slate-500">{(item.file.size / 1024).toFixed(1)} KB</p>
+                        <p className="font-bold text-slate-100 text-sm truncate">{item.name}</p>
+                        <p className="text-xs text-slate-500">{item.sizeText || (item.file ? `${(item.file.size / 1024).toFixed(1)} KB` : '')}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <label className="text-xs text-slate-400 whitespace-nowrap">해당 연·월:</label>

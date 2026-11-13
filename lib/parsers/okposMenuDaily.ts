@@ -276,7 +276,7 @@ export function parseOkposMenuDaily(
     }
   }
 
-  // 일자별 요약 집계 (오늘 이후 미래 날짜는 무시)
+  // 일자별 요약 집계 (진행 중인 달은 오늘 포함 이후 날짜는 마감 전이므로 무시)
   const isCurrentMonth = yearMonth === currentYm;
   const daySummaries: OkposDaySummary[] = [];
   const zeroRevenueDays: string[] = [];
@@ -287,7 +287,7 @@ export function parseOkposMenuDaily(
 
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
-    const isFutureDate = isCurrentMonth && dateStr > todayStr;
+    const isFutureDate = isCurrentMonth && dateStr >= todayStr;
     const dayAmt = dailyColSumAmt[day];
 
     let menuItemCount = 0;
