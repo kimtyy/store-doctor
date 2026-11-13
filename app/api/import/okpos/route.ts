@@ -203,8 +203,14 @@ export async function POST(request: Request) {
 
     // --- Action: SAVE ---
     if (action === 'save') {
-      if (mode !== 'fill' && mode !== 'overwrite') {
-        return NextResponse.json({ error: '올바른 가져오기 모드를 선택해 주세요. (fill 또는 overwrite)' }, { status: 400 });
+      if (mode === 'overwrite') {
+        return NextResponse.json(
+          { error: '현재는 빈 날짜만 채우기만 지원합니다. 겹치는 날짜는 [일별 매출]에서 직접 수정해 주세요.' },
+          { status: 400 }
+        );
+      }
+      if (mode !== 'fill') {
+        return NextResponse.json({ error: '올바른 가져오기 모드를 선택해 주세요. (fill)' }, { status: 400 });
       }
 
       // 1. import_batches 레코드 생성
@@ -219,7 +225,7 @@ export async function POST(request: Request) {
           days_written: 0,
           menu_rows: 0,
           total_amount: parsed.grandTotalAmount ?? 0,
-          mode,
+          mode: 'fill',
           created_by: user.id,
         })
         .select('*')
@@ -239,19 +245,9 @@ export async function POST(request: Request) {
           if (ds.isFutureDate || ds.isZeroRevenue) continue;
 
           const exists = existingSalesMap.has(ds.date);
-          if (exists && mode === 'fill') {
-            // 빈 날짜만 채우기: 기존 날짜는 건너뜀
+          if (exists) {
+            // 빈 날짜만 채우기: 기존 매출이 있는 날은 건너뜀 (안전 모드)
             continue;
-          }
-
-          if (exists && mode === 'overwrite') {
-            // 덮어쓰기: 기존 daily_sales 행 삭제 (sales_menu_items는 CASCADE 삭제됨)
-            const { error: delErr } = await supabase
-              .from('daily_sales')
-              .delete()
-              .eq('store_id', STORE_ID)
-              .eq('date', ds.date);
-            if (delErr) throw delErr;
           }
 
           // daily_sales 행 삽입
@@ -345,10 +341,18 @@ export async function POST(request: Request) {
           message: `${yearMonth} 매출 가져오기가 완료되었습니다. (${totalDaysWritten}일 기록, 메뉴 ${totalMenuRowsWritten}건)`,
         });
       } catch (saveError) {
-        // 실패 시 롤백: 이번 batch_id로 쓰인 daily_sales 삭제 및 batch 레코드 삭제
+        // 실패 시 롤백: 이번 batch_id 및 store_id로 쓰인 daily_sales 삭제 및 batch 레코드 삭제
         console.error('OKPOS 가져오기 중 오류 발생, 롤백 수행:', saveError);
-        await supabase.from('daily_sales').delete().eq('import_batch_id', batchId);
-        await supabase.from('import_batches').delete().eq('id', batchId);
+        await supabase
+          .from('daily_sales')
+          .delete()
+          .eq('store_id', STORE_ID)
+          .eq('import_batch_id', batchId);
+        await supabase
+          .from('import_batches')
+          .delete()
+          .eq('store_id', STORE_ID)
+          .eq('id', batchId);
         throw saveError;
       }
     }
@@ -410,6 +414,7 @@ export async function DELETE(request: Request) {
     const { error: updErr } = await supabase
       .from('import_batches')
       .update({ undone_at: new Date().toISOString() })
+      .eq('store_id', STORE_ID)
       .eq('id', batchId);
 
     if (updErr) throw updErr;

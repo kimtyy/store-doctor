@@ -68,7 +68,7 @@ export default function OkposImportPage() {
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [mode, setMode] = useState<'fill' | 'overwrite'>('fill');
+  const mode: 'fill' = 'fill';
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [generalMessage, setGeneralMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -240,11 +240,6 @@ export default function OkposImportPage() {
     const item = queue[idx];
     if (!item.preview) return;
 
-    if (mode === 'overwrite') {
-      const confirmMsg = `${item.yearMonth}의 기존 매출 데이터를 덮어쓰시겠습니까?\n\n⚠️ 주의: 겹치는 날짜의 기존 매출, 영수증 사진 URL, 메모, 날씨 데이터가 모두 삭제되고 이번 파일 내용으로 대체됩니다.`;
-      if (!window.confirm(confirmMsg)) return;
-    }
-
     setQueue((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], saveStatus: 'saving', saveMessage: undefined };
@@ -387,38 +382,6 @@ export default function OkposImportPage() {
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">
-                처리 방식 (기존 매출과 겹칠 때)
-              </label>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setMode('fill')}
-                  className={`p-3 rounded-xl border text-left transition ${
-                    mode === 'fill'
-                      ? 'border-sky-500 bg-sky-500/10 text-sky-200 font-bold'
-                      : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <p className="text-sm">빈 날짜만 채우기 (기본)</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">이미 앱에 매출이 있는 날은 건너뜁니다.</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode('overwrite')}
-                  className={`p-3 rounded-xl border text-left transition ${
-                    mode === 'overwrite'
-                      ? 'border-amber-500 bg-amber-500/10 text-amber-200 font-bold'
-                      : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <p className="text-sm">겹치는 날도 덮어쓰기</p>
-                  <p className="text-[11px] text-amber-400/80 mt-0.5">기존 영수증/메뉴를 삭제하고 파일로 대체</p>
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-2">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -574,7 +537,7 @@ export default function OkposImportPage() {
                             </span>
                           </div>
                           <div>
-                            <span className="text-slate-500 block">순매출 (÷1.1)</span>
+                            <span className="text-slate-500 block">순매출 (일별 합)</span>
                             <span className="font-bold text-sky-400 text-sm">
                               {prev.netRevenue.toLocaleString()}원
                             </span>
@@ -598,7 +561,7 @@ export default function OkposImportPage() {
                           <div className="flex justify-between text-slate-300">
                             <span>등록 예정일수:</span>
                             <span className="font-semibold text-slate-100">
-                              {mode === 'fill' ? `${prev.daysToInsert}일 (기존 ${prev.existingDaysCount}일 제외)` : `${prev.openDaysCount}일 전체 (기존 ${prev.daysToOverwrite}일 덮어쓰기)`}
+                              {prev.daysToInsert}일 (기존 {prev.existingDaysCount}일 제외)
                             </span>
                           </div>
 
@@ -620,6 +583,9 @@ export default function OkposImportPage() {
                                   </div>
                                 ))}
                               </div>
+                              <p className="text-[11px] text-amber-300/90 mt-2 leading-relaxed bg-amber-950/30 p-2 rounded-lg border border-amber-900/50">
+                                💡 <strong>안내:</strong> 기존 입력 데이터 보호를 위해 덮어쓰기는 지원하지 않습니다. 차이나는 날짜는 [일별 매출] 화면에서 직접 확인하고 수정해 주세요.
+                              </p>
                             </div>
                           )}
 
@@ -650,18 +616,14 @@ export default function OkposImportPage() {
                           {item.saveStatus !== 'done' && (
                             <button
                               type="button"
-                              disabled={item.saveStatus === 'saving'}
+                              disabled={item.saveStatus === 'saving' || prev.daysToInsert === 0}
                               onClick={() => runSaveItem(idx)}
-                              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-md ${
-                                mode === 'overwrite'
-                                  ? 'bg-amber-600 hover:bg-amber-500 text-white'
-                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                              } disabled:opacity-50`}
+                              className="px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-md bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40"
                             >
                               {item.saveStatus === 'saving'
                                 ? '저장 처리 중...'
-                                : mode === 'overwrite'
-                                ? '덮어쓰기로 저장'
+                                : prev.daysToInsert === 0
+                                ? '등록할 빈 날짜 없음'
                                 : '빈 날짜 채우기로 저장'}
                             </button>
                           )}
