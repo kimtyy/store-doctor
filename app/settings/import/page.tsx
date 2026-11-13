@@ -448,12 +448,26 @@ export default function OkposImportPage() {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
+        const errMsg = data?.error || '저장 중 오류가 발생했습니다.';
+        if (errMsg.includes('이미 가져온 달') && errMsg.includes('빈 날짜가 없습니다')) {
+          setQueue((prev) => {
+            const next = [...prev];
+            next[idx] = {
+              ...next[idx],
+              saveStatus: 'done',
+              saveMessage: '이미 저장되어 있어요',
+            };
+            return next;
+          });
+          return true;
+        }
+
         setQueue((prev) => {
           const next = [...prev];
           next[idx] = {
             ...next[idx],
             saveStatus: 'failed',
-            saveMessage: data?.error || '저장 중 오류가 발생했습니다.',
+            saveMessage: errMsg,
           };
           return next;
         });
@@ -550,8 +564,16 @@ export default function OkposImportPage() {
     await loadBatches();
   };
 
-  // 가져오기 취소 (C-6 문구 반영)
+  // 개별 월 저장 (일괄 저장 중에는 비활성화)
+  const handleSingleSaveItem = async (idx: number) => {
+    if (isBatchSaving) return;
+    await runSaveItem(idx);
+    await loadBatches();
+  };
+
+  // 가져오기 취소 (C-6 문구 반영, 일괄 저장 중에는 비활성화)
   const handleUndoBatch = async (batch: ImportBatch) => {
+    if (isBatchSaving) return;
     const confirmMsg = `${batch.year_month} 가져오기(${batch.file_name})를 취소하시겠습니까?\n\n이 묶음으로 등록된 매출이 삭제되거나 원래 상태로 복원됩니다.\n(가져온 뒤 일별 매출 화면에서 고친 내용도 함께 삭제됩니다.)`;
     if (!window.confirm(confirmMsg)) return;
 
@@ -1153,8 +1175,8 @@ export default function OkposImportPage() {
                           {item.saveStatus !== 'done' && (
                             <button
                               type="button"
-                              disabled={item.saveStatus === 'saving'}
-                              onClick={() => runSaveItem(idx)}
+                              disabled={item.saveStatus === 'saving' || isBatchSaving}
+                              onClick={() => handleSingleSaveItem(idx)}
                               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition disabled:opacity-50"
                             >
                               이 달만 저장
@@ -1215,7 +1237,7 @@ export default function OkposImportPage() {
                   {!b.undone_at && (
                     <button
                       type="button"
-                      disabled={undoingId === b.id}
+                      disabled={undoingId === b.id || isBatchSaving}
                       onClick={() => handleUndoBatch(b)}
                       className="px-3 py-1.5 rounded-lg border border-rose-800 bg-rose-950/30 text-rose-300 hover:bg-rose-900/40 text-xs font-semibold transition disabled:opacity-50"
                     >

@@ -83,6 +83,9 @@ export async function POST(request: Request) {
     if (file && file.size > 4 * 1024 * 1024) {
       return NextResponse.json({ error: '파일 크기가 4MB를 초과했습니다. 4MB 이하 파일만 올릴 수 있어요.' }, { status: 413 });
     }
+    if (rawHtml && Buffer.byteLength(rawHtml, 'utf8') > 4 * 1024 * 1024) {
+      return NextResponse.json({ error: '파일 크기가 4MB를 초과했습니다. 4MB 이하 파일만 올릴 수 있어요.' }, { status: 413 });
+    }
     if (!yearMonth) {
       return NextResponse.json({ error: '연·월(YYYY-MM)을 선택해 주세요.' }, { status: 400 });
     }
@@ -278,7 +281,15 @@ export async function POST(request: Request) {
         .eq('store_id', STORE_ID)
         .gte('created_at', startOfDayUtc);
 
-      if (!countErr && (todayBatchCount ?? 0) >= 60) {
+      if (countErr) {
+        console.error('60회 상한 조회 오류:', countErr);
+        return NextResponse.json(
+          { error: '잠시 후 다시 시도해 주세요.' },
+          { status: 500 }
+        );
+      }
+
+      if ((todayBatchCount ?? 0) >= 60) {
         return NextResponse.json(
           { error: '오늘 가져오기 횟수를 모두 썼어요. 내일 다시 해 주세요.' },
           { status: 400 }
@@ -322,7 +333,7 @@ export async function POST(request: Request) {
       let zeroDaysFilledCount = 0;
       let skippedDaysCount = 0;
       let totalMenuRowsWritten = 0;
-      const updatedZeroSalesList: Array<{
+      let updatedZeroSalesList: Array<{
         id: string;
         date: string;
         original: Record<string, any>;
@@ -357,7 +368,7 @@ export async function POST(request: Request) {
               continue;
             }
 
-            // 원본 전체 스냅샷 저장
+            // 원본 전체 16개 컬럼 스냅샷 생성
             const originalSnapshot = {
               total_revenue: existingSale.total_revenue,
               actual_sales: existingSale.actual_sales,
@@ -377,7 +388,26 @@ export async function POST(request: Request) {
               import_batch_id: existingSale.import_batch_id,
             };
 
-            // UPDATE 실행 (WHERE id = ? AND store_id = ? AND net_revenue = 0)
+            const snapshotItem = {
+              id: existingSale.id,
+              date: ds.date,
+              original: originalSnapshot,
+            };
+
+            // M1: ① 원본 16컬럼 스냅샷을 import_batches.updated_zero_sales 에 먼저 저장 (append)
+            const nextSnapshotList = [...updatedZeroSalesList, snapshotItem];
+            const { error: snapErr } = await supabase
+              .from('import_batches')
+              .update({ updated_zero_sales: nextSnapshotList })
+              .eq('store_id', STORE_ID)
+              .eq('id', batchId);
+
+            if (snapErr) {
+              throw new Error(`0원 날 스냅샷 저장 실패: ${snapErr.message}`);
+            }
+            updatedZeroSalesList = nextSnapshotList;
+
+            // M1: ② 그 다음 daily_sales UPDATE (WHERE id = ? AND store_id = ? AND net_revenue = 0)
             const { data: updSaleData, error: updSaleErr } = await supabase
               .from('daily_sales')
               .update({
@@ -404,17 +434,18 @@ export async function POST(request: Request) {
               .eq('net_revenue', 0)
               .select('id');
 
-            if (updSaleErr || !updSaleData || updSaleData.length === 0) {
+            if (updSaleErr) {
+              throw updSaleErr;
+            }
+
+            if (!updSaleData || updSaleData.length === 0) {
+              // net_revenue != 0 등의 이유로 영향 행이 0건이면 건너뜀
+              // (스냅샷은 저장되었으나 import_batch_id가 batchId로 설정되지 않았으므로 복원 시 안전 통과)
               skippedDaysCount++;
               continue;
             }
 
             dailySaleId = existingSale.id;
-            updatedZeroSalesList.push({
-              id: existingSale.id,
-              date: ds.date,
-              original: originalSnapshot,
-            });
             zeroDaysFilledCount++;
           } else {
             // 신규 INSERT
@@ -524,27 +555,53 @@ export async function POST(request: Request) {
           message: `${yearMonth} 가져오기 완료: 신규 ${totalDaysWritten}일, 0원 채움 ${zeroDaysFilledCount}일 (건너뜀 ${skippedDaysCount}일)`,
         });
       } catch (saveError) {
-        // C-8 (3) & C-3: 롤백 순서
+        // C-8 (3) & C-3 & M1 & M2: 롤백 순서 및 오류 확인
         console.error('OKPOS 가져오기 중 오류 발생, 롤백 수행:', saveError);
+        let rollbackFailed = false;
+        let rollbackErrMsg = '';
+
         // ① updated_zero_sales 복원: 메뉴 삭제 후 스냅샷 복원
         for (const item of updatedZeroSalesList) {
-          try {
-            await supabase
-              .from('sales_menu_items')
-              .delete()
-              .eq('daily_sale_id', item.id)
-              .eq('import_batch_id', batchId);
-            await supabase
-              .from('daily_sales')
-              .update({
-                ...item.original,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('store_id', STORE_ID)
-              .eq('id', item.id);
-          } catch (rErr) {
-            console.error('롤백 중 0원 날 복원 실패:', rErr);
+          const { error: delMenuErr } = await supabase
+            .from('sales_menu_items')
+            .delete()
+            .eq('daily_sale_id', item.id)
+            .eq('import_batch_id', batchId);
+
+          if (delMenuErr) {
+            console.error('롤백 중 0원 날 메뉴 삭제 실패:', delMenuErr);
+            rollbackFailed = true;
+            rollbackErrMsg = delMenuErr.message;
+            break;
           }
+
+          // M1: 복원 UPDATE 조건에 .eq('import_batch_id', batchId) 추가
+          const { error: restoreErr } = await supabase
+            .from('daily_sales')
+            .update({
+              ...item.original,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('store_id', STORE_ID)
+            .eq('id', item.id)
+            .eq('import_batch_id', batchId);
+
+          if (restoreErr) {
+            console.error('롤백 중 0원 날 복원 실패:', restoreErr);
+            rollbackFailed = true;
+            rollbackErrMsg = restoreErr.message;
+            break;
+          }
+          // 영향 행 0건이면 오류가 아니라 "복원할 필요 없음"으로 통과 (M1)
+        }
+
+        // M2: 롤백 ① 실패 시 ②(신규 행 삭제)와 import_batches 삭제를 하지 않고 묶음 행 보존
+        if (rollbackFailed) {
+          console.error('롤백 ① 실패로 인해 신규 행 삭제 및 배치 삭제 중단 (묶음 보존):', rollbackErrMsg);
+          return NextResponse.json(
+            { error: '저장 중 문제가 생겼어요. 가져온 묶음 목록에서 이 달을 취소해 주세요.' },
+            { status: 500 }
+          );
         }
 
         // ② 신규 행 삭제
@@ -559,11 +616,28 @@ export async function POST(request: Request) {
         }
         const { error: delErr } = await delQuery;
         if (delErr) {
-          console.error('롤백 중 daily_sales 삭제 실패:', delErr);
-        } else {
-          // daily_sales 삭제가 성공했을 때만 import_batches 행 삭제
-          await supabase.from('import_batches').delete().eq('store_id', STORE_ID).eq('id', batchId);
+          console.error('롤백 중 daily_sales 삭제 실패 (묶음 보존):', delErr);
+          return NextResponse.json(
+            { error: '저장 중 문제가 생겼어요. 가져온 묶음 목록에서 이 달을 취소해 주세요.' },
+            { status: 500 }
+          );
         }
+
+        // ③ daily_sales 삭제까지 성공했을 때만 import_batches 행 삭제
+        const { error: delBatchErr } = await supabase
+          .from('import_batches')
+          .delete()
+          .eq('store_id', STORE_ID)
+          .eq('id', batchId);
+
+        if (delBatchErr) {
+          console.error('롤백 중 import_batches 삭제 실패 (묶음 보존):', delBatchErr);
+          return NextResponse.json(
+            { error: '저장 중 문제가 생겼어요. 가져온 묶음 목록에서 이 달을 취소해 주세요.' },
+            { status: 500 }
+          );
+        }
+
         throw saveError;
       }
     }
@@ -629,6 +703,7 @@ export async function DELETE(request: Request) {
         throw new Error(`0원 날 메뉴 복원 중 오류가 발생했습니다: ${delMenuErr.message}`);
       }
 
+      // M1: 복원 UPDATE 조건에 .eq('import_batch_id', batchId) 추가
       const { error: restoreErr } = await supabase
         .from('daily_sales')
         .update({
@@ -636,11 +711,13 @@ export async function DELETE(request: Request) {
           updated_at: new Date().toISOString(),
         })
         .eq('store_id', STORE_ID)
-        .eq('id', item.id);
+        .eq('id', item.id)
+        .eq('import_batch_id', batchId);
 
       if (restoreErr) {
         throw new Error(`0원 날 매출 복원 중 오류가 발생했습니다: ${restoreErr.message}`);
       }
+      // 영향 행 0건이면 오류가 아니라 "복원할 필요 없음"으로 통과 (M1)
     }
 
     // ② 그 다음에만 신규 행 삭제

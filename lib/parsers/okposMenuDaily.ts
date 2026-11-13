@@ -102,19 +102,27 @@ interface ExtractedRow {
 
 function extractTableCells(html: string): ExtractedRow[] {
   const rows: ExtractedRow[] = [];
-  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const trRegex = /<tr([^>]*)>([\s\S]*?)<\/tr>/gi;
   const tdRegex = /<t[dh]([^>]*)>([\s\S]*?)<\/t[dh]>/gi;
+
+  const hasSummaryClass = (attrStr: string): boolean => {
+    const classMatch = attrStr.match(/\bclass\s*=\s*["']?([^"'>]+)["']?/i);
+    if (!classMatch) return false;
+    const tokens = classMatch[1].trim().split(/\s+/);
+    return tokens.some((token) => /summary$/i.test(token));
+  };
 
   let trMatch: RegExpExecArray | null;
   while ((trMatch = trRegex.exec(html)) !== null) {
-    const trContent = trMatch[1];
+    const trAttrs = trMatch[1];
+    const trContent = trMatch[2];
     const cells: string[] = [];
-    let isSummary = false;
+    let isSummary = hasSummaryClass(trAttrs);
     let tdMatch: RegExpExecArray | null;
     tdRegex.lastIndex = 0;
     while ((tdMatch = tdRegex.exec(trContent)) !== null) {
       const tdAttrs = tdMatch[1];
-      if (/class=[\w"']*summary/i.test(tdAttrs)) {
+      if (hasSummaryClass(tdAttrs)) {
         isSummary = true;
       }
       // 태그 및 엔티티 제거
