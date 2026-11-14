@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
-import { fetchAll } from '@/lib/supabase/fetchAll';
+import { getUserRole } from '@/utils/supabase/getUserRole';
+import { fetchAll, IN_QUERY_CHUNK_SIZE } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
-
-
+export const maxDuration = 60;
 
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,6 +30,14 @@ export async function POST() {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json(
+      { error: '데이터 정규화는 매장 소유자만 가능합니다.' },
+      { status: 403 }
+    );
+  }
+
   try {
     const supabase = makeClient();
     const results = { menuUpdated: 0, menuMerged: 0, vendorUpdated: 0 };
@@ -42,23 +50,30 @@ export async function POST() {
         .eq('store_id', STORE_ID)
         .order('id', { ascending: true })
     );
-    if (salesError) throw new Error(salesError.message);
+    if (salesError) throw new Error(`매출 목록 조회 실패: ${salesError.message}`);
 
     const saleIdList = (salesRows ?? []).map((r: { id: string }) => r.id);
 
     if (saleIdList.length > 0) {
-      // Fetch in batches of 200 to avoid query limits
-      const BATCH = 200;
+      const totalChunks = Math.ceil(saleIdList.length / IN_QUERY_CHUNK_SIZE);
       const allItems: MenuItem[] = [];
-      for (let i = 0; i < saleIdList.length; i += BATCH) {
-        const slice = saleIdList.slice(i, i + BATCH);
+
+      for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+        const slice = saleIdList.slice(
+          chunkIdx * IN_QUERY_CHUNK_SIZE,
+          (chunkIdx + 1) * IN_QUERY_CHUNK_SIZE
+        );
         const q = supabase
           .from('sales_menu_items')
           .select('id, daily_sale_id, name, quantity, amount')
           .in('daily_sale_id', slice)
           .order('id', { ascending: true });
         const { data, error } = await fetchAll(q);
-        if (error) throw new Error(error.message);
+        if (error) {
+          throw new Error(
+            `메뉴 항목 조회 실패 (${chunkIdx}/${totalChunks} 청크 적용됨): ${error.message}`
+          );
+        }
         allItems.push(...((data ?? []) as MenuItem[]));
       }
 
@@ -89,14 +104,26 @@ export async function POST() {
         for (const [normedName, group] of Object.entries(groups)) {
           const [keepId, ...deleteIds] = group.ids;
 
-          await supabase
+          // M4: 대표 행 update 오류 확인 (성공한 경우에만 delete 진행)
+          const { error: updErr } = await supabase
             .from('sales_menu_items')
             .update({ name: normedName, quantity: group.qty, amount: group.amt })
             .eq('id', keepId);
+
+          if (updErr) {
+            throw new Error(`메뉴명 정규화 업데이트 실패 (${normedName}): ${updErr.message}`);
+          }
           results.menuUpdated++;
 
           if (deleteIds.length > 0) {
-            await supabase.from('sales_menu_items').delete().in('id', deleteIds);
+            const { error: delErr } = await supabase
+              .from('sales_menu_items')
+              .delete()
+              .in('id', deleteIds);
+
+            if (delErr) {
+              throw new Error(`메뉴 중복 병합 삭제 실패 (${normedName}): ${delErr.message}`);
+            }
             results.menuMerged += deleteIds.length;
           }
         }
@@ -111,7 +138,7 @@ export async function POST() {
         .eq('store_id', STORE_ID)
         .order('id', { ascending: true })
     );
-    if (purchaseError) throw new Error(purchaseError.message);
+    if (purchaseError) throw new Error(`매입 목록 조회 실패: ${purchaseError.message}`);
 
     const vendorUpdates: Array<{ id: string; vendor_name: string }> = [];
     for (const record of purchases ?? []) {
@@ -122,10 +149,14 @@ export async function POST() {
     }
 
     for (const upd of vendorUpdates) {
-      await supabase
+      const { error: updErr } = await supabase
         .from('purchase_records')
         .update({ vendor_name: upd.vendor_name })
         .eq('id', upd.id);
+
+      if (updErr) {
+        throw new Error(`매입처명 정규화 업데이트 실패 (${upd.vendor_name}): ${updErr.message}`);
+      }
       results.vendorUpdated++;
     }
 

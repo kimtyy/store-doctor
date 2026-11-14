@@ -122,14 +122,14 @@ export async function GET(request: Request) {
 
     let baseSalesQuery = supabase
       .from('daily_sales')
-      .select('date, net_revenue')
+      .select('id, date, net_revenue')
       .eq('store_id', STORE_ID)
       .gte('date', baselineStartDate)
       .lte('date', baselineEndDate)
       .order('date', { ascending: true });
     let basePurchaseQuery = supabase
       .from('purchase_records')
-      .select('date, total_amount, category')
+      .select('id, date, total_amount, category')
       .eq('store_id', STORE_ID)
       .gte('date', baselineStartDate)
       .lte('date', baselineEndDate);
@@ -141,17 +141,19 @@ export async function GET(request: Request) {
     const [
       { data: purchaseData, error: purchaseError },
       { data: salesData, error: salesError },
-      { data: baseSalesData },
-      { data: basePurchaseData },
+      { data: baseSalesData, error: baseSalesError },
+      { data: basePurchaseData, error: basePurchaseError },
     ] = await Promise.all([
       fetchAll(purchaseQuery.order('date', { ascending: true }).order('id', { ascending: true })),
       fetchAll(salesQuery.order('date', { ascending: true }).order('id', { ascending: true })),
-      baseSalesQuery,
-      basePurchaseQuery,
+      fetchAll(baseSalesQuery.order('id', { ascending: true })),
+      fetchAll(basePurchaseQuery.order('id', { ascending: true })),
     ]);
 
     if (purchaseError) return NextResponse.json({ error: purchaseError.message }, { status: 500 });
     if (salesError) return NextResponse.json({ error: salesError.message }, { status: 500 });
+    if (baseSalesError) return NextResponse.json({ error: baseSalesError.message }, { status: 500 });
+    if (basePurchaseError) return NextResponse.json({ error: basePurchaseError.message }, { status: 500 });
 
     const records = purchaseData ?? [];
 

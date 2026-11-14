@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { DailySales, SalesMenuItem } from '../../types/sales';
 import { correctMenuName, MenuMasterEntry } from '../../lib/menuCorrection';
@@ -276,6 +276,9 @@ export default function SalesInputPage() {
   const [drafts, setDrafts] = useState<Record<string, HistoryDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [historyMsg, setHistoryMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [menuFetchErrorIds, setMenuFetchErrorIds] = useState<Record<string, boolean>>({});
+  const [menuLoadingIds, setMenuLoadingIds] = useState<Record<string, boolean>>({});
+  const historyReqIdRef = useRef<number>(0);
 
   const [historyPeriodValue, setHistoryPeriodValue] = useState<PeriodValue>(() => ({
     type: '30',
@@ -333,29 +336,37 @@ export default function SalesInputPage() {
   // ── history ──────────────────────────────────────────────────────────────────
 
   const loadHistory = useCallback(async (pv: PeriodValue) => {
+    const reqId = ++historyReqIdRef.current;
     setHistoryLoading(true);
     setHistoryError(null);
     try {
       const url = getHistoryUrl(pv);
       const res = await fetch(url);
       const body = await res.json().catch(() => null);
+      if (reqId !== historyReqIdRef.current) return;
       if (!res.ok) throw new Error(body?.error ?? '불러오기 실패');
       const rows = [...(body.data ?? [])].reverse() as DailySales[];
       setHistoryData(rows);
       if (rows.length > 0) {
         const dates = rows.map((r) => r.date).sort();
         const evRes = await fetch(`/api/store-events?from=${dates[0]}&to=${dates[dates.length - 1]}`);
+        if (reqId !== historyReqIdRef.current) return;
         if (evRes.ok) {
           const evBody = await evRes.json().catch(() => null);
-          setHistoryEvents(evBody?.data ?? []);
+          if (reqId === historyReqIdRef.current) {
+            setHistoryEvents(evBody?.data ?? []);
+          }
         }
       } else {
         setHistoryEvents([]);
       }
     } catch (err) {
+      if (reqId !== historyReqIdRef.current) return;
       setHistoryError(err instanceof Error ? err.message : '불러오기 실패');
     } finally {
-      setHistoryLoading(false);
+      if (reqId === historyReqIdRef.current) {
+        setHistoryLoading(false);
+      }
     }
   }, [getHistoryUrl]);
 
@@ -364,6 +375,32 @@ export default function SalesInputPage() {
       loadHistory(historyPeriodValue);
     }
   }, [tab, historyPeriodValue, loadHistory]);
+
+  const fetchDayMenu = useCallback(async (record: DailySales) => {
+    if (!record.id) return undefined;
+    const id = record.id;
+    setMenuLoadingIds((prev) => ({ ...prev, [id]: true }));
+    setMenuFetchErrorIds((prev) => ({ ...prev, [id]: false }));
+    try {
+      const res = await fetch(`/api/sales?from=${record.date}&to=${record.date}`);
+      if (!res.ok) throw new Error('조회 실패');
+      const body = await res.json().catch(() => null);
+      const found = (body?.data as DailySales[] | undefined)?.find((r) => r.id === id);
+      if (found && found.menuItems !== undefined) {
+        setHistoryData((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, menuItems: found.menuItems } : r))
+        );
+        return found.menuItems;
+      }
+      throw new Error('메뉴 데이터 없음');
+    } catch (err) {
+      console.error('메뉴 상세 조회 실패:', err);
+      setMenuFetchErrorIds((prev) => ({ ...prev, [id]: true }));
+      return undefined;
+    } finally {
+      setMenuLoadingIds((prev) => ({ ...prev, [id]: false }));
+    }
+  }, []);
 
   async function toggleExpand(record: DailySales) {
     if (!record.id!) return;
@@ -374,20 +411,10 @@ export default function SalesInputPage() {
     let items = record.menuItems;
     // 'all' 보기(simple=true) 등으로 메뉴가 아직 조회되지 않은 경우 해당 날짜 단건 조회
     if (items === undefined) {
-      try {
-        const res = await fetch(`/api/sales?from=${record.date}&to=${record.date}`);
-        if (res.ok) {
-          const body = await res.json().catch(() => null);
-          const found = (body?.data as DailySales[] | undefined)?.find((r) => r.id === id);
-          if (found && found.menuItems !== undefined) {
-            items = found.menuItems;
-            setHistoryData((prev) =>
-              prev.map((r) => (r.id === id ? { ...r, menuItems: found.menuItems } : r))
-            );
-          }
-        }
-      } catch (err) {
-        console.error('메뉴 상세 조회 실패:', err);
+      items = await fetchDayMenu(record);
+      if (items === undefined) {
+        // 메뉴 조회 실패: 편집 초안을 만들지 않고 에러 상태만 표시 (저장/편집 비활성)
+        return;
       }
     }
 
@@ -409,6 +436,33 @@ export default function SalesInputPage() {
             resolvePaymentCountInput(record.tablesUsed, record.guestCount)
           ),
           menuItems: items ? [...items] : [],
+        },
+      }));
+    }
+  }
+
+  async function retryFetchMenu(record: DailySales) {
+    if (!record.id) return;
+    const id = record.id;
+    const items = await fetchDayMenu(record);
+    if (items !== undefined) {
+      setDrafts((prev) => ({
+        ...prev,
+        [id]: {
+          date: record.date,
+          totalRevenue: record.totalRevenue,
+          serviceAmount: record.serviceAmount ?? 0,
+          netRevenue: record.netRevenue,
+          tax: record.tax ?? 0,
+          cashAmount: record.cashAmount ?? 0,
+          cardAmount: record.cardAmount ?? 0,
+          tablesUsed: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          guestCount: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          avgSpend: calcServerAvgSpend(
+            record.netRevenue,
+            resolvePaymentCountInput(record.tablesUsed, record.guestCount)
+          ),
+          menuItems: [...items],
         },
       }));
     }
@@ -446,10 +500,14 @@ export default function SalesInputPage() {
     setSavingId(id);
     setHistoryMsg(null);
     try {
+      const payload: Record<string, unknown> = { id, receipt: draft };
+      if (Array.isArray(draft.menuItems)) {
+        payload.menuItems = draft.menuItems;
+      }
       const res = await fetch('/api/sales', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, receipt: draft, menuItems: draft.menuItems }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? '저장 실패');
@@ -1225,6 +1283,25 @@ export default function SalesInputPage() {
                             <span className="text-slate-500 text-sm">{isExpanded ? '▲' : '▼'}</span>
                           </div>
                         </button>
+
+                        {isExpanded && menuLoadingIds[record.id!] && (
+                          <div className="border-t border-slate-800 p-4 text-center text-xs text-slate-400 animate-pulse">
+                            메뉴 정보를 불러오는 중입니다...
+                          </div>
+                        )}
+
+                        {isExpanded && menuFetchErrorIds[record.id!] && !draft && (
+                          <div className="border-t border-slate-800 p-4 text-center space-y-2">
+                            <p className="text-sm text-rose-400 font-medium">메뉴를 불러오지 못했어요</p>
+                            <button
+                              type="button"
+                              onClick={() => retryFetchMenu(record)}
+                              className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 text-sky-400 hover:bg-slate-700 transition"
+                            >
+                              다시 시도
+                            </button>
+                          </div>
+                        )}
 
                         {isExpanded && draft && (role === 'owner' || role === 'manager' || record.createdBy === currentUserId) && (
                           <div className="border-t border-slate-800 p-4 space-y-4">

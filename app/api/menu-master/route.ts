@@ -499,22 +499,37 @@ export async function GET() {
     const masterRows = data ?? [];
     const masterIndex = buildMenuMasterIndex(masterRows);
 
-    // 매출 내역에서 아직 menu_master에 없는 메뉴 + 미분류 메뉴 집계 (daily_sales!inner 조인 + fetchAll 페이지네이션)
-    const { data: pageRows, error: itemsError } = await fetchAll<{ name: string | null; category: string | null }>(
-      supabase
-        .from('sales_menu_items')
-        .select('name, category, daily_sales!inner(store_id)')
-        .eq('daily_sales.store_id', STORE_ID)
-        .order('id', { ascending: true })
-    );
+    // 매출 내역에서 아직 menu_master에 없는 메뉴 + 미분류 메뉴 집계
+    // 1차: DB GROUP BY RPC (get_store_sales_menu_summary)
+    let itemRows: Array<{ name: string | null; category: string | null; item_count?: number }> = [];
+    const { data: rpcRows, error: rpcError } = await supabase.rpc('get_store_sales_menu_summary', {
+      p_store_id: STORE_ID,
+    });
 
-    if (itemsError) {
-      return NextResponse.json(
-        { error: `매출 메뉴 내역을 불러오지 못했습니다: ${itemsError.message}` },
-        { status: 500 }
+    if (!rpcError && rpcRows) {
+      itemRows = (rpcRows as any[]).map((r) => ({
+        name: r.name,
+        category: r.category,
+        item_count: Number(r.item_count) || 1,
+      }));
+    } else {
+      // RPC 미등록 시 fallback: fetchAll 페이지네이션
+      const { data: pageRows, error: itemsError } = await fetchAll<{ name: string | null; category: string | null }>(
+        supabase
+          .from('sales_menu_items')
+          .select('name, category, daily_sales!inner(store_id)')
+          .eq('daily_sales.store_id', STORE_ID)
+          .order('id', { ascending: true })
       );
+
+      if (itemsError) {
+        return NextResponse.json(
+          { error: `매출 메뉴 내역을 불러오지 못했습니다: ${itemsError.message}` },
+          { status: 500 }
+        );
+      }
+      itemRows = pageRows ?? [];
     }
-    const itemRows = pageRows ?? [];
 
     const unmappedMap = new Map<
       string,
@@ -536,15 +551,16 @@ export async function GET() {
 
     for (const row of itemRows ?? []) {
       if (!row.name) continue;
+      const countToAdd = row.item_count ?? 1;
       const resolved = resolveMenuWithIndex(row.name, masterIndex, row.category);
       if (!resolved.canonicalKey) continue;
       const existingEntry = allCanonicalKeys.get(resolved.canonicalKey);
       if (existingEntry) {
-        existingEntry.count += 1;
+        existingEntry.count += countToAdd;
       } else {
         allCanonicalKeys.set(resolved.canonicalKey, {
           name: resolved.canonicalName,
-          count: 1,
+          count: countToAdd,
           isMaster: resolved.matchedMaster,
         });
       }

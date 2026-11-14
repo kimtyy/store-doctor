@@ -1,20 +1,24 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
-import { fetchAll } from '@/lib/supabase/fetchAll';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 
-
+export const dynamic = 'force-dynamic';
 
 export async function DELETE() {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json(
+      { error: '매장 데이터 초기화는 매장 소유자만 가능합니다.' },
+      { status: 403 }
+    );
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  console.log('=== 전체 초기화 API ===');
-  console.log('URL 설정:', !!supabaseUrl);
-  console.log('Service Key 설정:', !!supabaseServiceKey);
 
   if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json(
@@ -28,42 +32,7 @@ export async function DELETE() {
   });
 
   try {
-    // 1. daily_sales ids 전체 조회
-    const { data: salesRows, error: selectError } = await fetchAll(
-      supabase
-        .from('daily_sales')
-        .select('id')
-        .eq('store_id', STORE_ID)
-        .order('id', { ascending: true })
-    );
-
-    if (selectError) {
-      console.error('daily_sales 조회 실패:', selectError);
-      return NextResponse.json({ error: `조회 실패: ${selectError.message}` }, { status: 500 });
-    }
-
-    const salesIds = (salesRows ?? []).map((r) => r.id as string);
-    console.log(`daily_sales 조회됨: ${salesIds.length}건`);
-
-    // 2. sales_menu_items 삭제 (500개씩 청크)
-    if (salesIds.length > 0) {
-      const BATCH = 500;
-      for (let i = 0; i < salesIds.length; i += BATCH) {
-        const slice = salesIds.slice(i, i + BATCH);
-        const { error: menuError } = await supabase
-          .from('sales_menu_items')
-          .delete()
-          .in('daily_sale_id', slice);
-
-        if (menuError) {
-          console.error('sales_menu_items 삭제 실패:', menuError);
-          return NextResponse.json({ error: `메뉴 항목 삭제 실패: ${menuError.message}` }, { status: 500 });
-        }
-      }
-      console.log('sales_menu_items 삭제 완료');
-    }
-
-    // 3. daily_sales 삭제
+    // 1. daily_sales 삭제 (sales_menu_items는 ON DELETE CASCADE로 자동 연쇄 삭제)
     const { error: salesError } = await supabase
       .from('daily_sales')
       .delete()
@@ -73,9 +42,9 @@ export async function DELETE() {
       console.error('daily_sales 삭제 실패:', salesError);
       return NextResponse.json({ error: `매출 데이터 삭제 실패: ${salesError.message}` }, { status: 500 });
     }
-    console.log('daily_sales 삭제 완료');
+    console.log('daily_sales 및 sales_menu_items(CASCADE) 삭제 완료');
 
-    // 4. purchase_records 삭제
+    // 2. purchase_records 삭제
     const { error: purchaseError } = await supabase
       .from('purchase_records')
       .delete()
@@ -87,10 +56,10 @@ export async function DELETE() {
     }
     console.log('purchase_records 삭제 완료');
 
-    console.log(`✅ 전체 초기화 완료 (매출 ${salesIds.length}건 삭제)`);
+    console.log('✅ 전체 초기화 완료');
     return NextResponse.json({
       success: true,
-      message: `전체 데이터가 초기화되었습니다. (매출 ${salesIds.length}건 삭제)`,
+      message: '전체 데이터가 초기화되었습니다.',
     });
   } catch (error) {
     console.error('예상치 못한 오류:', error);

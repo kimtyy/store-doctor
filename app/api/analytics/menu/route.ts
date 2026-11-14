@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
-import { fetchAll } from '@/lib/supabase/fetchAll';
+import { getUserRole } from '@/utils/supabase/getUserRole';
+import { fetchAll, IN_QUERY_CHUNK_SIZE } from '@/lib/supabase/fetchAll';
 import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
 export const dynamic = 'force-dynamic';
@@ -147,6 +148,14 @@ export async function PATCH(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json(
+      { error: '메뉴 수정은 매장 소유자만 가능합니다.' },
+      { status: 403 }
+    );
+  }
+
   const supabase = makeClient();
   if (!supabase) {
     return NextResponse.json({ error: 'Supabase 환경 변수가 설정되지 않았습니다.' }, { status: 500 });
@@ -181,10 +190,13 @@ export async function PATCH(request: Request) {
       updateFields.name = newName.trim();
     }
 
-    // Chunk salesIds to avoid PostgREST query param size limit (500 at a time)
-    const BATCH = 500;
-    for (let i = 0; i < salesIds.length; i += BATCH) {
-      const slice = salesIds.slice(i, i + BATCH);
+    // Chunk salesIds to avoid PostgREST query param size limit (IN_QUERY_CHUNK_SIZE at a time)
+    const totalChunks = Math.ceil(salesIds.length / IN_QUERY_CHUNK_SIZE);
+    for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+      const slice = salesIds.slice(
+        chunkIdx * IN_QUERY_CHUNK_SIZE,
+        (chunkIdx + 1) * IN_QUERY_CHUNK_SIZE
+      );
       const { error: updateError } = await supabase
         .from('sales_menu_items')
         .update(updateFields)
@@ -192,7 +204,9 @@ export async function PATCH(request: Request) {
         .in('daily_sale_id', slice);
 
       if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 });
+        return NextResponse.json({
+          error: `메뉴 업데이트 실패 (${chunkIdx}/${totalChunks} 청크 적용됨): ${updateError.message}`,
+        }, { status: 500 });
       }
     }
 

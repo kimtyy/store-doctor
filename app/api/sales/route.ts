@@ -137,7 +137,8 @@ export async function PATCH(request: Request) {
 
     if (updateError) throw new Error(updateError.message);
 
-    if (Array.isArray(menuItems)) {
+    // M1: 요청에 menuItems 키가 없으면 기존 메뉴는 건드리지 않음 (배열이 명시된 경우에만 교체)
+    if ('menuItems' in body && Array.isArray(menuItems)) {
       const { error: deleteError } = await supabase
         .from('sales_menu_items').delete().eq('daily_sale_id', id);
       if (deleteError) throw new Error(deleteError.message);

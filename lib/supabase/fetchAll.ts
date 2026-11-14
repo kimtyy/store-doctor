@@ -1,5 +1,8 @@
 import { PostgrestError } from '@supabase/supabase-js';
 
+/** Supabase .in() URL 길이 및 파라미터 제한을 피하기 위한 공용 청크 크기 */
+export const IN_QUERY_CHUNK_SIZE = 200;
+
 export interface FetchAllOptions {
   pageSize?: number;
   maxRows?: number;
@@ -8,6 +11,7 @@ export interface FetchAllOptions {
 export interface FetchAllResult<T> {
   data: T[] | null;
   error: PostgrestError | Error | null;
+  truncated?: boolean;
 }
 
 /**
@@ -43,9 +47,13 @@ export async function fetchAll<T = any>(
 
     if (allRows.length >= maxRows) {
       console.error(
-        `[fetchAll] Safety cap reached: fetched ${allRows.length} rows (limit: ${maxRows}). Halting pagination.`
+        `[fetchAll] Safety cap reached: fetched ${allRows.length} rows (limit: ${maxRows}). Halting pagination and returning error.`
       );
-      break;
+      return {
+        data: null,
+        error: new Error('조회 상한 초과'),
+        truncated: true,
+      };
     }
 
     if (rows.length < pageSize) {
