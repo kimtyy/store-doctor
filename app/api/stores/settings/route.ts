@@ -14,7 +14,7 @@ export async function GET() {
   try {
     let { data, error } = await supabase
       .from('stores')
-      .select('owner_salary, loan_repayment, onboarding_guide_seen, address, latitude, longitude')
+      .select('id, owner_salary, loan_repayment, onboarding_guide_seen, address, latitude, longitude')
       .eq('id', storeId)
       .single();
 

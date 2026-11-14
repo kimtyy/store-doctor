@@ -4,6 +4,7 @@ import { getStoreId } from '@/utils/supabase/getStore';
 import { getWeatherInfo } from '@/lib/weather';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 20;
 
 // GET /api/weather/today - 오늘 영업 참고 날씨 조회
 export async function GET() {
@@ -22,7 +23,7 @@ export async function GET() {
       .single();
 
     if (storeErr || !store || store.latitude === null || store.longitude === null) {
-      return NextResponse.json({ ok: true, hasLocation: false });
+      return NextResponse.json({ ok: true, hasLocation: false, storeId });
     }
 
     // 소수점 2자리 반올림 (같은 동네 매장 간 캐시 공유)
@@ -129,6 +130,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       hasLocation: true,
+      storeId,
       weather,
     });
   } catch (err) {

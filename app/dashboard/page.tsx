@@ -90,6 +90,7 @@ export default function DashboardPage() {
   const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
   const [weatherError, setWeatherError] = useState<boolean>(false);
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
+  const [storeId, setStoreId] = useState<string | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
@@ -104,7 +105,10 @@ export default function DashboardPage() {
   useEffect(() => {
     fetch('/api/me/role')
       .then((r) => r.json())
-      .then((d) => setRole(d.role ?? 'staff')) // role 없으면 가장 제한적인 staff로 처리
+      .then((d) => {
+        setRole(d.role ?? 'staff');
+        if (d?.storeId) setStoreId(d.storeId);
+      })
       .catch(() => setRole('staff'));
   }, []);
 
@@ -116,6 +120,7 @@ export default function DashboardPage() {
     fetch('/api/stores/settings')
       .then((r) => r.json())
       .then((d) => {
+        if (d?.data?.id) setStoreId(d.data.id);
         if (d?.data && d.data.onboarding_guide_seen === false) {
           setShowGuideModal(true);
         }
@@ -228,10 +233,15 @@ export default function DashboardPage() {
     };
   }, [recentPeriodValue]);
 
-  // localStorage에서 3시간 이내의 캐시된 마지막 날씨 복원
+  // localStorage에서 해당 매장(storeId)의 3시간 이내 캐시된 마지막 날씨 복원
+  // storeId를 아직 모르는 시점이면 캐시 표시 생략
   useEffect(() => {
+    if (!storeId) {
+      setCachedWeather(null);
+      return;
+    }
     try {
-      const raw = localStorage.getItem('store_doctor_cached_weather');
+      const raw = localStorage.getItem(`store_doctor_cached_weather:${storeId}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.weather && typeof parsed?.timestamp === 'number') {
@@ -251,7 +261,7 @@ export default function DashboardPage() {
         }
       }
     } catch {}
-  }, []);
+  }, [storeId]);
 
   const loadWeather = useCallback(async (isAutoRetry = false) => {
     if (!isAutoRetry) {
@@ -276,20 +286,27 @@ export default function DashboardPage() {
         return;
       }
 
+      if (data?.storeId) {
+        setStoreId(data.storeId);
+      }
+      const targetStoreId = data?.storeId || storeId;
+
       setHasLocation(data.hasLocation);
       if (data.hasLocation && data.weather) {
         setWeather(data.weather);
         setCachedWeather(null); // 최신 응답 수신 시 캐시 상태 교체
         setWeatherError(false);
-        try {
-          localStorage.setItem(
-            'store_doctor_cached_weather',
-            JSON.stringify({
-              weather: data.weather,
-              timestamp: Date.now(),
-            })
-          );
-        } catch {}
+        if (targetStoreId) {
+          try {
+            localStorage.setItem(
+              `store_doctor_cached_weather:${targetStoreId}`,
+              JSON.stringify({
+                weather: data.weather,
+                timestamp: Date.now(),
+              })
+            );
+          } catch {}
+        }
       }
       setWeatherLoading(false);
     } catch (err) {
@@ -304,7 +321,7 @@ export default function DashboardPage() {
       setWeatherError(true);
       setWeatherLoading(false);
     }
-  }, []);
+  }, [storeId]);
 
   useEffect(() => {
     loadWeather(false);
