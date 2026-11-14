@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses';
 import { getLatestCostRatioBaseline60 } from '@/lib/analytics/costRatio';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,14 +91,14 @@ export async function GET(request: Request) {
 
     let purchaseQuery = supabase
       .from('purchase_records')
-      .select('date, total_amount, category, vendor_name, items')
+      .select('id, date, total_amount, category, vendor_name, items')
       .eq('store_id', STORE_ID);
     if (fromStr) purchaseQuery = purchaseQuery.gte('date', fromStr);
     if (toStr) purchaseQuery = purchaseQuery.lte('date', toStr);
 
     let salesQuery = supabase
       .from('daily_sales')
-      .select('date, net_revenue')
+      .select('id, date, net_revenue')
       .eq('store_id', STORE_ID);
     if (fromStr) salesQuery = salesQuery.gte('date', fromStr);
     if (toStr) salesQuery = salesQuery.lte('date', toStr);
@@ -142,7 +143,12 @@ export async function GET(request: Request) {
       { data: salesData, error: salesError },
       { data: baseSalesData },
       { data: basePurchaseData },
-    ] = await Promise.all([purchaseQuery, salesQuery, baseSalesQuery, basePurchaseQuery]);
+    ] = await Promise.all([
+      fetchAll(purchaseQuery.order('date', { ascending: true }).order('id', { ascending: true })),
+      fetchAll(salesQuery.order('date', { ascending: true }).order('id', { ascending: true })),
+      baseSalesQuery,
+      basePurchaseQuery,
+    ]);
 
     if (purchaseError) return NextResponse.json({ error: purchaseError.message }, { status: 500 });
     if (salesError) return NextResponse.json({ error: salesError.message }, { status: 500 });

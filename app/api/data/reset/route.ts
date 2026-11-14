@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 
 
@@ -28,10 +29,13 @@ export async function DELETE() {
 
   try {
     // 1. daily_sales ids 전체 조회
-    const { data: salesRows, error: selectError } = await supabase
-      .from('daily_sales')
-      .select('id')
-      .eq('store_id', STORE_ID);
+    const { data: salesRows, error: selectError } = await fetchAll(
+      supabase
+        .from('daily_sales')
+        .select('id')
+        .eq('store_id', STORE_ID)
+        .order('id', { ascending: true })
+    );
 
     if (selectError) {
       console.error('daily_sales 조회 실패:', selectError);
@@ -41,16 +45,20 @@ export async function DELETE() {
     const salesIds = (salesRows ?? []).map((r) => r.id as string);
     console.log(`daily_sales 조회됨: ${salesIds.length}건`);
 
-    // 2. sales_menu_items 삭제
+    // 2. sales_menu_items 삭제 (500개씩 청크)
     if (salesIds.length > 0) {
-      const { error: menuError } = await supabase
-        .from('sales_menu_items')
-        .delete()
-        .in('daily_sale_id', salesIds);
+      const BATCH = 500;
+      for (let i = 0; i < salesIds.length; i += BATCH) {
+        const slice = salesIds.slice(i, i + BATCH);
+        const { error: menuError } = await supabase
+          .from('sales_menu_items')
+          .delete()
+          .in('daily_sale_id', slice);
 
-      if (menuError) {
-        console.error('sales_menu_items 삭제 실패:', menuError);
-        return NextResponse.json({ error: `메뉴 항목 삭제 실패: ${menuError.message}` }, { status: 500 });
+        if (menuError) {
+          console.error('sales_menu_items 삭제 실패:', menuError);
+          return NextResponse.json({ error: `메뉴 항목 삭제 실패: ${menuError.message}` }, { status: 500 });
+        }
       }
       console.log('sales_menu_items 삭제 완료');
     }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,24 +35,29 @@ export async function POST() {
     const results = { menuUpdated: 0, menuMerged: 0, vendorUpdated: 0 };
 
     // ── 1. Normalize sales_menu_items ──────────────────────────────────────────
-    const { data: salesRows, error: salesError } = await supabase
-      .from('daily_sales')
-      .select('id')
-      .eq('store_id', STORE_ID);
+    const { data: salesRows, error: salesError } = await fetchAll(
+      supabase
+        .from('daily_sales')
+        .select('id')
+        .eq('store_id', STORE_ID)
+        .order('id', { ascending: true })
+    );
     if (salesError) throw new Error(salesError.message);
 
     const saleIdList = (salesRows ?? []).map((r: { id: string }) => r.id);
 
     if (saleIdList.length > 0) {
-      // Fetch in batches of 500 to avoid query limits
-      const BATCH = 500;
+      // Fetch in batches of 200 to avoid query limits
+      const BATCH = 200;
       const allItems: MenuItem[] = [];
       for (let i = 0; i < saleIdList.length; i += BATCH) {
         const slice = saleIdList.slice(i, i + BATCH);
-        const { data, error } = await supabase
+        const q = supabase
           .from('sales_menu_items')
           .select('id, daily_sale_id, name, quantity, amount')
-          .in('daily_sale_id', slice);
+          .in('daily_sale_id', slice)
+          .order('id', { ascending: true });
+        const { data, error } = await fetchAll(q);
         if (error) throw new Error(error.message);
         allItems.push(...((data ?? []) as MenuItem[]));
       }
@@ -98,10 +104,13 @@ export async function POST() {
     }
 
     // ── 2. Normalize purchase_records vendor_name ──────────────────────────────
-    const { data: purchases, error: purchaseError } = await supabase
-      .from('purchase_records')
-      .select('id, vendor_name')
-      .eq('store_id', STORE_ID);
+    const { data: purchases, error: purchaseError } = await fetchAll(
+      supabase
+        .from('purchase_records')
+        .select('id, vendor_name')
+        .eq('store_id', STORE_ID)
+        .order('id', { ascending: true })
+    );
     if (purchaseError) throw new Error(purchaseError.message);
 
     const vendorUpdates: Array<{ id: string; vendor_name: string }> = [];

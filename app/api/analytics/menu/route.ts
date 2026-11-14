@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
 export const dynamic = 'force-dynamic';
@@ -63,7 +64,7 @@ export async function GET(request: Request) {
     }
 
     const [{ data, error }, { data: masterRows, error: masterError }] = await Promise.all([
-      query.order('date', { ascending: false }),
+      fetchAll(query.order('date', { ascending: false }).order('id', { ascending: false })),
       supabase
         .from('menu_master')
         .select('menu_name, category, liquor_sub_category, aliases')
@@ -158,10 +159,13 @@ export async function PATCH(request: Request) {
     }
 
     // Get all daily_sales IDs for this store
-    const { data: salesRows, error: salesError } = await supabase
-      .from('daily_sales')
-      .select('id')
-      .eq('store_id', STORE_ID);
+    const { data: salesRows, error: salesError } = await fetchAll(
+      supabase
+        .from('daily_sales')
+        .select('id')
+        .eq('store_id', STORE_ID)
+        .order('id', { ascending: true })
+    );
 
     if (salesError) {
       return NextResponse.json({ error: salesError.message }, { status: 500 });
@@ -177,14 +181,19 @@ export async function PATCH(request: Request) {
       updateFields.name = newName.trim();
     }
 
-    const { error: updateError } = await supabase
-      .from('sales_menu_items')
-      .update(updateFields)
-      .eq('name', menuName)
-      .in('daily_sale_id', salesIds);
+    // Chunk salesIds to avoid PostgREST query param size limit (500 at a time)
+    const BATCH = 500;
+    for (let i = 0; i < salesIds.length; i += BATCH) {
+      const slice = salesIds.slice(i, i + BATCH);
+      const { error: updateError } = await supabase
+        .from('sales_menu_items')
+        .update(updateFields)
+        .eq('name', menuName)
+        .in('daily_sale_id', slice);
 
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true });

@@ -5,6 +5,7 @@ import { getStoreId } from '@/utils/supabase/getStore';
 import { getUserRole } from '@/utils/supabase/getUserRole';
 import { applyFixedCostsForStore } from '@/lib/fixedCosts';
 import { isValidPurchaseCategory } from '@/lib/expenses';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,8 @@ export async function GET(request: Request) {
       .from('purchase_records')
       .select('id, date, vendor_name, total_amount, category, note, memo, items, is_event, created_by')
       .eq('store_id', STORE_ID)
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .order('id', { ascending: false });
 
     if (days > 0) {
       const since = new Date();
@@ -47,7 +49,7 @@ export async function GET(request: Request) {
       query = query.gte('date', since.toISOString().split('T')[0]);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await fetchAll(query);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

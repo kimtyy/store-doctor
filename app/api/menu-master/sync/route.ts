@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 
 
@@ -44,10 +45,13 @@ export async function POST() {
     }
 
     // Fetch all daily_sales IDs for this store
-    const { data: salesRows, error: salesError } = await supabase
-      .from('daily_sales')
-      .select('id')
-      .eq('store_id', STORE_ID);
+    const { data: salesRows, error: salesError } = await fetchAll(
+      supabase
+        .from('daily_sales')
+        .select('id')
+        .eq('store_id', STORE_ID)
+        .order('id', { ascending: true })
+    );
 
     if (salesError) throw new Error(salesError.message);
     const salesIds = (salesRows ?? []).map((r) => r.id);
@@ -57,13 +61,21 @@ export async function POST() {
 
     // Fetch all sales_menu_items that match any known name or alias
     const allKnownNames = Array.from(lookup.keys());
-    const { data: items, error: itemsError } = await supabase
-      .from('sales_menu_items')
-      .select('id, name, category')
-      .in('daily_sale_id', salesIds)
-      .in('name', allKnownNames);
+    const BATCH_SIZE = 200;
+    const items: Array<{ id: string; name: string; category: string | null }> = [];
+    for (let i = 0; i < salesIds.length; i += BATCH_SIZE) {
+      const slice = salesIds.slice(i, i + BATCH_SIZE);
+      const q = supabase
+        .from('sales_menu_items')
+        .select('id, name, category')
+        .in('daily_sale_id', slice)
+        .in('name', allKnownNames)
+        .order('id', { ascending: true });
+      const { data: batchItems, error: itemsError } = await fetchAll(q);
+      if (itemsError) throw new Error(itemsError.message);
+      if (batchItems) items.push(...batchItems);
+    }
 
-    if (itemsError) throw new Error(itemsError.message);
     if (!items || items.length === 0) {
       return NextResponse.json({ success: true, updated: 0, message: '업데이트할 항목이 없습니다.' });
     }

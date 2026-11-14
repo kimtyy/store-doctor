@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,11 +28,14 @@ export async function GET() {
         .select('id, vendor_name, aliases')
         .eq('store_id', STORE_ID)
         .order('vendor_name'),
-      supabase
-        .from('purchase_records')
-        .select('vendor_name')
-        .eq('store_id', STORE_ID)
-        .not('vendor_name', 'is', null),
+      fetchAll(
+        supabase
+          .from('purchase_records')
+          .select('vendor_name')
+          .eq('store_id', STORE_ID)
+          .not('vendor_name', 'is', null)
+          .order('id', { ascending: true })
+      ),
     ]);
 
     if (masterRes.error) throw new Error(masterRes.error.message);

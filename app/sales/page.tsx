@@ -297,30 +297,33 @@ export default function SalesInputPage() {
     }
   }, [tab]);
 
-  const filteredSalesHistory = useMemo(() => {
-    let list = historyData.filter((r) => !r.isEvent);
-
-    if (historyPeriodValue.type === '7') {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 7);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
-      list = list.filter((r) => r.date >= cutoffStr);
-    } else if (historyPeriodValue.type === '30') {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
-      list = list.filter((r) => r.date >= cutoffStr);
-    } else if (historyPeriodValue.type === 'monthly' && historyPeriodValue.selectedMonth) {
-      const { year, month } = historyPeriodValue.selectedMonth;
-      const ym = `${year}-${String(month).padStart(2, '0')}`;
-      list = list.filter((r) => r.date.startsWith(ym));
-    } else if (historyPeriodValue.type === 'custom' && historyPeriodValue.customRange) {
-      const { startDate, endDate } = historyPeriodValue.customRange;
-      list = list.filter((r) => r.date >= startDate && r.date <= endDate);
+  const getHistoryUrl = useCallback((pv: PeriodValue) => {
+    if (pv.type === '7') {
+      return '/api/sales?days=7';
     }
+    if (pv.type === '30') {
+      return '/api/sales?days=30';
+    }
+    if (pv.type === 'monthly' && pv.selectedMonth) {
+      const { year, month } = pv.selectedMonth;
+      const lastDay = new Date(year, month, 0).getDate();
+      const mStr = String(month).padStart(2, '0');
+      const dStr = String(lastDay).padStart(2, '0');
+      return `/api/sales?from=${year}-${mStr}-01&to=${year}-${mStr}-${dStr}`;
+    }
+    if (pv.type === 'custom' && pv.customRange) {
+      const { startDate, endDate } = pv.customRange;
+      return `/api/sales?from=${startDate}&to=${endDate}`;
+    }
+    // 'all'
+    return '/api/sales?simple=true';
+  }, []);
 
-    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [historyData, historyPeriodValue]);
+  const filteredSalesHistory = useMemo(() => {
+    return historyData
+      .filter((r) => !r.isEvent)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [historyData]);
 
   const historySumRevenue = useMemo(
     () => filteredSalesHistory.reduce((s, r) => s + r.netRevenue, 0),
@@ -329,11 +332,12 @@ export default function SalesInputPage() {
 
   // ── history ──────────────────────────────────────────────────────────────────
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (pv: PeriodValue) => {
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const res = await fetch('/api/sales');
+      const url = getHistoryUrl(pv);
+      const res = await fetch(url);
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? '불러오기 실패');
       const rows = [...(body.data ?? [])].reverse() as DailySales[];
@@ -353,17 +357,40 @@ export default function SalesInputPage() {
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [getHistoryUrl]);
 
   useEffect(() => {
-    if (tab === 'history') loadHistory();
-  }, [tab, loadHistory]);
+    if (tab === 'history') {
+      loadHistory(historyPeriodValue);
+    }
+  }, [tab, historyPeriodValue, loadHistory]);
 
-  function toggleExpand(record: DailySales) {
+  async function toggleExpand(record: DailySales) {
     if (!record.id!) return;
     const id = record.id!;
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
+
+    let items = record.menuItems;
+    // 'all' 보기(simple=true) 등으로 메뉴가 아직 조회되지 않은 경우 해당 날짜 단건 조회
+    if (items === undefined) {
+      try {
+        const res = await fetch(`/api/sales?from=${record.date}&to=${record.date}`);
+        if (res.ok) {
+          const body = await res.json().catch(() => null);
+          const found = (body?.data as DailySales[] | undefined)?.find((r) => r.id === id);
+          if (found && found.menuItems !== undefined) {
+            items = found.menuItems;
+            setHistoryData((prev) =>
+              prev.map((r) => (r.id === id ? { ...r, menuItems: found.menuItems } : r))
+            );
+          }
+        }
+      } catch (err) {
+        console.error('메뉴 상세 조회 실패:', err);
+      }
+    }
+
     if (!drafts[id]) {
       setDrafts((prev) => ({
         ...prev,
@@ -381,7 +408,7 @@ export default function SalesInputPage() {
             record.netRevenue,
             resolvePaymentCountInput(record.tablesUsed, record.guestCount)
           ),
-          menuItems: record.menuItems ? [...record.menuItems] : [],
+          menuItems: items ? [...items] : [],
         },
       }));
     }
@@ -427,7 +454,7 @@ export default function SalesInputPage() {
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? '저장 실패');
       setHistoryMsg({ type: 'success', text: '✅ 수정 저장 완료' });
-      await loadHistory();
+      await loadHistory(historyPeriodValue);
       setExpandedId(null);
     } catch (err) {
       setHistoryMsg({ type: 'error', text: err instanceof Error ? err.message : '저장 실패' });
@@ -1149,7 +1176,7 @@ export default function SalesInputPage() {
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-100 flex flex-wrap items-center gap-2">
                               <span>{new Date(record.date + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' })}</span>
-                              {menuCount === 0 && (
+                              {record.menuItems !== undefined && menuCount === 0 && (
                                 <span className="rounded bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-400 border border-orange-500/30">
                                   📋 메뉴 미입력
                                 </span>
@@ -1172,7 +1199,7 @@ export default function SalesInputPage() {
                             </p>
                             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                               <span>
-                                현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'} · 결제 1건당 {(record.avgSpend ?? 0) > 0 ? `${(record.avgSpend ?? 0).toLocaleString()}원` : '-'}{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
+                                현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'} · 결제 1건당 {(record.avgSpend ?? 0) > 0 ? `${(record.avgSpend ?? 0).toLocaleString()}원` : '-'}{record.menuItems !== undefined && menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
                               </span>
                               <span
                                 role="button"

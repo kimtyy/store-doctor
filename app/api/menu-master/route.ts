@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { getUserRole } from '@/utils/supabase/getUserRole';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 import {
   buildMenuMasterIndex,
   findSimilarMenuPairs,
@@ -498,26 +499,22 @@ export async function GET() {
     const masterRows = data ?? [];
     const masterIndex = buildMenuMasterIndex(masterRows);
 
-    // 매출 내역에서 아직 menu_master에 없는 메뉴 + 미분류 메뉴 집계 (daily_sales!inner 조인 + 1000행 페이지네이션)
-    const itemRows: Array<{ name: string | null; category: string | null }> = [];
-    const PAGE_SIZE = 1000;
-    for (let offset = 0; ; offset += PAGE_SIZE) {
-      const { data: pageRows, error: itemsError } = await supabase
+    // 매출 내역에서 아직 menu_master에 없는 메뉴 + 미분류 메뉴 집계 (daily_sales!inner 조인 + fetchAll 페이지네이션)
+    const { data: pageRows, error: itemsError } = await fetchAll<{ name: string | null; category: string | null }>(
+      supabase
         .from('sales_menu_items')
         .select('name, category, daily_sales!inner(store_id)')
         .eq('daily_sales.store_id', STORE_ID)
         .order('id', { ascending: true })
-        .range(offset, offset + PAGE_SIZE - 1);
-      if (itemsError) {
-        return NextResponse.json(
-          { error: `매출 메뉴 내역을 불러오지 못했습니다: ${itemsError.message}` },
-          { status: 500 }
-        );
-      }
-      if (!pageRows || pageRows.length === 0) break;
-      itemRows.push(...pageRows);
-      if (pageRows.length < PAGE_SIZE) break;
+    );
+
+    if (itemsError) {
+      return NextResponse.json(
+        { error: `매출 메뉴 내역을 불러오지 못했습니다: ${itemsError.message}` },
+        { status: 500 }
+      );
     }
+    const itemRows = pageRows ?? [];
 
     const unmappedMap = new Map<
       string,
