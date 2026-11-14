@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/client';
 import { calculateMovingAverage } from '@/lib/analytics/movingAverage';
@@ -83,9 +83,14 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
+  const [cachedWeather, setCachedWeather] = useState<{
+    weather: WeatherInfo;
+    timeAgoText: string;
+  } | null>(null);
   const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
   const [weatherError, setWeatherError] = useState<boolean>(false);
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [monthlyRising, setMonthlyRising] = useState<MonthlyMenuComparisonItem[]>([]);
@@ -223,34 +228,89 @@ export default function DashboardPage() {
     };
   }, [recentPeriodValue]);
 
-  const loadWeather = useCallback(async () => {
-    setWeatherLoading(true);
-    setWeatherError(false);
+  // localStorage에서 3시간 이내의 캐시된 마지막 날씨 복원
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('store_doctor_cached_weather');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.weather && typeof parsed?.timestamp === 'number') {
+          const ageMs = Date.now() - parsed.timestamp;
+          const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+          if (ageMs >= 0 && ageMs < THREE_HOURS_MS) {
+            const diffMinutes = Math.max(1, Math.floor(ageMs / (1000 * 60)));
+            const timeAgoText =
+              diffMinutes < 60
+                ? `${diffMinutes}분 전 기준`
+                : `${Math.floor(diffMinutes / 60)}시간 전 기준`;
+            setCachedWeather({
+              weather: parsed.weather,
+              timeAgoText,
+            });
+          }
+        }
+      }
+    } catch {}
+  }, []);
+
+  const loadWeather = useCallback(async (isAutoRetry = false) => {
+    if (!isAutoRetry) {
+      setWeatherLoading(true);
+      setWeatherError(false);
+    }
     try {
       const res = await fetch('/api/weather/today');
-      if (!res.ok) {
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        if (!isAutoRetry) {
+          // 첫 호출 실패 시 2초 뒤 자동으로 1회 다시 호출
+          if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = setTimeout(() => {
+            loadWeather(true);
+          }, 2000);
+          return;
+        }
         setWeatherError(true);
+        setWeatherLoading(false);
         return;
       }
-      const data = await res.json();
-      if (!data.ok) {
-        setWeatherError(true);
-        return;
-      }
+
       setHasLocation(data.hasLocation);
       if (data.hasLocation && data.weather) {
         setWeather(data.weather);
+        setCachedWeather(null); // 최신 응답 수신 시 캐시 상태 교체
+        setWeatherError(false);
+        try {
+          localStorage.setItem(
+            'store_doctor_cached_weather',
+            JSON.stringify({
+              weather: data.weather,
+              timestamp: Date.now(),
+            })
+          );
+        } catch {}
       }
+      setWeatherLoading(false);
     } catch (err) {
       console.error('날씨 불러오기 실패:', err);
+      if (!isAutoRetry) {
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = setTimeout(() => {
+          loadWeather(true);
+        }, 2000);
+        return;
+      }
       setWeatherError(true);
-    } finally {
       setWeatherLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadWeather();
+    loadWeather(false);
+    return () => {
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
   }, [loadWeather]);
 
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -646,14 +706,33 @@ export default function DashboardPage() {
                 </h2>
 
                 {/* Weather */}
-                {weatherLoading ? (
+                {weatherLoading && cachedWeather ? (
+                  <div className="flex items-center gap-3 mb-5 rounded-2xl bg-slate-950/60 px-4 py-3 opacity-60 transition-opacity">
+                    <span className="text-3xl">{cachedWeather.weather.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-100 flex items-center flex-wrap gap-x-2">
+                        <span>{cachedWeather.weather.text}</span>
+                        <span className="text-slate-400 font-normal">{cachedWeather.weather.temp}°C</span>
+                        {cachedWeather.weather.eveningTemp !== undefined && (
+                          <span className="text-xs text-indigo-300 font-normal bg-indigo-950/60 border border-indigo-800/50 px-2 py-0.5 rounded-full">
+                            오늘 저녁 {cachedWeather.weather.eveningTemp}°C
+                          </span>
+                        )}
+                        <span className="text-[11px] text-slate-400 font-normal bg-slate-800/60 px-2 py-0.5 rounded-full">
+                          {cachedWeather.timeAgoText}
+                        </span>
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">{cachedWeather.weather.comment}</p>
+                    </div>
+                  </div>
+                ) : weatherLoading ? (
                   <div className="h-16 rounded-2xl bg-slate-800/40 animate-pulse mb-5" />
                 ) : weatherError ? (
                   <div className="flex items-center justify-between mb-5 rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3 text-xs text-slate-400">
                     <span>날씨 정보를 불러오지 못했어요</span>
                     <button
                       type="button"
-                      onClick={loadWeather}
+                      onClick={() => loadWeather(false)}
                       className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
                     >
                       다시 시도

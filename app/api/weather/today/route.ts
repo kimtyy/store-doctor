@@ -31,17 +31,63 @@ export async function GET() {
 
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat2}&longitude=${lon2}&current=temperature_2m,weather_code&hourly=temperature_2m&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul&forecast_days=2`;
 
-    // 5초 타임아웃 + 30분(1800초) Next fetch 캐시
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(5000),
-      next: { revalidate: 1800 },
-    });
+    // 8초 타임아웃 및 실패 시 1초 쉬고 1회 재시도 (4xx는 429 제외하고 재시도 안 함)
+    let res: Response | null = null;
+    let lastError: any = null;
+    let lastStatus: number | null = null;
+    let totalAttempts = 0;
 
-    if (!res.ok) {
-      console.error(`Open-Meteo 응답 오류: ${res.status}`);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      totalAttempts = attempt;
+      const startTime = Date.now();
+      try {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(8000),
+          next: { revalidate: 1800 },
+        });
+        const durationMs = Date.now() - startTime;
+
+        if (response.ok) {
+          res = response;
+          break;
+        }
+
+        lastStatus = response.status;
+        console.warn(
+          `[Open-Meteo] 호출 실패 (시도 ${attempt}/2) - status: ${response.status}, duration: ${durationMs}ms`
+        );
+
+        // 4xx (429 제외)는 재시도 안 함
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          res = response;
+          break;
+        }
+
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      } catch (err: any) {
+        const durationMs = Date.now() - startTime;
+        lastError = err;
+        const errName = err?.name || 'Error';
+        console.warn(
+          `[Open-Meteo] 예외 발생 (시도 ${attempt}/2) - exception: ${errName}, message: ${err?.message}, duration: ${durationMs}ms`
+        );
+
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    }
+
+    if (!res || !res.ok) {
+      const statusToReport = res ? res.status : (lastStatus || 500);
+      console.error(
+        `[Open-Meteo] 최종 실패 (총 ${totalAttempts}회 시도) - status: ${statusToReport}, lastException: ${lastError?.name || 'None'}`
+      );
       return NextResponse.json(
         { ok: false, error: '날씨 정보를 불러오지 못했어요' },
-        { status: 502 }
+        { status: statusToReport >= 500 || statusToReport === 429 ? 502 : 400 }
       );
     }
 
