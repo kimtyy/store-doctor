@@ -10,6 +10,7 @@ import {
   getSeoulStartOfDayUtc,
 } from '@/lib/parsers/okposMenuDaily';
 import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
+import { backfillStoreWeatherForMonth } from '@/lib/weatherBackfill';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -544,6 +545,38 @@ export async function POST(request: Request) {
           .eq('id', batchId);
 
         if (updBatchErr) throw updBatchErr;
+
+        // [W-2] OKPOS 가져오기 저장이 끝난 달은 그 달 날씨를 자동으로 채움 (실패해도 가져오기는 성공 처리)
+        try {
+          const { data: storeInfo } = await supabase
+            .from('stores')
+            .select('latitude, longitude')
+            .eq('id', STORE_ID)
+            .single();
+
+          if (
+            storeInfo?.latitude !== null &&
+            storeInfo?.latitude !== undefined &&
+            storeInfo?.longitude !== null &&
+            storeInfo?.longitude !== undefined &&
+            !isNaN(Number(storeInfo.latitude)) &&
+            !isNaN(Number(storeInfo.longitude))
+          ) {
+            console.log(`[OKPOS Weather] ${yearMonth} 날씨 자동 채우기 시작...`);
+            const weatherRes = await backfillStoreWeatherForMonth(
+              supabase,
+              STORE_ID,
+              Number(storeInfo.latitude),
+              Number(storeInfo.longitude),
+              yearMonth
+            );
+            console.log(`[OKPOS Weather] ${yearMonth} 날씨 자동 채우기 완료:`, weatherRes);
+          } else {
+            console.log(`[OKPOS Weather] 매장 위치 좌표가 없어 날씨 채우기를 건너뜁니다.`);
+          }
+        } catch (weatherErr) {
+          console.warn(`[OKPOS Weather] ${yearMonth} 날씨 자동 채우기 실패 (가져오기는 성공):`, weatherErr);
+        }
 
         return NextResponse.json({
           ok: true,

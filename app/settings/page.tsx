@@ -26,6 +26,11 @@ export default function SettingsPage() {
   const [quickCoordInput, setQuickCoordInput] = useState<string>('');
   const [savingLocation, setSavingLocation] = useState(false);
 
+  // 과거 날씨 일괄 재채움 상태
+  const [backfillingWeather, setBackfillingWeather] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{ updated: number; failed: number; skipped: number } | null>(null);
+  const [showBackfillPrompt, setShowBackfillPrompt] = useState(false);
+
   // 구독 관리 상태
   const [subscription, setSubscription] = useState<any>(null);
   const [loadingSubscription, setLoadingSubscription] = useState(true);
@@ -158,10 +163,38 @@ export default function SettingsPage() {
         throw new Error(data.error || '저장 실패');
       }
       setMessage({ type: 'success', text: '매장 위치 설정이 저장되었습니다.' });
+      if (storeLatitude !== '' && storeLongitude !== '') {
+        setShowBackfillPrompt(true);
+      }
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || '매장 위치 저장 중 오류가 발생했습니다.' });
     } finally {
       setSavingLocation(false);
+    }
+  }
+
+  // 과거 날씨 일괄 재채움 (소유자 전용)
+  async function handleBackfillWeather() {
+    if (userRole !== 'owner') return;
+    setBackfillingWeather(true);
+    setMessage(null);
+    setBackfillResult(null);
+    try {
+      const res = await fetch('/api/weather/backfill', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || '과거 날씨 재채움 실패');
+      }
+      setBackfillResult({ updated: data.updated, failed: data.failed, skipped: data.skipped });
+      setMessage({
+        type: 'success',
+        text: data.message || `과거 날씨 재채움 완료: 갱신 ${data.updated}일, 실패 ${data.failed}일`,
+      });
+      setShowBackfillPrompt(false);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || '과거 날씨 재채움 중 오류가 발생했습니다.' });
+    } finally {
+      setBackfillingWeather(false);
     }
   }
 
@@ -671,6 +704,38 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* 좌표 저장 직후 과거 날씨 재채움 안내 프로모트 */}
+            {showBackfillPrompt && (
+              <div className="rounded-2xl border border-sky-600/40 bg-sky-950/40 p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-sky-200">
+                    과거 날씨도 이 위치로 다시 채울까요?
+                  </p>
+                  <p className="mt-1 text-xs text-slate-300">
+                    저장된 매장 위치를 기준으로 과거 모든 매출의 날씨 상태와 평균 기온을 일괄 재계산하여 채웁니다.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBackfillWeather}
+                    disabled={backfillingWeather}
+                    className="flex-1 rounded-xl bg-sky-600 py-2.5 text-xs font-semibold text-white hover:bg-sky-500 transition disabled:opacity-50"
+                  >
+                    {backfillingWeather ? '날씨 채우는 중... (최대 1분)' : '지금 날씨 채우기'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBackfillPrompt(false)}
+                    disabled={backfillingWeather}
+                    className="px-4 py-2.5 rounded-xl border border-slate-700 text-xs text-slate-400 hover:text-slate-200 transition"
+                  >
+                    나중에
+                  </button>
+                </div>
+              </div>
+            )}
+
             {userRole === 'owner' ? (
               <button
                 type="button"
@@ -685,6 +750,41 @@ export default function SettingsPage() {
                 매장 위치 설정은 소유자(Owner) 계정만 변경할 수 있습니다.
               </p>
             )}
+
+            {/* 과거 날씨 일괄 재채움 */}
+            <div className="pt-3 border-t border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-medium text-slate-300">과거 날씨 일괄 재채움</span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    매장 위치 좌표를 기준으로 과거 전체 매출의 날씨 상태와 평균 기온을 다시 채웁니다.
+                  </p>
+                </div>
+                {userRole !== 'owner' && (
+                  <span className="text-[11px] text-slate-500 font-medium">소유자 전용</span>
+                )}
+              </div>
+
+              {backfillResult && (
+                <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-3 text-xs text-emerald-200 flex items-center justify-between">
+                  <span>과거 날씨 갱신 결과</span>
+                  <span className="font-semibold text-emerald-300">
+                    갱신 {backfillResult.updated}일, 실패 {backfillResult.failed}일
+                  </span>
+                </div>
+              )}
+
+              {userRole === 'owner' ? (
+                <button
+                  type="button"
+                  onClick={handleBackfillWeather}
+                  disabled={backfillingWeather || savingLocation}
+                  className="w-full rounded-2xl border border-sky-700/60 bg-sky-950/30 px-4 py-3 text-sm font-semibold text-sky-300 hover:bg-sky-900/40 hover:text-white transition disabled:opacity-40"
+                >
+                  {backfillingWeather ? '과거 날씨 채우는 중... (최대 1분)' : '과거 날씨 다시 채우기'}
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {/* 데이터 정규화 */}
