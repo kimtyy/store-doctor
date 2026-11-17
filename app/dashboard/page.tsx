@@ -811,7 +811,7 @@ export default function DashboardPage() {
 
                   return (
                     <div className="mb-5 rounded-2xl border border-sky-800/40 bg-slate-950/70 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div className="flex items-center gap-2">
                           <span className="text-base">🌡️</span>
                           <span className="text-xs font-semibold text-slate-200">기온 변화 및 영업 참고 알림</span>
@@ -858,6 +858,14 @@ export default function DashboardPage() {
                           );
                         })}
                       </div>
+
+                      {/* 사흘째 회복 안내 */}
+                      {activeAlerts.days.some((d) => d.hasDropAlert) && (
+                        <div className="pt-2 border-t border-slate-800/60 flex items-start gap-1.5 text-[11px] text-slate-400 leading-relaxed">
+                          <span className="shrink-0">💡</span>
+                          <span>기온 급락 영향은 보통 사흘째에 평소 수준으로 회복돼요.</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}

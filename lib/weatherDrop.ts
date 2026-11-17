@@ -20,6 +20,7 @@ export interface ThreeDayAlertsResult {
   hasAnyAlert: boolean; // 3일 중 하나라도 알림이 있으면 true, 전부 없으면 false (카드 숨김)
   kstToday: string;
   days: [DayWeatherAlert, DayWeatherAlert, DayWeatherAlert]; // 오늘, 내일, 모레
+  recoveryNotice?: string; // 기온 급락 시 사흘째 회복 안내
 }
 
 /**
@@ -228,16 +229,16 @@ export function detectTempDropAlerts(
 
           if (label === '오늘') {
             const dropWhen = chosen.k === 1 ? '어제' : chosen.k === 0 ? '오늘' : '그제';
-            dropMessage = `${dropWhen} ${dropAmountStr}°C 하락 → 오늘 매출이 평소보다 약 ${dropPercentAbs}% 낮았어요 (지난 급락 ${sampleCount}번 기준)`;
+            dropMessage = `${dropWhen} ${dropAmountStr}°C 하락 — 오늘은 매출이 평소보다 약 ${dropPercentAbs}% 낮을 수 있어요 (지난 급락 ${sampleCount}번 평균)`;
           } else if (label === '내일') {
             const dropWhen = chosen.k === 1 ? '오늘' : chosen.k === 0 ? '내일' : '어제';
-            const suffix = chosen.k === 0 ? '예상' : '';
-            dropMessage = `${dropWhen} ${dropAmountStr}°C 하락${suffix} → 내일 매출이 평소보다 약 ${dropPercentAbs}% 낮을 수 있어요 (지난 급락 ${sampleCount}번 기준)`;
+            const suffix = chosen.k === 0 ? ' 예상' : '';
+            dropMessage = `${dropWhen} ${dropAmountStr}°C 하락${suffix} — 내일은 매출이 평소보다 약 ${dropPercentAbs}% 낮을 수 있어요 (지난 급락 ${sampleCount}번 평균)`;
           } else {
             // 모레
             const dropWhen = chosen.k === 1 ? '내일' : chosen.k === 0 ? '모레' : '오늘';
-            const suffix = chosen.k <= 1 ? '예상' : '';
-            dropMessage = `${dropWhen} ${dropAmountStr}°C 하락${suffix} → 모레 매출이 평소보다 약 ${dropPercentAbs}% 낮을 수 있어요 (지난 급락 ${sampleCount}번 기준)`;
+            const suffix = chosen.k <= 1 ? ' 예상' : '';
+            dropMessage = `${dropWhen} ${dropAmountStr}°C 하락${suffix} — 모레는 매출이 평소보다 약 ${dropPercentAbs}% 낮을 수 있어요 (지난 급락 ${sampleCount}번 평균)`;
           }
         }
       } else {
@@ -253,7 +254,8 @@ export function detectTempDropAlerts(
         } else if (label === '내일') {
           const dropWhen = chosen.k === 1 ? '오늘' : '내일';
           const verb = chosen.k === 1 ? '많이 떨어졌어요' : '크게 떨어질 예정이에요';
-          dropMessage = `${dropWhen} 기온이 ${verb} (${dropAmountStr}°C 하락)`;
+          const suffix = chosen.k === 0 ? ' 예상' : '';
+          dropMessage = `${dropWhen} 기온이 ${verb} (${dropAmountStr}°C 하락${suffix})`;
         } else {
           // 모레
           dropMessage = `모레 기온이 크게 떨어질 예정이에요 (${dropAmountStr}°C 하락 예상)`;
@@ -279,10 +281,12 @@ export function detectTempDropAlerts(
   });
 
   const hasAnyAlert = results.some((d) => d.hasDropAlert || d.hasColdWave);
+  const hasAnyDropAlert = results.some((d) => d.hasDropAlert);
 
   return {
     hasAnyAlert,
     kstToday: todayStr,
     days: [results[0], results[1], results[2]],
+    recoveryNotice: hasAnyDropAlert ? '기온 급락 영향은 보통 사흘째에 평소 수준으로 회복돼요.' : undefined,
   };
 }
