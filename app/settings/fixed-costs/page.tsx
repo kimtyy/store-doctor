@@ -171,6 +171,7 @@ export default function FixedCostsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<FormValues>(emptyForm);
@@ -233,6 +234,17 @@ export default function FixedCostsPage() {
   }, []);
 
   useEffect(() => { fetchList(); }, [fetchList]);
+
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.role) setUserRole(data.role);
+      })
+      .catch(() => {});
+  }, []);
+
+  const isOwner = userRole === 'owner';
 
   async function handleAdd() {
     if (!addForm.name) { setError('항목명을 입력하세요.'); return; }
@@ -395,8 +407,14 @@ export default function FixedCostsPage() {
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{success}</div>
           )}
 
+          {userRole && !isOwner && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
+              🔒 고정비 관리는 매장 소유자(Owner)만 추가·수정·삭제할 수 있습니다. (현재 읽기 전용)
+            </div>
+          )}
+
           {/* 추가 버튼 / 폼 및 수동 적용 버튼 */}
-          {!showAdd ? (
+          {isOwner && (!showAdd ? (
             <div className="flex gap-2">
               <button
                 type="button"
@@ -436,7 +454,7 @@ export default function FixedCostsPage() {
                 </button>
               </div>
             </div>
-          )}
+          ))}
 
           {/* 목록 */}
           {loading ? (
@@ -457,8 +475,8 @@ export default function FixedCostsPage() {
                     <button
                       type="button"
                       onClick={() => handleToggle(fc)}
-                      disabled={togglingId === fc.id}
-                      className={`shrink-0 w-11 h-6 rounded-full transition-colors ${fc.is_active ? 'bg-sky-600' : 'bg-slate-700'}`}
+                      disabled={!isOwner || togglingId === fc.id}
+                      className={`shrink-0 w-11 h-6 rounded-full transition-colors ${fc.is_active ? 'bg-sky-600' : 'bg-slate-700'} ${!isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <span
                         className={`block w-5 h-5 rounded-full bg-white shadow transition-transform mx-0.5 ${
@@ -467,7 +485,7 @@ export default function FixedCostsPage() {
                       />
                     </button>
 
-                    <div className="flex-1 min-w-0" onClick={() => setEditId(editId === fc.id ? null : fc.id)}>
+                    <div className="flex-1 min-w-0" onClick={() => isOwner && setEditId(editId === fc.id ? null : fc.id)}>
                       <div className="flex items-baseline gap-2">
                         <span className="text-sm font-semibold text-slate-100 truncate">{fc.name}</span>
                         <span
@@ -486,23 +504,25 @@ export default function FixedCostsPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => { if (editId === fc.id) { setEditId(null); } else { startEdit(fc); } }}
-                        className="text-xs text-slate-400 hover:text-slate-200"
-                      >
-                        {editId === fc.id ? '접기' : '수정'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(fc.id)}
-                        disabled={deletingId === fc.id}
-                        className="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-40"
-                      >
-                        {deletingId === fc.id ? '...' : '삭제'}
-                      </button>
-                    </div>
+                    {isOwner && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => { if (editId === fc.id) { setEditId(null); } else { startEdit(fc); } }}
+                          className="text-xs text-slate-400 hover:text-slate-200"
+                        >
+                          {editId === fc.id ? '접기' : '수정'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(fc.id)}
+                          disabled={deletingId === fc.id}
+                          className="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-40"
+                        >
+                          {deletingId === fc.id ? '...' : '삭제'}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* 인라인 수정 */}

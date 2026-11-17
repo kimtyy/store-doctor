@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 import { isValidFixedCostCategory, isValidPurchaseCategory } from '@/lib/expenses';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,11 @@ export async function GET() {
 export async function POST(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json({ error: '고정비 관리는 매장 소유자만 가능합니다.' }, { status: 403 });
+  }
 
   const supabase = makeClient();
   if (!supabase) return NextResponse.json({ error: 'Supabase 환경 변수 없음' }, { status: 500 });
@@ -72,6 +78,11 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json({ error: '고정비 관리는 매장 소유자만 가능합니다.' }, { status: 403 });
+  }
 
   const supabase = makeClient();
   if (!supabase) return NextResponse.json({ error: 'Supabase 환경 변수 없음' }, { status: 500 });
@@ -114,6 +125,11 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json({ error: '고정비 관리는 매장 소유자만 가능합니다.' }, { status: 403 });
+  }
 
   const supabase = makeClient();
   if (!supabase) return NextResponse.json({ error: 'Supabase 환경 변수 없음' }, { status: 500 });

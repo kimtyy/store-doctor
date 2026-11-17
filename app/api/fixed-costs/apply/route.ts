@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 import { applyFixedCostsForStore } from '@/lib/fixedCosts';
 
 export const dynamic = 'force-dynamic';
@@ -9,6 +10,11 @@ export const dynamic = 'force-dynamic';
 export async function POST() {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json({ error: '고정비 적용은 매장 소유자만 가능합니다.' }, { status: 403 });
+  }
 
   try {
     const result = await applyFixedCostsForStore(STORE_ID, 'manual');

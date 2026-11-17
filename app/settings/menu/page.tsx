@@ -87,6 +87,9 @@ export default function MenuMasterPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  const isStaff = userRole === 'staff';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +111,15 @@ export default function MenuMasterPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.role) setUserRole(data.role);
+      })
+      .catch(() => {});
+  }, []);
 
   function addNewRow() {
     setRows((prev) => [...prev, newDraftRow()]);
@@ -267,6 +279,12 @@ export default function MenuMasterPage() {
             </div>
           ) : null}
 
+          {isStaff && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
+              🔒 메뉴 관리는 소유자·매니저만 변경할 수 있습니다. (현재 읽기 전용)
+            </div>
+          )}
+
           {/* 분류 필요 안내 */}
           {unclassifiedCount > 0 && (
             <div className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-1.5">
@@ -311,9 +329,9 @@ export default function MenuMasterPage() {
                         <div className="flex flex-wrap gap-1.5">
                           <button
                             type="button"
-                            disabled={isMerging}
+                            disabled={isMerging || isStaff}
                             onClick={() => mergeSimilarPair(pair.canonicalCandidate, pair.variantName)}
-                            className="rounded-xl bg-sky-500/20 border border-sky-500/40 px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-500/30 disabled:opacity-50"
+                            className="rounded-xl bg-sky-500/20 border border-sky-500/40 px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {isMerging ? '통합 중...' : `"${pair.canonicalCandidate}"로 통합`}
                           </button>
@@ -341,8 +359,9 @@ export default function MenuMasterPage() {
                 {unmapped.map((u) => (
                   <button
                     key={u.name}
-                    onClick={() => addFromUnmapped(u)}
-                    className="rounded-xl border border-amber-700/50 bg-amber-900/30 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-800/40"
+                    onClick={() => !isStaff && addFromUnmapped(u)}
+                    disabled={isStaff}
+                    className="rounded-xl border border-amber-700/50 bg-amber-900/30 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-800/40 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     + {u.name}
                     {u.suggestedCategory ? ` (${u.suggestedCategory})` : ''}
@@ -404,9 +423,10 @@ export default function MenuMasterPage() {
                           <label className="block text-xs text-slate-400 mb-1">메뉴명 (정식)</label>
                           <input
                             value={row.menuName}
+                            disabled={isStaff}
                             onChange={(e) => updateRow(idx, { menuName: e.target.value })}
                             placeholder="예: 생맥주(테라)"
-                            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600"
+                            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 disabled:opacity-50"
                           />
                         </div>
 
@@ -417,6 +437,7 @@ export default function MenuMasterPage() {
                             {CATEGORIES.map((cat) => (
                               <button
                                 key={cat}
+                                disabled={isStaff}
                                 onClick={() => {
                                   const nextCat = row.category === cat ? '' : cat;
                                   const nextSub =
@@ -425,7 +446,7 @@ export default function MenuMasterPage() {
                                       : '';
                                   updateRow(idx, { category: nextCat, liquorSubCategory: nextSub });
                                 }}
-                                className={`rounded-xl py-2 text-sm font-medium transition ${
+                                className={`rounded-xl py-2 text-sm font-medium transition disabled:cursor-not-allowed ${
                                   row.category === cat
                                     ? CAT_BG[cat]
                                     : 'border border-slate-700 bg-slate-800/50 text-slate-400'
@@ -435,8 +456,9 @@ export default function MenuMasterPage() {
                               </button>
                             ))}
                             <button
+                              disabled={isStaff}
                               onClick={() => updateRow(idx, { category: '', liquorSubCategory: '' })}
-                              className={`rounded-xl py-2 text-sm font-medium transition ${
+                              className={`rounded-xl py-2 text-sm font-medium transition disabled:cursor-not-allowed ${
                                 row.category === ''
                                   ? 'bg-slate-700/60 text-slate-300'
                                   : 'border border-slate-700 bg-slate-800/50 text-slate-500'
@@ -456,12 +478,13 @@ export default function MenuMasterPage() {
                                 <button
                                   key={sub.key}
                                   type="button"
+                                  disabled={isStaff}
                                   onClick={() =>
                                     updateRow(idx, {
                                       liquorSubCategory: row.liquorSubCategory === sub.key ? '' : sub.key,
                                     })
                                   }
-                                  className={`rounded-xl py-2 px-2 text-xs font-medium transition ${
+                                  className={`rounded-xl py-2 px-2 text-xs font-medium transition disabled:cursor-not-allowed ${
                                     row.liquorSubCategory === sub.key
                                       ? 'bg-indigo-500/30 border border-indigo-400/60 text-indigo-200'
                                       : 'border border-slate-700 bg-slate-800/50 text-slate-400 hover:text-slate-200'
@@ -479,21 +502,23 @@ export default function MenuMasterPage() {
                           <label className="block text-xs text-slate-400 mb-2">
                             별칭 (OCR 오인식 대비)
                           </label>
-                          <div className="flex gap-2 mb-2">
-                            <input
-                              value={row.aliasInput}
-                              onChange={(e) => updateRow(idx, { aliasInput: e.target.value })}
-                              onKeyDown={(e) => { if (e.key === 'Enter') addAlias(idx); }}
-                              placeholder="예: 테라생맥, 생테라"
-                              className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600"
-                            />
-                            <button
-                              onClick={() => addAlias(idx)}
-                              className="rounded-xl bg-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-600"
-                            >
-                              추가
-                            </button>
-                          </div>
+                          {!isStaff && (
+                            <div className="flex gap-2 mb-2">
+                              <input
+                                value={row.aliasInput}
+                                onChange={(e) => updateRow(idx, { aliasInput: e.target.value })}
+                                onKeyDown={(e) => { if (e.key === 'Enter') addAlias(idx); }}
+                                placeholder="예: 테라생맥, 생테라"
+                                className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600"
+                              />
+                              <button
+                                onClick={() => addAlias(idx)}
+                                className="rounded-xl bg-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-600"
+                              >
+                                추가
+                              </button>
+                            </div>
+                          )}
                           {row.aliases.length > 0 && (
                             <div className="flex flex-wrap gap-1.5">
                               {row.aliases.map((alias) => (
@@ -502,12 +527,14 @@ export default function MenuMasterPage() {
                                   className="flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-xs text-slate-300"
                                 >
                                   {alias}
-                                  <button
-                                    onClick={() => removeAlias(idx, alias)}
-                                    className="text-slate-500 hover:text-rose-400 ml-0.5"
-                                  >
-                                    ×
-                                  </button>
+                                  {!isStaff && (
+                                    <button
+                                      onClick={() => removeAlias(idx, alias)}
+                                      className="text-slate-500 hover:text-rose-400 ml-0.5"
+                                    >
+                                      ×
+                                    </button>
+                                  )}
                                 </span>
                               ))}
                             </div>
@@ -515,12 +542,14 @@ export default function MenuMasterPage() {
                         </div>
 
                         {/* 삭제 버튼 */}
-                        <button
-                          onClick={() => deleteRow(idx)}
-                          className="w-full rounded-xl border border-rose-700/40 py-2 text-sm text-rose-400 hover:bg-rose-950/30"
-                        >
-                          이 메뉴 삭제
-                        </button>
+                        {!isStaff && (
+                          <button
+                            onClick={() => deleteRow(idx)}
+                            className="w-full rounded-xl border border-rose-700/40 py-2 text-sm text-rose-400 hover:bg-rose-950/30"
+                          >
+                            이 메뉴 삭제
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -529,31 +558,36 @@ export default function MenuMasterPage() {
             </div>
           )}
 
-          {/* 새 메뉴 추가 버튼 */}
-          <button
-            onClick={addNewRow}
-            className="w-full rounded-2xl border border-dashed border-slate-700 bg-transparent py-4 text-sm font-medium text-slate-400 hover:border-sky-600 hover:text-sky-400"
-          >
-            + 새 메뉴 추가
-          </button>
+          {/* 작업 버튼들 (소유자·매니저만) */}
+          {!isStaff && (
+            <>
+              {/* 새 메뉴 추가 버튼 */}
+              <button
+                onClick={addNewRow}
+                className="w-full rounded-2xl border border-dashed border-slate-700 bg-transparent py-4 text-sm font-medium text-slate-400 hover:border-sky-600 hover:text-sky-400"
+              >
+                + 새 메뉴 추가
+              </button>
 
-          {/* 일괄 저장 */}
-          <button
-            onClick={saveAll}
-            disabled={saving || dirtyCount === 0}
-            className="w-full rounded-2xl bg-sky-500 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {saving ? '저장 중...' : dirtyCount > 0 ? `일괄 저장 (${dirtyCount}개 변경)` : '변경 사항 없음'}
-          </button>
+              {/* 일괄 저장 */}
+              <button
+                onClick={saveAll}
+                disabled={saving || dirtyCount === 0}
+                className="w-full rounded-2xl bg-sky-500 py-4 text-base font-bold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {saving ? '저장 중...' : dirtyCount > 0 ? `일괄 저장 (${dirtyCount}개 변경)` : '변경 사항 없음'}
+              </button>
 
-          {/* 기존 데이터 동기화 */}
-          <button
-            onClick={syncExisting}
-            disabled={syncing}
-            className="w-full rounded-2xl border border-slate-700 bg-transparent py-4 text-sm font-semibold text-slate-400 transition hover:border-emerald-600 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {syncing ? '동기화 중...' : '기존 데이터 동기화'}
-          </button>
+              {/* 기존 데이터 동기화 */}
+              <button
+                onClick={syncExisting}
+                disabled={syncing}
+                className="w-full rounded-2xl border border-slate-700 bg-transparent py-4 text-sm font-semibold text-slate-400 transition hover:border-emerald-600 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {syncing ? '동기화 중...' : '기존 데이터 동기화'}
+              </button>
+            </>
+          )}
 
         </div>
       </main>

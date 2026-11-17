@@ -70,6 +70,10 @@ export default function SettingsPage() {
       .finally(() => setLoadingSubscription(false));
   }, []);
 
+  const isOwner = userRole === 'owner';
+  const isStaff = userRole === 'staff';
+  const isManagerOrOwner = isOwner || userRole === 'manager';
+
   async function handleCancelSubscription() {
     setCancellingSubscription(true);
     setShowCancelModal(false);
@@ -413,66 +417,131 @@ export default function SettingsPage() {
           </a>
 
           {/* 고정비 관리 */}
-          <a
-            href="/settings/fixed-costs"
-            className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">고정비 관리</h2>
-                <p className="mt-1 text-xs text-slate-400">임대료·공과금 등 매월 자동 등록 고정비</p>
+          {isOwner ? (
+            <a
+              href="/settings/fixed-costs"
+              className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">고정비 관리</h2>
+                  <p className="mt-1 text-xs text-slate-400">임대료·공과금 등 매월 자동 등록 고정비</p>
+                </div>
+                <span className="text-slate-500 text-lg">→</span>
               </div>
-              <span className="text-slate-500 text-lg">→</span>
+            </a>
+          ) : (
+            <div className="rounded-3xl border border-slate-800/60 bg-slate-900/40 p-6 opacity-60">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-slate-400">고정비 관리</h2>
+                    <span className="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-medium">소유자 전용</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">임대료·공과금 등 매월 자동 등록 고정비</p>
+                </div>
+                <span className="text-slate-600 text-sm">🔒</span>
+              </div>
             </div>
-          </a>
+          )}
 
           {/* 메뉴 관리 */}
-          <a
-            href="/settings/menu"
-            className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">메뉴 관리</h2>
-                <p className="mt-1 text-xs text-slate-400">메뉴 카테고리 등록 및 OCR 별칭 관리</p>
+          {isStaff ? (
+            <div className="rounded-3xl border border-slate-800/60 bg-slate-900/40 p-6 opacity-60">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-slate-400">메뉴 관리</h2>
+                    <span className="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-medium">소유자·매니저 전용</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">메뉴 카테고리 등록 및 OCR 별칭 관리</p>
+                </div>
+                <span className="text-slate-600 text-sm">🔒</span>
               </div>
-              <span className="text-slate-500 text-lg">→</span>
             </div>
-          </a>
+          ) : (
+            <a
+              href="/settings/menu"
+              className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">메뉴 관리</h2>
+                  <p className="mt-1 text-xs text-slate-400">메뉴 카테고리 등록 및 OCR 별칭 관리</p>
+                </div>
+                <span className="text-slate-500 text-lg">→</span>
+              </div>
+            </a>
+          )}
 
           {/* 매입처 관리 */}
-          <a
-            href="/settings/vendors"
-            className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">매입처 관리</h2>
-                <p className="mt-1 text-xs text-slate-400">매입처 정식명 및 OCR 오인식 별칭 등록</p>
+          {isStaff ? (
+            <div className="rounded-3xl border border-slate-800/60 bg-slate-900/40 p-6 opacity-60">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-slate-400">매입처 관리</h2>
+                    <span className="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-medium">소유자·매니저 전용</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">매입처 정식명 및 OCR 오인식 별칭 등록</p>
+                </div>
+                <span className="text-slate-600 text-sm">🔒</span>
               </div>
-              <span className="text-slate-500 text-lg">→</span>
             </div>
-          </a>
+          ) : (
+            <a
+              href="/settings/vendors"
+              className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">매입처 관리</h2>
+                  <p className="mt-1 text-xs text-slate-400">매입처 정식명 및 OCR 오인식 별칭 등록</p>
+                </div>
+                <span className="text-slate-500 text-lg">→</span>
+              </div>
+            </a>
+          )}
 
           {/* 멤버 관리 */}
-          <a
-            href="/members"
-            className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">👥 멤버 관리</h2>
-                <p className="mt-1 text-xs text-slate-400">매장 직원 초대 및 권한 설정</p>
+          {isOwner ? (
+            <a
+              href="/members"
+              className="block rounded-3xl border border-slate-800 bg-slate-900/90 p-6 hover:border-slate-700"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">👥 멤버 관리</h2>
+                  <p className="mt-1 text-xs text-slate-400">매장 직원 초대 및 권한 설정</p>
+                </div>
+                <span className="text-slate-500 text-lg">→</span>
               </div>
-              <span className="text-slate-500 text-lg">→</span>
+            </a>
+          ) : (
+            <div className="rounded-3xl border border-slate-800/60 bg-slate-900/40 p-6 opacity-60">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-slate-400">👥 멤버 관리</h2>
+                    <span className="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-medium">소유자 전용</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">매장 직원 초대 및 권한 설정</p>
+                </div>
+                <span className="text-slate-600 text-sm">🔒</span>
+              </div>
             </div>
-          </a>
+          )}
 
           {/* 영업외 지출 설정 */}
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">영업외 지출 설정</h2>
-              <p className="mt-1 text-xs text-slate-400">월별 영업보고서의 순이익 계산에 반영됩니다.</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">영업외 지출 설정</h2>
+                <p className="mt-1 text-xs text-slate-400">월별 영업보고서의 순이익 계산에 반영됩니다.</p>
+              </div>
+              {!isOwner && (
+                <span className="text-[11px] text-slate-500 font-medium">소유자 전용</span>
+              )}
             </div>
             
             <div className="space-y-4">
@@ -482,9 +551,10 @@ export default function SettingsPage() {
                   <input
                     type="number"
                     value={ownerSalary}
+                    disabled={!isOwner}
                     onChange={(e) => setOwnerSalary(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="예: 2000000"
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 pr-8 text-base text-slate-100"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 pr-8 text-base text-slate-100 disabled:opacity-50"
                   />
                   <span className="absolute right-3 top-3 text-slate-500">원</span>
                 </div>
@@ -495,23 +565,30 @@ export default function SettingsPage() {
                   <input
                     type="number"
                     value={loanRepayment}
+                    disabled={!isOwner}
                     onChange={(e) => setLoanRepayment(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="예: 500000"
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 pr-8 text-base text-slate-100"
+                    className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 pr-8 text-base text-slate-100 disabled:opacity-50"
                   />
                   <span className="absolute right-3 top-3 text-slate-500">원</span>
                 </div>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleSaveSettings}
-              disabled={savingSettings}
-              className="w-full rounded-2xl bg-sky-700 px-6 py-4 text-base font-semibold text-white transition hover:bg-sky-600 disabled:opacity-40"
-            >
-              {savingSettings ? '저장 중...' : '저장하기'}
-            </button>
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={savingSettings}
+                className="w-full rounded-2xl bg-sky-700 px-6 py-4 text-base font-semibold text-white transition hover:bg-sky-600 disabled:opacity-40"
+              >
+                {savingSettings ? '저장 중...' : '저장하기'}
+              </button>
+            ) : (
+              <p className="text-xs text-slate-500 text-center py-2">
+                영업외 지출 설정은 소유자(Owner) 계정만 변경할 수 있습니다.
+              </p>
+            )}
           </div>
 
           {/* 매장 위치 설정 (날씨 연동) */}
@@ -612,52 +689,84 @@ export default function SettingsPage() {
 
           {/* 데이터 정규화 */}
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">데이터 정규화</h2>
-              <p className="mt-1 text-xs text-slate-400">메뉴명·매입처명의 불필요한 공백을 제거하고 중복을 병합합니다.</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">데이터 정규화</h2>
+                <p className="mt-1 text-xs text-slate-400">메뉴명·매입처명의 불필요한 공백을 제거하고 중복을 병합합니다.</p>
+              </div>
+              {!isOwner && (
+                <span className="text-[11px] text-slate-500 font-medium">소유자 전용</span>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={handleNormalize}
-              disabled={normalizing}
-              className="w-full rounded-2xl bg-sky-700 px-6 py-4 text-base font-semibold text-white transition hover:bg-sky-600 disabled:opacity-40"
-            >
-              {normalizing ? '정규화 중...' : '지금 실행'}
-            </button>
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={handleNormalize}
+                disabled={normalizing}
+                className="w-full rounded-2xl bg-sky-700 px-6 py-4 text-base font-semibold text-white transition hover:bg-sky-600 disabled:opacity-40"
+              >
+                {normalizing ? '정규화 중...' : '지금 실행'}
+              </button>
+            ) : (
+              <p className="text-xs text-slate-500 text-center py-2">
+                데이터 정규화는 소유자(Owner) 계정만 실행할 수 있습니다.
+              </p>
+            )}
           </div>
 
           {/* 특정 날짜 삭제 */}
           <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">특정일 데이터 삭제</h2>
-              <p className="mt-1 text-xs text-slate-400">선택한 날짜의 매출·매입 데이터를 삭제합니다</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">특정일 데이터 삭제</h2>
+                <p className="mt-1 text-xs text-slate-400">선택한 날짜의 매출·매입 데이터를 삭제합니다</p>
+              </div>
+              {isStaff && (
+                <span className="text-[11px] text-slate-500 font-medium">소유자·매니저 전용</span>
+              )}
             </div>
 
             <input
               type="date"
               value={deleteDate}
+              disabled={isStaff}
               onChange={(e) => setDeleteDate(e.target.value)}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100"
+              className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100 disabled:opacity-50"
             />
 
-            <button
-              type="button"
-              onClick={handleDeleteDay}
-              disabled={deletingDay || !deleteDate}
-              className="w-full rounded-2xl bg-rose-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {deletingDay ? '삭제 중...' : `${deleteDate || '--'} 삭제`}
-            </button>
+            {isStaff ? (
+              <p className="text-xs text-slate-500 text-center py-2">
+                특정일 데이터 삭제는 소유자·매니저만 실행할 수 있습니다.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDeleteDay}
+                disabled={deletingDay || !deleteDate}
+                className="w-full rounded-2xl bg-rose-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {deletingDay ? '삭제 중...' : `${deleteDate || '--'} 삭제`}
+              </button>
+            )}
           </div>
 
           {/* 전체 초기화 */}
           <div className="rounded-3xl border border-rose-900/40 bg-slate-900/90 p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-rose-400">전체 데이터 초기화</h2>
-              <p className="mt-1 text-xs text-slate-400">모든 매출·매입 데이터를 영구 삭제합니다. 복구할 수 없습니다.</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-rose-400">전체 데이터 초기화</h2>
+                <p className="mt-1 text-xs text-slate-400">모든 매출·매입 데이터를 영구 삭제합니다. 복구할 수 없습니다.</p>
+              </div>
+              {!isOwner && (
+                <span className="text-[11px] text-slate-500 font-medium">소유자 전용</span>
+              )}
             </div>
 
-            {!confirmReset ? (
+            {!isOwner ? (
+              <p className="text-xs text-slate-500 text-center py-2">
+                전체 데이터 초기화는 소유자(Owner) 계정만 실행할 수 있습니다.
+              </p>
+            ) : !confirmReset ? (
               <button
                 type="button"
                 onClick={() => setConfirmReset(true)}

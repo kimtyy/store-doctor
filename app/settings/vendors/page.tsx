@@ -33,6 +33,9 @@ export default function VendorMasterPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  const isStaff = userRole === 'staff';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,6 +53,15 @@ export default function VendorMasterPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.role) setUserRole(data.role);
+      })
+      .catch(() => {});
+  }, []);
 
   function showMsg(type: 'success' | 'error', text: string) {
     setMessage({ type, text });
@@ -164,6 +176,12 @@ export default function VendorMasterPage() {
             정식 매입처명과 OCR 오인식 별칭을 등록하면 영수증 파싱 시 자동으로 교정됩니다.
           </p>
 
+          {isStaff && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
+              🔒 매입처 관리는 소유자·매니저만 추가·수정·삭제할 수 있습니다. (현재 읽기 전용)
+            </div>
+          )}
+
           {/* Unmapped vendors */}
           {unmapped.length > 0 && (
             <div className="rounded-2xl border border-amber-800/40 bg-amber-950/20 p-4 space-y-3">
@@ -173,8 +191,9 @@ export default function VendorMasterPage() {
                 {unmapped.map((v) => (
                   <button
                     key={v}
-                    onClick={() => addUnmapped(v)}
-                    className="text-xs px-3 py-1.5 rounded-full border border-amber-700/60 text-amber-300 hover:bg-amber-900/30 transition"
+                    onClick={() => !isStaff && addUnmapped(v)}
+                    disabled={isStaff}
+                    className="text-xs px-3 py-1.5 rounded-full border border-amber-700/60 text-amber-300 hover:bg-amber-900/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
                     + {v}
                   </button>
@@ -184,16 +203,18 @@ export default function VendorMasterPage() {
           )}
 
           {/* Add new */}
-          <button
-            onClick={() => {
-              const newRow = newDraftRow();
-              setRows((prev) => [newRow, ...prev]);
-              setExpandedIdx(0);
-            }}
-            className="w-full rounded-2xl border border-dashed border-slate-700 py-4 text-sm text-slate-400 hover:border-slate-500 hover:text-slate-300 transition"
-          >
-            + 새 매입처 추가
-          </button>
+          {!isStaff && (
+            <button
+              onClick={() => {
+                const newRow = newDraftRow();
+                setRows((prev) => [newRow, ...prev]);
+                setExpandedIdx(0);
+              }}
+              className="w-full rounded-2xl border border-dashed border-slate-700 py-4 text-sm text-slate-400 hover:border-slate-500 hover:text-slate-300 transition"
+            >
+              + 새 매입처 추가
+            </button>
+          )}
 
           {/* Loading */}
           {loading && (
@@ -234,11 +255,12 @@ export default function VendorMasterPage() {
                     <input
                       type="text"
                       value={row.vendorName}
+                      disabled={isStaff}
                       onChange={(e) => setRows((prev) => prev.map((r, i) =>
                         i === idx ? { ...r, vendorName: e.target.value, dirty: true } : r
                       ))}
                       placeholder="예: 풍원식품(주)"
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:opacity-50"
                     />
                   </div>
 
@@ -253,53 +275,59 @@ export default function VendorMasterPage() {
                             className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-300"
                           >
                             {alias}
-                            <button
-                              onClick={() => removeAlias(idx, alias)}
-                              className="text-slate-500 hover:text-rose-400 leading-none"
-                            >
-                              ×
-                            </button>
+                            {!isStaff && (
+                              <button
+                                onClick={() => removeAlias(idx, alias)}
+                                className="text-slate-500 hover:text-rose-400 leading-none"
+                              >
+                                ×
+                              </button>
+                            )}
                           </span>
                         ))}
                       </div>
                     )}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={row.aliasInput}
-                        onChange={(e) => setRows((prev) => prev.map((r, i) =>
-                          i === idx ? { ...r, aliasInput: e.target.value } : r
-                        ))}
-                        onKeyDown={(e) => e.key === 'Enter' && addAlias(idx)}
-                        placeholder="별칭 입력 후 Enter 또는 + 버튼"
-                        className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
-                      />
-                      <button
-                        onClick={() => addAlias(idx)}
-                        className="px-4 py-2 rounded-xl bg-slate-700 text-sm text-slate-200 hover:bg-slate-600 transition"
-                      >
-                        +
-                      </button>
-                    </div>
+                    {!isStaff && (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={row.aliasInput}
+                          onChange={(e) => setRows((prev) => prev.map((r, i) =>
+                            i === idx ? { ...r, aliasInput: e.target.value } : r
+                          ))}
+                          onKeyDown={(e) => e.key === 'Enter' && addAlias(idx)}
+                          placeholder="별칭 입력 후 Enter 또는 + 버튼"
+                          className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                        />
+                        <button
+                          onClick={() => addAlias(idx)}
+                          className="px-4 py-2 rounded-xl bg-slate-700 text-sm text-slate-200 hover:bg-slate-600 transition"
+                        >
+                          +
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-3 pt-1">
-                    <button
-                      onClick={() => saveRow(idx)}
-                      disabled={saving || !row.vendorName.trim()}
-                      className="flex-1 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 transition"
-                    >
-                      {saving ? '저장 중...' : '저장'}
-                    </button>
-                    <button
-                      onClick={() => deleteRow(idx)}
-                      disabled={saving}
-                      className="px-4 py-2.5 rounded-xl border border-rose-800/60 text-sm text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition"
-                    >
-                      삭제
-                    </button>
-                  </div>
+                  {!isStaff && (
+                    <div className="flex gap-3 pt-1">
+                      <button
+                        onClick={() => saveRow(idx)}
+                        disabled={saving || !row.vendorName.trim()}
+                        className="flex-1 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40 transition"
+                      >
+                        {saving ? '저장 중...' : '저장'}
+                      </button>
+                      <button
+                        onClick={() => deleteRow(idx)}
+                        disabled={saving}
+                        className="px-4 py-2.5 rounded-xl border border-rose-800/60 text-sm text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
