@@ -18,6 +18,7 @@ import {
 import { analyzeMenuPeriod, MenuSaleInputRow } from '@/lib/analytics/menuAnalysis';
 import { MenuMasterRecord } from '@/lib/menus';
 import { getHolidaysInRange } from '@/lib/holidays';
+import { getStoreSensitivityCached } from '@/lib/tempDropSensitivity';
 import {
   analyzeEventPeriodSales,
   computeStorePeakWeekdays,
@@ -737,11 +738,45 @@ ${reportFormatRule}`;
       return `${w.condition} ${w.days}일${overlapText}: 일평균 ${w.avgRevenue}원`;
     });
 
+    // [W-3] 당월 기온 급락 감지 및 매장 민감도 정보 주입
+    let dropPromptSection = '';
+    try {
+      const sortedMonthSales = [...sales].sort((a, b) => a.date.localeCompare(b.date));
+      const monthDrops: Array<{ date: string; delta: number }> = [];
+      for (let i = 1; i < sortedMonthSales.length; i++) {
+        const prev = sortedMonthSales[i - 1];
+        const curr = sortedMonthSales[i];
+        if (prev.temperature !== null && prev.temperature !== undefined && curr.temperature !== null && curr.temperature !== undefined) {
+          const dPrev = new Date(prev.date);
+          const dCurr = new Date(curr.date);
+          const diff = Math.round((dCurr.getTime() - dPrev.getTime()) / (1000 * 60 * 60 * 24));
+          if (diff === 1) {
+            const delta = Math.round((prev.temperature - curr.temperature) * 10) / 10;
+            if (delta >= 3.0) {
+              monthDrops.push({ date: curr.date, delta });
+            }
+          }
+        }
+      }
+
+      if (monthDrops.length > 0) {
+        const sensitivity = await getStoreSensitivityCached(STORE_ID);
+        const dropListStr = monthDrops.map((d) => `${d.date} (${d.delta}°C 하락)`).join(', ');
+        const effectText =
+          sensitivity.isEligible && sensitivity.stages[1]?.hasSignificantEffect
+            ? `이 매장의 과거 급락 1단계(다음 날) 평균 영향: 약 ${Math.abs(sensitivity.stages[1].roundedPercent)}% 감소 (지난 급락 ${sensitivity.stages[1].n}회 기준)`
+            : '이 매장의 과거 데이터 기준 영향 분석 중';
+        dropPromptSection = `\n기온 급락 데이터 (당월 3°C 이상 급락일): ${dropListStr}\n${effectText}\n주의: 기온 급락이 있었더라도 매출 변화 원인을 기온 탓으로 단정하지 마세요. 요일 요인, 매장 사정, 메뉴 구성 등을 종합하여 조언해 주세요.`;
+      }
+    } catch (dropErr) {
+      console.warn('[Report] 당월 기온 급락 조회 실패 (보고서 생성은 정상 진행):', dropErr);
+    }
+
     const weatherPrompt = `날씨와 매출 상관관계 데이터:
 ${weatherLines.join('\n')}
-${eventPromptSection}
+${eventPromptSection}${dropPromptSection}
 이 매장의 날씨에 따른 매출 차이를 해석하고 식자재·주류 발주 조절 조언을 작성해 주세요.
-특정 날씨에 사정 기간(행사·훈련·단축 등)이 겹친 경우 날씨 효과만으로 단정하지 말고 사정 영향 가능성을 함께 언급해 주세요.
+특정 날씨에 사정 기간(행사·훈련·단축 등)이 겹친 경우 날씨 효과만으로 단정하지 말고 사정 영향 가능성을 함께 언급해 주세요. 기온 급락일이 있더라도 매출 하락 원인을 기온만으로 단정하지 마세요.
 ${reportFormatRule}`;
 
     const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 600 };

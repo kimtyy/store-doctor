@@ -43,6 +43,7 @@ function calcNullableMA(values: (number | null)[], period: number): (number | nu
 
 // ── Weather ──────────────────────────────────────────────────────────────────
 import { WeatherInfo, getWeatherInfo } from '@/lib/weather';
+import { ThreeDayAlertsResult } from '@/lib/weatherDrop';
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -87,6 +88,8 @@ export default function DashboardPage() {
     weather: WeatherInfo;
     timeAgoText: string;
   } | null>(null);
+  const [tempDropAlerts, setTempDropAlerts] = useState<ThreeDayAlertsResult | null>(null);
+  const [cachedTempDropAlerts, setCachedTempDropAlerts] = useState<ThreeDayAlertsResult | null>(null);
   const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
   const [weatherError, setWeatherError] = useState<boolean>(false);
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
@@ -235,9 +238,11 @@ export default function DashboardPage() {
 
   // localStorage에서 해당 매장(storeId)의 3시간 이내 캐시된 마지막 날씨 복원
   // storeId를 아직 모르는 시점이면 캐시 표시 생략
+  // localStorage 캐시에 KST 날짜 저장, 오늘과 다르면 알림 부분 숨김
   useEffect(() => {
     if (!storeId) {
       setCachedWeather(null);
+      setCachedTempDropAlerts(null);
       return;
     }
     try {
@@ -257,6 +262,14 @@ export default function DashboardPage() {
               weather: parsed.weather,
               timeAgoText,
             });
+
+            // KST 날짜 비교: 오늘과 다르면 알림 부분 숨김
+            const nowKst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+            if (parsed?.cachedKstDate === nowKst && parsed?.tempDropAlerts) {
+              setCachedTempDropAlerts(parsed.tempDropAlerts);
+            } else {
+              setCachedTempDropAlerts(null);
+            }
           }
         }
       }
@@ -294,14 +307,19 @@ export default function DashboardPage() {
       setHasLocation(data.hasLocation);
       if (data.hasLocation && data.weather) {
         setWeather(data.weather);
+        setTempDropAlerts(data.tempDropAlerts || null);
         setCachedWeather(null); // 최신 응답 수신 시 캐시 상태 교체
+        setCachedTempDropAlerts(null);
         setWeatherError(false);
         if (targetStoreId) {
           try {
+            const nowKst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
             localStorage.setItem(
               `store_doctor_cached_weather:${targetStoreId}`,
               JSON.stringify({
                 weather: data.weather,
+                tempDropAlerts: data.tempDropAlerts || null,
+                cachedKstDate: nowKst,
                 timestamp: Date.now(),
               })
             );
@@ -785,6 +803,64 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ) : null}
+
+                {/* [W-3] 기온 급락 및 한파 3일 띠 알림 카드 (3일 중 알림이 하나라도 있을 때만 표시, 전부 없으면 카드 숨김) */}
+                {(() => {
+                  const activeAlerts = tempDropAlerts || (weatherLoading ? cachedTempDropAlerts : null);
+                  if (!activeAlerts || !activeAlerts.hasAnyAlert) return null;
+
+                  return (
+                    <div className="mb-5 rounded-2xl border border-sky-800/40 bg-slate-950/70 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🌡️</span>
+                          <span className="text-xs font-semibold text-slate-200">기온 변화 및 영업 참고 알림</span>
+                        </div>
+                        <span className="text-[11px] text-slate-400">매장 과거 영향 기반</span>
+                      </div>
+
+                      {/* 3일 띠 [오늘 | 내일 | 모레] */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                        {activeAlerts.days.map((day) => {
+                          const hasAlert = day.hasDropAlert || day.hasColdWave;
+                          return (
+                            <div
+                              key={day.label}
+                              className={`rounded-xl border p-3 flex flex-col justify-between transition ${
+                                hasAlert
+                                  ? 'border-sky-500/30 bg-sky-950/20 text-sky-100'
+                                  : 'border-slate-800/60 bg-slate-900/40 text-slate-400'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between gap-1 mb-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-200">
+                                    {day.label} ({day.dateDisplay})
+                                  </span>
+                                  {day.hasColdWave && (
+                                    <span className="text-[10px] font-semibold text-cyan-300 bg-cyan-950/70 border border-cyan-800/60 px-1.5 py-0.5 rounded-md">
+                                      ❄️ 저녁 체감 {day.eveningApparentTemp}°C 한파
+                                    </span>
+                                  )}
+                                </div>
+
+                                {day.hasDropAlert && day.dropMessage ? (
+                                  <p className="text-xs text-sky-200 font-medium leading-relaxed">
+                                    {day.dropMessage}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] text-slate-500 mt-1">
+                                    특이 기온 급락 없음
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Same weekday comparison */}
                 {sameDayComparison && (

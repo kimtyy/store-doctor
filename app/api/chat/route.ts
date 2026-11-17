@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getStoreInfo } from '@/utils/supabase/getStore';
 import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses';
 import { calcComparisonMetricDelta } from '@/lib/analytics/periodComparison';
+import { getStoreSensitivityCached } from '@/lib/tempDropSensitivity';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -37,7 +38,7 @@ function krw(n: number): string {
   return n.toLocaleString('ko-KR') + '원';
 }
 
-interface SaleRow { date: string; net_revenue: number; }
+interface SaleRow { date: string; net_revenue: number; temperature?: number | null; }
 interface PurchaseRow { date: string; total_amount: number; category?: string | null; }
 interface MenuItemRow { name: string; quantity: number; amount: number; }
 interface SaleWithMenus { id: string; date: string; sales_menu_items: MenuItemRow[]; }
@@ -76,7 +77,7 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
 
   const [sales60Res, purchaseRes, menuRes] = await Promise.all([
     supabase.from('daily_sales')
-      .select('date, net_revenue')
+      .select('date, net_revenue, temperature')
       .eq('store_id', STORE_ID)
       .gte('date', from60)
       .order('date', { ascending: true }),
@@ -245,6 +246,41 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
     const costStr = exp > 0 ? ` | 총비용 ${krw(exp)} (재료비 ${krw(ing)})` : '';
     lines.push(`${d.date}: 매출 ${krw(d.net_revenue ?? 0)}${costStr}`);
   }
+  lines.push('');
+
+  // [W-3] 최근 기온 급락 및 매장 민감도 정보
+  try {
+    let recentDrop: { date: string; delta: number } | null = null;
+    for (let i = 1; i < sales60.length; i++) {
+      const prev = sales60[i - 1];
+      const curr = sales60[i];
+      if (prev.temperature !== null && prev.temperature !== undefined && curr.temperature !== null && curr.temperature !== undefined) {
+        const dPrev = new Date(prev.date);
+        const dCurr = new Date(curr.date);
+        const diff = Math.round((dCurr.getTime() - dPrev.getTime()) / (1000 * 60 * 60 * 24));
+        if (diff === 1) {
+          const drop = Math.round((prev.temperature - curr.temperature) * 10) / 10;
+          if (drop >= 3.0) {
+            recentDrop = { date: curr.date, delta: drop };
+          }
+        }
+      }
+    }
+
+    if (recentDrop) {
+      const sensitivity = await getStoreSensitivityCached(STORE_ID);
+      lines.push('[최근 기온 급락 및 매장 영향도]');
+      lines.push(`- 최근 급락일: ${recentDrop.date} (전일 대비 ${recentDrop.delta}°C 하락)`);
+      if (sensitivity.isEligible && sensitivity.stages[1]?.hasSignificantEffect) {
+        lines.push(
+          `- 이 매장의 과거 급락 1단계(다음 날) 평균 영향: 평소 대비 약 ${Math.abs(sensitivity.stages[1].roundedPercent)}% 감소 (지난 급락 ${sensitivity.stages[1].n}회 기준)`
+        );
+      }
+      lines.push('');
+    }
+  } catch (dropErr) {
+    console.warn('[Chat] 최근 기온 급락 조회 실패 (컨텍스트 구성은 정상 진행):', dropErr);
+  }
 
   return lines.join('\n');
 }
@@ -287,6 +323,7 @@ ${storeContext}
 - 비율 지표(원가율, 인건비율, FL 비율, 임대료율, 총비용률, 영업이익률)의 전월 대비 변화는 %p 차이로 말하고, 금액 변화율(%)과 섞지 마세요
 - 프롬프트에 주어진 숫자만 사용하고, 직접 계산한 퍼센트를 만들지 마세요
 - 공과금(전기·가스·수도)은 납부 시점이 사용 월과 다를 수 있으므로 전월 대비 공과금 증감을 운영 문제로 단정하지 마세요
+- 기온 급락 데이터가 언급되더라도, 매출이 떨어진 이유를 기온 탓으로 단정하지 마세요. 요일, 마케팅, 메뉴 구성 등 복합적인 요인을 함께 고려해 설명하세요
 - 위 데이터의 구체적인 수치를 인용하며 조언해 주세요
 - 한국어로 답변하고, 사장님을 "사장님"으로 호칭해 주세요
 - 핵심만 간결하게 답변해 주세요 (너무 길지 않게)

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { getWeatherInfo } from '@/lib/weather';
+import { getStoreSensitivityCached } from '@/lib/tempDropSensitivity';
+import { detectTempDropAlerts, getKstDateString, addKstDays } from '@/lib/weatherDrop';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -30,7 +32,7 @@ export async function GET() {
     const lat2 = Number(store.latitude).toFixed(2);
     const lon2 = Number(store.longitude).toFixed(2);
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat2}&longitude=${lon2}&current=temperature_2m,weather_code&hourly=temperature_2m&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul&forecast_days=2`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat2}&longitude=${lon2}&current=temperature_2m,weather_code&hourly=temperature_2m,apparent_temperature&daily=weather_code,temperature_2m_mean&timezone=Asia%2FSeoul&past_days=3&forecast_days=3`;
 
     // 8초 타임아웃 및 실패 시 1초 쉬고 1회 재시도 (4xx는 429 제외하고 재시도 안 함)
     let res: Response | null = null;
@@ -119,19 +121,32 @@ export async function GET() {
       }
     }
 
-    // 내일 일평균 기온 (W-3에서 활용 예정)
+    // 내일 일평균 기온 계산 (KST 날짜 기준)
+    const todayKst = getKstDateString();
+    const tomorrowKst = addKstDays(todayKst, 1);
+    const tomorrowIdx = Array.isArray(data.daily?.time) ? data.daily.time.indexOf(tomorrowKst) : -1;
     const tomorrowMeanTemp =
-      data.daily?.temperature_2m_mean?.[1] !== undefined
-        ? Math.round(data.daily.temperature_2m_mean[1])
+      tomorrowIdx !== -1 && data.daily?.temperature_2m_mean?.[tomorrowIdx] !== undefined
+        ? Math.round(data.daily.temperature_2m_mean[tomorrowIdx])
         : null;
 
     const weather = getWeatherInfo(weatherCode, currentTemp, eveningTemp, tomorrowMeanTemp);
+
+    // [W-3] 매장 민감도 및 3일 띠 기온 급락·한파 판정
+    let tempDropAlerts = null;
+    try {
+      const sensitivity = await getStoreSensitivityCached(storeId);
+      tempDropAlerts = detectTempDropAlerts(data, sensitivity);
+    } catch (dropErr) {
+      console.warn('[Weather Today] 기온 급락 분석 실패 (날씨 조회는 정상 유지):', dropErr);
+    }
 
     return NextResponse.json({
       ok: true,
       hasLocation: true,
       storeId,
       weather,
+      tempDropAlerts,
     });
   } catch (err) {
     console.error('날씨 조회 예외 발생:', err);
