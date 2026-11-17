@@ -126,7 +126,7 @@ export async function POST(request: Request) {
           weatherCondition = codeToWeatherCondition(code);
         }
         if (temp !== undefined && temp !== null && !isNaN(temp)) {
-          temperature = Math.round(temp);
+          temperature = Math.round(temp * 10) / 10;
         }
       }
     } catch (err) {
