@@ -5,7 +5,7 @@ import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses'
 import { calcComparisonMetricDelta } from '@/lib/analytics/periodComparison';
 import { getStoreSensitivityCached } from '@/lib/tempDropSensitivity';
 import { getPlanForStore } from '@/lib/getPlan';
-import { canAccessFeature, MAX_CHAT_INPUT_CHARS, MAX_CHAT_HISTORY_MESSAGES } from '@/lib/plans';
+import { canAccessFeature, MAX_CHAT_INPUT_CHARS, MAX_CHAT_HISTORY_MESSAGES, CHAT_MAX_ASSISTANT_MESSAGE_LENGTH } from '@/lib/plans';
 import { checkUsageLimit, recordUsage } from '@/lib/usage';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +13,7 @@ export const maxDuration = 60;
 
 const chatRateLimitMap = new Map<string, number[]>();
 
+// 서버 메모리 기반 분당 속도 제한 (보조 수단, 비용 상한은 월 크레딧)
 function checkChatRateLimit(storeId: string): boolean {
   const now = Date.now();
   const timestamps = (chatRateLimitMap.get(storeId) ?? []).filter(t => now - t < 60000);
@@ -364,30 +365,62 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { messages } = body as { messages: { role: 'user' | 'assistant'; content: string }[] };
 
-    if (!messages || messages.length === 0) {
-      return NextResponse.json({ error: '메시지가 없습니다.' }, { status: 400 });
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json({ error: '대화 메시지 목록이 비어 있습니다.' }, { status: 400 });
     }
 
-    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-    if (lastUserMsg && lastUserMsg.content.length > MAX_CHAT_INPUT_CHARS) {
+    for (const msg of messages) {
+      if (!msg || typeof msg !== 'object') {
+        return NextResponse.json({ error: '잘못된 메시지 형식입니다.' }, { status: 400 });
+      }
+      if (msg.role !== 'user' && msg.role !== 'assistant') {
+        return NextResponse.json({ error: '메시지 역할은 user 또는 assistant여야 합니다.' }, { status: 400 });
+      }
+      if (typeof msg.content !== 'string') {
+        return NextResponse.json({ error: '메시지 내용은 텍스트여야 합니다.' }, { status: 400 });
+      }
+      if (msg.role === 'user' && msg.content.length > MAX_CHAT_INPUT_CHARS) {
+        return NextResponse.json({
+          error: '메시지는 한 번에 500자까지 보낼 수 있어요.',
+        }, { status: 400 });
+      }
+      if (msg.role === 'assistant' && msg.content.length > CHAT_MAX_ASSISTANT_MESSAGE_LENGTH) {
+        return NextResponse.json({
+          error: '대화 내역의 답변 길이가 너무 깁니다 (최대 4,000자).',
+        }, { status: 400 });
+      }
+    }
+
+    // 최근 12개로 슬라이스
+    let slicedMessages = messages.slice(-MAX_CHAT_HISTORY_MESSAGES);
+
+    // 맨 앞이 assistant 면 user 가 나올 때까지 앞에서 제거 (첫 메시지는 반드시 user)
+    while (slicedMessages.length > 0 && slicedMessages[0].role !== 'user') {
+      slicedMessages.shift();
+    }
+
+    if (slicedMessages.length === 0) {
       return NextResponse.json({
-        error: `메시지는 최대 ${MAX_CHAT_INPUT_CHARS}자까지 입력할 수 있습니다.`,
+        error: '대화 내역에 사용자의 질문이 포함되어 있지 않습니다.',
+      }, { status: 400 });
+    }
+
+    if (slicedMessages[slicedMessages.length - 1].role !== 'user') {
+      return NextResponse.json({
+        error: '마지막 메시지는 사용자의 질문이어야 합니다.',
       }, { status: 400 });
     }
 
     const usageCheck = await checkUsageLimit(STORE_ID, 'ai', 1);
     if (!usageCheck.allowed) {
       return NextResponse.json({
-        error: usageCheck.reason === 'limit_exceeded'
-          ? `이번 달 AI 크레딧(${usageCheck.limit}회)을 모두 사용했습니다. 다음 달에 갱신되거나 플랜을 업그레이드해 주세요.`
-          : 'AI 크레딧 한도를 초과했습니다.',
-        code: 'LIMIT_EXCEEDED',
-        usage: usageCheck.current,
+        error: usageCheck.message,
+        code: 'limit_reached',
+        kind: 'ai',
         limit: usageCheck.limit,
+        used: usageCheck.used,
       }, { status: 429 });
     }
-
-    const slicedMessages = messages.slice(-MAX_CHAT_HISTORY_MESSAGES);
     const storeContext = await buildStoreContext(STORE_ID);
 
     const now = new Date();

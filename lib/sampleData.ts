@@ -23,6 +23,14 @@ export const SAMPLE_DASHBOARD_DATA = {
     { dow: '금', sales: 1680000 },
     { dow: '토', sales: 1850000 },
   ],
+  // 요일별 매출 비교 (Basic 잠금 샘플)
+  sameDayComparison: {
+    dowLabel: '토',
+    lastWeek: 1850000,
+    twoWeeksAgo: 1720000,
+    lastMonthAvg: 1680000,
+    lastMonthCount: 4,
+  },
   // 기간 메뉴 비교
   periodMenuComparison: {
     risingGroup: [
@@ -35,15 +43,30 @@ export const SAMPLE_DASHBOARD_DATA = {
       { name: '먹태구이', thisPeriodQty: 54, lastPeriodQty: 66, diff: -12, rate: -18.2, isNew: false },
     ],
   },
-  // Pro 잠금: 이동평균 30일 샘플
-  movingAverageChart: Array.from({ length: 30 }, (_, i) => {
+  // Pro 잠금: 이동평균 샘플 (5/20/60/120)
+  sampleMAChartData: Array.from({ length: 30 }, (_, i) => {
     const day = i + 1;
-    const base = 900000 + Math.sin(i / 3) * 250000 + (i % 7 >= 5 ? 500000 : 0);
+    const revBase = 1200000 + Math.sin(i / 3) * 300000 + (i % 7 >= 5 ? 400000 : 0);
+    const costBase = revBase * 0.33;
+    const profitBase = revBase - costBase;
     return {
       date: `05-${String(day).padStart(2, '0')}`,
-      daily: Math.round(base),
-      ma7: Math.round(base * 0.95),
-      ma30: 1050000,
+      revenueMa5: Math.round(revBase * 0.98),
+      revenueMa20: Math.round(revBase * 0.95),
+      revenueMa60: 1250000,
+      revenueMa120: 1220000,
+      costMa5: Math.round(costBase * 0.98),
+      costMa20: Math.round(costBase * 0.95),
+      costMa60: 410000,
+      costMa120: 400000,
+      profitMa5: Math.round(profitBase * 0.98),
+      profitMa20: Math.round(profitBase * 0.95),
+      profitMa60: 840000,
+      profitMa120: 820000,
+      costRatioMa5: 32.8,
+      costRatioMa20: 33.1,
+      costRatioMa60: 32.5,
+      costRatioMa120: 32.0,
     };
   }),
   // Pro 잠금: 원가율 경고

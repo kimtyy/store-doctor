@@ -921,41 +921,81 @@ export default function DashboardPage() {
                   );
                 })()}
 
-                {/* Same weekday comparison */}
-                {sameDayComparison && (
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                      {sameDayComparison.dowLabel}요일 매출 비교
-                    </p>
-                    <div className="space-y-2">
-                      {[
-                        { label: `지난주 ${sameDayComparison.dowLabel}요일`, value: sameDayComparison.lastWeek },
-                        { label: `2주 전 ${sameDayComparison.dowLabel}요일`, value: sameDayComparison.twoWeeksAgo },
-                      ].map(({ label, value }) => (
-                        <div key={label} className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
-                          <span className="text-sm text-slate-400">{label}</span>
+                {/* Same weekday comparison (Basic 이상) */}
+                {!hasBasicAnalytics ? (
+                  <div className="relative mt-5 overflow-hidden rounded-2xl border border-slate-800/80 p-4">
+                    <div className="filter blur-[3px] opacity-50 pointer-events-none select-none">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        {SAMPLE_DASHBOARD_DATA.sameDayComparison.dowLabel}요일 매출 비교
+                      </p>
+                      <div className="space-y-2">
+                        {[
+                          { label: `지난주 ${SAMPLE_DASHBOARD_DATA.sameDayComparison.dowLabel}요일`, value: SAMPLE_DASHBOARD_DATA.sameDayComparison.lastWeek },
+                          { label: `2주 전 ${SAMPLE_DASHBOARD_DATA.sameDayComparison.dowLabel}요일`, value: SAMPLE_DASHBOARD_DATA.sameDayComparison.twoWeeksAgo },
+                        ].map(({ label, value }) => (
+                          <div key={label} className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
+                            <span className="text-sm text-slate-400">{label}</span>
+                            <span className="text-sm font-semibold text-slate-100">
+                              {value !== null ? `${fmt만(value)}원` : <span className="text-slate-600">—</span>}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
+                          <span className="text-sm text-slate-400">
+                            지난달 {SAMPLE_DASHBOARD_DATA.sameDayComparison.dowLabel}요일 평균
+                          </span>
                           <span className="text-sm font-semibold text-slate-100">
-                            {value !== null ? `${fmt만(value)}원` : <span className="text-slate-600">—</span>}
+                            {fmt만(SAMPLE_DASHBOARD_DATA.sameDayComparison.lastMonthAvg)}원
+                            <span className="text-xs text-slate-500 ml-1">({SAMPLE_DASHBOARD_DATA.sameDayComparison.lastMonthCount}회)</span>
                           </span>
                         </div>
-                      ))}
-                      <div className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
-                        <span className="text-sm text-slate-400">
-                          지난달 {sameDayComparison.dowLabel}요일 평균
-                        </span>
-                        <span className="text-sm font-semibold text-slate-100">
-                          {sameDayComparison.lastMonthAvg !== null ? (
-                            <>
-                              {fmt만(sameDayComparison.lastMonthAvg)}원
-                              <span className="text-xs text-slate-500 ml-1">({sameDayComparison.lastMonthCount}회)</span>
-                            </>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </span>
                       </div>
                     </div>
+                    <PlanLockOverlay
+                      requiredPlan="basic"
+                      title="요일별 매출 비교"
+                      description="지난주·2주 전·지난달 같은 요일 대비 추이는 Basic 플랜에서 확인하실 수 있어요."
+                      userRole={role}
+                      currentPlan={plan}
+                      compact
+                    />
                   </div>
+                ) : (
+                  sameDayComparison && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        {sameDayComparison.dowLabel}요일 매출 비교
+                      </p>
+                      <div className="space-y-2">
+                        {[
+                          { label: `지난주 ${sameDayComparison.dowLabel}요일`, value: sameDayComparison.lastWeek },
+                          { label: `2주 전 ${sameDayComparison.dowLabel}요일`, value: sameDayComparison.twoWeeksAgo },
+                        ].map(({ label, value }) => (
+                          <div key={label} className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
+                            <span className="text-sm text-slate-400">{label}</span>
+                            <span className="text-sm font-semibold text-slate-100">
+                              {value !== null ? `${fmt만(value)}원` : <span className="text-slate-600">—</span>}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between rounded-xl px-3 py-2.5 bg-slate-950/50">
+                          <span className="text-sm text-slate-400">
+                            지난달 {sameDayComparison.dowLabel}요일 평균
+                          </span>
+                          <span className="text-sm font-semibold text-slate-100">
+                            {sameDayComparison.lastMonthAvg !== null ? (
+                              <>
+                                {fmt만(sameDayComparison.lastMonthAvg)}원
+                                <span className="text-xs text-slate-500 ml-1">({sameDayComparison.lastMonthCount}회)</span>
+                              </>
+                            ) : (
+                              <span className="text-slate-600">—</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
                 )}
 
                 {/* 기간별 메뉴 비교 (Basic 이상) */}
@@ -1240,7 +1280,7 @@ export default function DashboardPage() {
                   <div className="h-5 w-28 rounded-lg bg-slate-800 animate-pulse mb-4" />
                   <div className="h-48 rounded-2xl bg-slate-800/50 animate-pulse" />
                 </div>
-              ) : canViewAnalytics && chartData.length >= 2 && (
+              ) : canViewAnalytics && (chartData.length >= 2 || !hasTrendChart) && (
                 !hasTrendChart ? (
                   <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
                     <h3 className="text-lg font-semibold text-slate-100 flex items-center">
@@ -1248,16 +1288,15 @@ export default function DashboardPage() {
                     </h3>
                     <div className="mt-4 filter blur-[3px] opacity-50 pointer-events-none select-none">
                       <MAChart
-                        data={chartData}
-                        availability={dataAvailability}
-                        storeCostRatioAvg60={storeCostRatioAvg60}
-                        events={clampedChartEvents}
+                        data={SAMPLE_DASHBOARD_DATA.sampleMAChartData}
+                        availability={{ ma5: true, ma20: true, ma60: true, ma120: true }}
+                        storeCostRatioAvg60={32.5}
                       />
                     </div>
                     <PlanLockOverlay
                       requiredPlan="pro"
                       title="이동평균선 추세 분석"
-                      description="7일·30일 이동평균선과 매출·원가율 추세 차트는 Pro 플랜에서 제공돼요."
+                      description="5·20·60·120일 이동평균선과 매출·원가율 추세 차트는 Pro 플랜에서 제공돼요."
                       userRole={role}
                       currentPlan={plan}
                     />

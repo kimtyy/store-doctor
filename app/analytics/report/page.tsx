@@ -154,7 +154,7 @@ function MonthlyReportContent() {
     csv += `총비용,${data.purchases.totalExpense ?? data.purchases.totalPurchase}\n`;
     csv += `총비용률,${(data.purchases.totalCostRatio ?? data.profit.totalCostRatio).toFixed(1)}%\n`;
     csv += `재료비(원가),${data.purchases.ingredientCost ?? data.purchases.totalPurchase}\n`;
-    csv += `원가율(재료비 기준),${data.purchases.costRatio.toFixed(1)}%\n`;
+    csv += `원가율(재료비 기준),${data.purchases.costRatio != null ? `${data.purchases.costRatio.toFixed(1)}%` : '—'}\n`;
     csv += `인건비율,${(data.purchases.laborRatio ?? 0).toFixed(1)}%\n`;
     csv += `FL 비율,${(data.purchases.flRatio ?? 0).toFixed(1)}%\n`;
     csv += `임대료율,${(data.purchases.rentRatio ?? 0).toFixed(1)}%\n`;
@@ -416,7 +416,7 @@ function MonthlyReportContent() {
             </p>
             <p className="mt-1 text-2xl font-extrabold text-rose-600">{fmt(totalExpense)}원</p>
             <p className="mt-1 text-xs text-slate-500">
-              총비용률 {totalCostRatio.toFixed(1)}% · 원가율 {data.purchases.costRatio.toFixed(1)}%
+              총비용률 {totalCostRatio.toFixed(1)}% · 원가율 {data.purchases.costRatio != null ? `${data.purchases.costRatio.toFixed(1)}%` : '—'}
             </p>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 text-white">
@@ -508,8 +508,14 @@ function MonthlyReportContent() {
               <p className="text-sm text-slate-500 mb-1 flex items-center justify-end">
                 원가율 (재료비) <TermTooltip term="원가율" />
               </p>
-              <p className="text-2xl font-bold text-slate-900">{data.purchases.costRatio.toFixed(1)}%</p>
-              <p className="text-xs text-slate-500 mt-0.5">재료비 {fmt(ingredientCost)}원</p>
+              <p className="text-2xl font-bold text-slate-900">
+                {data.purchases.costRatio !== null && data.purchases.costRatio !== undefined
+                  ? `${data.purchases.costRatio.toFixed(1)}%`
+                  : '—'}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {ingredientCost > 0 ? `재료비 ${fmt(ingredientCost)}원` : 'Basic 플랜에서 확인 가능'}
+              </p>
             </div>
           </div>
 
@@ -518,7 +524,11 @@ function MonthlyReportContent() {
               <p className="text-xs text-slate-500 flex items-center">
                 원가율 <TermTooltip term="원가율" />
               </p>
-              <p className="text-base font-bold text-slate-900 mt-0.5">{data.purchases.costRatio.toFixed(1)}%</p>
+              <p className="text-base font-bold text-slate-900 mt-0.5">
+                {data.purchases.costRatio !== null && data.purchases.costRatio !== undefined
+                  ? `${data.purchases.costRatio.toFixed(1)}%`
+                  : '—'}
+              </p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-xs text-slate-500 flex items-center">
@@ -624,7 +634,9 @@ function MonthlyReportContent() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-xs">
                 <div className="rounded-lg bg-slate-900/70 px-2.5 py-2">
                   <span className="text-slate-400 block">원가율(재료비)</span>
-                  <span className="font-bold text-slate-100">{data.purchases.costRatio.toFixed(1)}%</span>
+                  <span className="font-bold text-slate-100">
+                    {data.purchases.costRatio != null ? `${data.purchases.costRatio.toFixed(1)}%` : '—'}
+                  </span>
                 </div>
                 <div className="rounded-lg bg-slate-900/70 px-2.5 py-2">
                   <span className="text-slate-400 block">인건비율</span>

@@ -45,20 +45,33 @@ export async function POST(request: Request) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // 1-1. 플랜 구성원 수 한도 검사 (Premium: 사장 + 직원 1명, 그 외: 사장 1명)
+    // 1-1. 플랜 구성원 수 한도 검사 (소유자 제외 store_members 수로 판정, 허용 = memberLimit - 1)
     const { getPlanForStore } = await import('@/lib/getPlan');
     const { PLANS } = await import('@/lib/plans');
     const resolved = await getPlanForStore(store.id);
     const planDef = PLANS[resolved.plan];
-    const { count: currentMemberCount } = await adminSupabase
+    const allowedExtraMembers = planDef.features.memberLimit - 1;
+
+    // 소유자(stores.owner_id) 제외 store_members 수
+    const { count: nonOwnerMemberCount } = await adminSupabase
       .from('store_members')
       .select('*', { count: 'exact', head: true })
-      .eq('store_id', store.id);
+      .eq('store_id', store.id)
+      .neq('user_id', user.id);
 
-    if ((currentMemberCount || 0) >= planDef.features.memberLimit) {
+    // 미수락 초대(store_invites.accepted=false) 수
+    const { count: pendingInviteCount } = await adminSupabase
+      .from('store_invites')
+      .select('*', { count: 'exact', head: true })
+      .eq('store_id', store.id)
+      .eq('accepted', false);
+
+    const totalActiveOrPending = (nonOwnerMemberCount || 0) + (pendingInviteCount || 0);
+
+    if (totalActiveOrPending >= allowedExtraMembers) {
       return NextResponse.json(
         {
-          error: `현재 플랜에서는 구성원을 더 추가할 수 없습니다(Premium: 사장 + 직원 1명).`,
+          error: `현재 플랜(${planDef.name})에서는 구성원을 더 초대할 수 없습니다 (직원 허용: ${allowedExtraMembers}명, 현재 구성원+대기: ${totalActiveOrPending}명).`,
         },
         { status: 403 }
       );

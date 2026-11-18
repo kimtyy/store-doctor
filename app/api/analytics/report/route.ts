@@ -793,24 +793,27 @@ ${reportFormatRule}`;
     let weatherAiDiagnosis: string | null = null;
 
     if (hasAiReport) {
-      const yearMonthStr = `${year}-${String(month).padStart(2, '0')}`;
       const promptHash = crypto
         .createHash('sha256')
         .update([aiPrompt, predictionPrompt, bepPrompt, weatherPrompt].join('|||'))
         .digest('hex');
 
-      const { data: cacheRow } = await supabase
+      const { data: cacheRow, error: cacheLookupError } = await supabase
         .from('report_ai_cache')
-        .select('*')
+        .select('result')
         .eq('store_id', STORE_ID)
-        .eq('year_month', yearMonthStr)
+        .eq('prompt_hash', promptHash)
         .maybeSingle();
 
-      if (cacheRow && cacheRow.prompt_hash === promptHash) {
-        aiDiagnosis = cacheRow.ai_diagnosis;
-        predictionAiDiagnosis = cacheRow.prediction_ai_diagnosis;
-        bepAiDiagnosis = cacheRow.bep_ai_diagnosis;
-        weatherAiDiagnosis = cacheRow.weather_ai_diagnosis;
+      if (cacheLookupError) {
+        console.error('[report_ai_cache] lookup error:', cacheLookupError.message);
+      }
+
+      if (cacheRow?.result) {
+        aiDiagnosis = cacheRow.result.aiDiagnosis ?? null;
+        predictionAiDiagnosis = cacheRow.result.predictionAiDiagnosis ?? null;
+        bepAiDiagnosis = cacheRow.result.bepAiDiagnosis ?? null;
+        weatherAiDiagnosis = cacheRow.result.weatherAiDiagnosis ?? null;
       } else {
         const aiUsageCheck = await checkUsageLimit(STORE_ID, 'ai', 1);
         if (!aiUsageCheck.allowed) {
@@ -853,18 +856,37 @@ ${reportFormatRule}`;
                 ? sanitizeReportComment(weatherRes.value.text, weatherRes.value.stopReason, weatherFallback)
                 : weatherFallback);
 
-          await supabase.from('report_ai_cache').upsert({
-            store_id: STORE_ID,
-            year_month: yearMonthStr,
-            prompt_hash: promptHash,
-            ai_diagnosis: aiDiagnosis,
-            prediction_ai_diagnosis: predictionAiDiagnosis,
-            bep_ai_diagnosis: bepAiDiagnosis,
-            weather_ai_diagnosis: weatherAiDiagnosis,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'store_id,year_month' });
+          const aiSuccess = aiRes.status === 'fulfilled' && Boolean(aiRes.value?.text) && !aiDiagnosis.includes(aiFallback);
+          const predSuccess = predRes.status === 'fulfilled' && Boolean(predRes.value?.text) && predictionAiDiagnosis !== predictionFallback;
+          const bepSuccess = bepRes.status === 'fulfilled' && Boolean(bepRes.value?.text) && bepAiDiagnosis !== bepFallback;
+          const weatherSuccess = weatherStats.length === 0 || (weatherRes.status === 'fulfilled' && Boolean(weatherRes.value?.text) && weatherAiDiagnosis !== weatherFallback);
 
-          await recordUsage(STORE_ID, 'ai', 1);
+          const allSucceeded = aiSuccess && predSuccess && bepSuccess && weatherSuccess;
+
+          if (allSucceeded) {
+            try {
+              const { error: cacheSaveErr } = await supabase.from('report_ai_cache').upsert({
+                store_id: STORE_ID,
+                prompt_hash: promptHash,
+                result: {
+                  aiDiagnosis,
+                  predictionAiDiagnosis,
+                  bepAiDiagnosis,
+                  weatherAiDiagnosis,
+                },
+              }, { onConflict: 'store_id,prompt_hash' });
+
+              if (cacheSaveErr) {
+                console.error('[report_ai_cache] upsert error:', cacheSaveErr.message);
+              }
+            } catch (saveEx) {
+              console.error('[report_ai_cache] upsert exception:', saveEx);
+            }
+
+            await recordUsage(STORE_ID, 'ai', 1);
+          } else {
+            console.warn('[report_ai_cache] Claude call partial failure or fallback detected, skipping cache and credit charge');
+          }
         }
       }
     }
@@ -910,7 +932,7 @@ ${reportFormatRule}`;
         flRatio: hasBasicAnalytics ? currentStats.flRatio : null,
         rentRatio: hasBasicAnalytics ? currentStats.rentRatio : null,
         totalCostRatio: hasBasicAnalytics ? totalCostRatio : null,
-        groups: hasBasicAnalytics ? currentStats.expenseGroups : null,
+        groups: currentStats.expenseGroups,
         categories: purchaseCategories
       },
       profit: {

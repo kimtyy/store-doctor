@@ -4,6 +4,8 @@ import { getStoreId } from '@/utils/supabase/getStore';
 import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses';
 import { getLatestCostRatioBaseline60 } from '@/lib/analytics/costRatio';
 import { fetchAll } from '@/lib/supabase/fetchAll';
+import { getPlanForStore } from '@/lib/getPlan';
+import { canAccessFeature } from '@/lib/plans';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +21,14 @@ interface PurchaseItem {
 export async function GET(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const plan = await getPlanForStore(STORE_ID);
+  if (!canAccessFeature(plan, 'basicAnalytics')) {
+    return NextResponse.json(
+      { error: 'Basic 플랜 이상에서 이용할 수 있어요', code: 'plan_required' },
+      { status: 403 }
+    );
+  }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

@@ -43,12 +43,11 @@ export async function POST(request: Request) {
     const usageCheck = await checkUsageLimit(STORE_ID, 'ocr', imageCount);
     if (!usageCheck.allowed) {
       return NextResponse.json({
-        error: usageCheck.reason === 'limit_exceeded'
-          ? `이번 달 스캔 한도(${usageCheck.limit}장)를 모두 사용했습니다. 직접 입력하거나 플랜을 업그레이드해 주세요.`
-          : '스캔 한도를 초과했습니다.',
-        code: 'LIMIT_EXCEEDED',
-        usage: usageCheck.current,
+        error: usageCheck.message,
+        code: 'limit_reached',
+        kind: 'ocr',
         limit: usageCheck.limit,
+        used: usageCheck.used,
       }, { status: 429 });
     }
 
