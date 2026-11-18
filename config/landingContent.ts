@@ -29,7 +29,7 @@ export const SITE_CONFIG = {
     items: [
       { value: '영수증 ➔ 장부', label: 'AI 자동 파싱' },
       { value: '매입+매출 통합분석', label: '진짜 순이익 확인' },
-      { value: '월 9,900원부터', label: '월별 보고서 자동완성' },
+      { value: '0원으로 시작', label: '무료 플랜 체험' },
     ],
   },
 

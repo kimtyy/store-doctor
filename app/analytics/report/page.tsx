@@ -16,6 +16,8 @@ import {
   STORE_EVENT_TYPE_META,
   StoreEventRecord,
 } from '@/lib/storeEvents';
+import { PlanLockOverlay } from '@/components/plan/PlanLockOverlay';
+import { SAMPLE_REPORT_DATA } from '@/lib/sampleData';
 
 const WEATHER_EMOJI: Record<string, string> = {
   '맑음': '☀️',
@@ -432,13 +434,28 @@ function MonthlyReportContent() {
         </section>
 
         {/* AI Diagnosis */}
-        <section className="bg-sky-50 border border-sky-200 rounded-2xl p-5">
+        <section className="relative overflow-hidden bg-sky-50 border border-sky-200 rounded-2xl p-5">
           <h2 className="text-sm font-bold text-sky-800 mb-2 flex items-center gap-1">
             <span>✨</span> AI 월간 진단
           </h2>
-          <div className="text-slate-800 font-medium leading-relaxed text-sm">
-            <p className="whitespace-pre-line">{data.aiDiagnosis}</p>
-          </div>
+          {data.locked?.pro ? (
+            <>
+              <div className="filter blur-[3px] opacity-40 pointer-events-none select-none text-slate-800 font-medium leading-relaxed text-sm">
+                <p className="whitespace-pre-line">{SAMPLE_REPORT_DATA.aiDiagnosis}</p>
+              </div>
+              <PlanLockOverlay
+                requiredPlan="pro"
+                title="AI 종합 경영 진단"
+                description="매장의 손익·결제 지표·매장 사정을 종합한 AI 핵심 진단과 실행 조언은 Pro 플랜에서 제공돼요."
+                userRole={role}
+                currentPlan={data.plan}
+              />
+            </>
+          ) : (
+            <div className="text-slate-800 font-medium leading-relaxed text-sm">
+              <p className="whitespace-pre-line">{data.aiDiagnosis || '진단 결과가 없습니다.'}</p>
+            </div>
+          )}
         </section>
 
         {/* Sales Summary */}
@@ -776,7 +793,7 @@ function MonthlyReportContent() {
         })()}
 
         {/* Period Comparison */}
-        {data.comparison && (() => {
+        {data.comparison ? (() => {
           const renderEventHeaderTag = (
             evList: StoreEventRecord[] | undefined,
             hasData: boolean
@@ -1165,59 +1182,135 @@ function MonthlyReportContent() {
             </div>
           </section>
         );
-      })()}
-
-        {/* BEP Summary */}
-        <section>
-          <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">손익분기점 분석</h2>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-            <p className="text-xs text-slate-500">
-              11월부터 변동비는 재료비·수수료로, 나머지는 고정비로 계산합니다(이전 보고서와 값이 다를 수 있음).
-            </p>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">고정비 합계</span>
-              <span className="font-semibold text-slate-800">{fmt(data.bep.fixedCostsSum)}원</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">평균 변동비율</span>
-              <span className="font-semibold text-slate-800">{(data.bep.variableCostRatio * 100).toFixed(1)}%</span>
-            </div>
-            <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
-              <span className="font-bold text-slate-900 flex items-center">
-                손익분기점 (BEP) <TermTooltip term="BEP(손익분기점)" />
-              </span>
-              <span className="font-bold text-slate-900">{fmt(data.bep.bep)}원</span>
-            </div>
-            {data.bep.bep > 0 && data.bep.currentRevenue > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500 flex items-center">
-                  안전마진율 <TermTooltip term="안전마진율" />
-                </span>
-                <span className="font-semibold text-slate-800">
-                  {(((data.bep.currentRevenue - data.bep.bep) / data.bep.currentRevenue) * 100).toFixed(1)}%
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between text-sm mt-4">
-              <span className="text-slate-500">현재 월매출</span>
-              <span className="font-semibold text-slate-800">{fmt(data.bep.currentRevenue)}원</span>
-            </div>
-            <div className={`flex justify-between text-sm ${data.bep.bepShortfall > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-              <span className="font-bold">{data.bep.bepShortfall > 0 ? '부족액' : '초과액'}</span>
-              <span className="font-bold">{data.bep.bepShortfall > 0 ? '-' : '+'}{fmt(Math.abs(data.bep.bepShortfall))}원</span>
-            </div>
-
-            {/* BEP AI Diagnosis */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mt-4">
-              <h3 className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1">
-                <span>💡</span> AI 진단
-              </h3>
-              <div className="text-amber-900 font-medium text-sm leading-relaxed">
-                <p className="whitespace-pre-line">{data.bep.aiDiagnosis}</p>
-              </div>
+      })() : data.locked?.basic ? (
+        <section className="relative overflow-hidden mb-6">
+          <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">기간 비교 분석</h2>
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden p-4">
+            <div className="filter blur-[3px] opacity-40 pointer-events-none select-none">
+              <table className="w-full text-sm text-center">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs">
+                  <tr>
+                    <th className="p-3 text-left">항목</th>
+                    <th className="p-3">이번달</th>
+                    <th className="p-3">전월 대비</th>
+                    <th className="p-3">전년동월 대비</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr>
+                    <td className="p-3 text-left font-semibold">총매출</td>
+                    <td className="p-3 font-bold">28,500,000원</td>
+                    <td className="p-3 text-emerald-600">+12.4% ↑</td>
+                    <td className="p-3 text-emerald-600">+8.5% ↑</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-left font-semibold">원가율(재료비)</td>
+                    <td className="p-3 font-bold">32.4%</td>
+                    <td className="p-3 text-emerald-600">-1.8%p ↓</td>
+                    <td className="p-3 text-slate-400">-0.2%p -</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-left font-semibold">남은 돈(영업이익)</td>
+                    <td className="p-3 font-bold">6,800,000원</td>
+                    <td className="p-3 text-emerald-600">+18.2% ↑</td>
+                    <td className="p-3 text-emerald-600">+11.0% ↑</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
+          <PlanLockOverlay
+            requiredPlan="basic"
+            title="기간 비교 분석 (전월·전년동월)"
+            description="전월 대비 및 전년 동월 대비 손익 비교 분석은 Basic 플랜에서 확인하실 수 있어요."
+            userRole={role}
+            currentPlan={data.plan}
+          />
         </section>
+      ) : null}
+
+        {/* BEP Summary */}
+        {data.bep ? (
+          <section>
+            <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">손익분기점 분석</h2>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+              <p className="text-xs text-slate-500">
+                11월부터 변동비는 재료비·수수료로, 나머지는 고정비로 계산합니다(이전 보고서와 값이 다를 수 있음).
+              </p>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">고정비 합계</span>
+                <span className="font-semibold text-slate-800">{fmt(data.bep.fixedCostsSum)}원</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">평균 변동비율</span>
+                <span className="font-semibold text-slate-800">{(data.bep.variableCostRatio * 100).toFixed(1)}%</span>
+              </div>
+              <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
+                <span className="font-bold text-slate-900 flex items-center">
+                  손익분기점 (BEP) <TermTooltip term="BEP(손익분기점)" />
+                </span>
+                <span className="font-bold text-slate-900">{fmt(data.bep.bep)}원</span>
+              </div>
+              {data.bep.bep > 0 && data.bep.currentRevenue > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500 flex items-center">
+                    안전마진율 <TermTooltip term="안전마진율" />
+                  </span>
+                  <span className="font-semibold text-slate-800">
+                    {(((data.bep.currentRevenue - data.bep.bep) / data.bep.currentRevenue) * 100).toFixed(1)}%
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm mt-4">
+                <span className="text-slate-500">현재 월매출</span>
+                <span className="font-semibold text-slate-800">{fmt(data.bep.currentRevenue)}원</span>
+              </div>
+              <div className={`flex justify-between text-sm ${data.bep.bepShortfall > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                <span className="font-bold">{data.bep.bepShortfall > 0 ? '부족액' : '초과액'}</span>
+                <span className="font-bold">{data.bep.bepShortfall > 0 ? '-' : '+'}{fmt(Math.abs(data.bep.bepShortfall))}원</span>
+              </div>
+
+              {/* BEP AI Diagnosis (Pro 이상) */}
+              {data.bep.aiDiagnosis && !data.locked?.pro && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mt-4">
+                  <h3 className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1">
+                    <span>💡</span> AI 진단
+                  </h3>
+                  <div className="text-amber-900 font-medium text-sm leading-relaxed">
+                    <p className="whitespace-pre-line">{data.bep.aiDiagnosis}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : data.locked?.basic ? (
+          <section className="relative overflow-hidden mb-6">
+            <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">손익분기점 분석</h2>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+              <div className="filter blur-[3px] opacity-40 pointer-events-none select-none space-y-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">고정비 합계</span>
+                  <span className="font-semibold text-slate-800">{fmt(SAMPLE_REPORT_DATA.bep.fixedCostsSum)}원</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">평균 변동비율</span>
+                  <span className="font-semibold text-slate-800">{(SAMPLE_REPORT_DATA.bep.variableCostRatio * 100).toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
+                  <span className="font-bold text-slate-900">손익분기점 (BEP)</span>
+                  <span className="font-bold text-slate-900">{fmt(SAMPLE_REPORT_DATA.bep.bep)}원</span>
+                </div>
+              </div>
+            </div>
+            <PlanLockOverlay
+              requiredPlan="basic"
+              title="손익분기점(BEP) 분석"
+              description="매장의 손익분기점, 안전마진율, 고정비 분석은 Basic 플랜에서 확인하실 수 있어요."
+              userRole={role}
+              currentPlan={data.plan}
+            />
+          </section>
+        ) : null}
 
         {/* Weather Correlation */}
         {data.weather?.stats?.length > 0 && (
@@ -1617,7 +1710,7 @@ function MonthlyReportContent() {
         </section>
 
         {/* Next Month Prediction */}
-        {data.prediction && (
+        {data.prediction ? (
           <section>
             <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">
               📈 다음달 예측 ({data.prediction.nextMonth}월)
@@ -1670,7 +1763,7 @@ function MonthlyReportContent() {
                 </ul>
               </div>
 
-              {data.prediction.aiDiagnosis && (
+              {data.prediction.aiDiagnosis && !data.locked?.pro && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
                   <h3 className="text-xs font-bold text-indigo-800 mb-2 flex items-center gap-1">
                     <span>🤖</span> AI 종합 예측 및 준비사항
@@ -1682,7 +1775,28 @@ function MonthlyReportContent() {
               )}
             </div>
           </section>
-        )}
+        ) : data.locked?.basic ? (
+          <section className="relative overflow-hidden mb-6">
+            <h2 className="text-xl font-bold mb-4 border-l-4 border-slate-800 pl-3">
+              📈 다음달 예측
+            </h2>
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+              <div className="filter blur-[3px] opacity-40 pointer-events-none select-none space-y-4">
+                <div className="text-2xl font-bold text-indigo-600">
+                  {fmt(SAMPLE_REPORT_DATA.prediction.predictedMin)}원 ~ {fmt(SAMPLE_REPORT_DATA.prediction.predictedMax)}원
+                </div>
+                <p className="text-sm text-slate-600">계절/날씨: {SAMPLE_REPORT_DATA.prediction.seasonality}</p>
+              </div>
+            </div>
+            <PlanLockOverlay
+              requiredPlan="basic"
+              title="다음 달 매출 예측"
+              description="계절성과 공휴일을 반영한 다음 달 매출 예측은 Basic 플랜에서 확인하실 수 있어요."
+              userRole={role}
+              currentPlan={data.plan}
+            />
+          </section>
+        ) : null}
 
         {/* Footer (인쇄 시 마지막 쪽에 꼬리말만 남지 않도록 마지막 섹션 여백 축소 및 분할 방지) */}
         <footer className="text-center pt-6 border-t border-slate-200 print:pt-3 print:mt-4 print:break-inside-avoid">

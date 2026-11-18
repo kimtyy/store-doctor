@@ -31,6 +31,23 @@ export async function submitStore(formData: FormData) {
     return redirect(paymentRedirect)
   }
 
+  // 보안 강화: 이미 다른 매장의 직원/매니저로 등록된 사용자는 새 매장 생성 방지
+  const adminSupabaseEarly = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  const { data: existingMember } = await adminSupabaseEarly
+    .from('store_members')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (existingMember) {
+    return redirect('/dashboard')
+  }
+
   // Insert store (using owner_id only as the single unified criteria)
   const { data: newStore, error } = await supabase
     .from('stores')

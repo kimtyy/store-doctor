@@ -45,6 +45,25 @@ export async function POST(request: Request) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
+    // 1-1. 플랜 구성원 수 한도 검사 (Premium: 사장 + 직원 1명, 그 외: 사장 1명)
+    const { getPlanForStore } = await import('@/lib/getPlan');
+    const { PLANS } = await import('@/lib/plans');
+    const resolved = await getPlanForStore(store.id);
+    const planDef = PLANS[resolved.plan];
+    const { count: currentMemberCount } = await adminSupabase
+      .from('store_members')
+      .select('*', { count: 'exact', head: true })
+      .eq('store_id', store.id);
+
+    if ((currentMemberCount || 0) >= planDef.features.memberLimit) {
+      return NextResponse.json(
+        {
+          error: `현재 플랜에서는 구성원을 더 추가할 수 없습니다(Premium: 사장 + 직원 1명).`,
+        },
+        { status: 403 }
+      );
+    }
+
     // 2. Check if already invited (accepted = false in store_invites)
     const { data: existingInvite, error: inviteCheckErr } = await adminSupabase
       .from('store_invites')

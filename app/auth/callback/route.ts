@@ -67,6 +67,21 @@ export async function GET(request: Request) {
         console.log('[Auth Callback] store_invites query result:', { invite, error: inviteErr })
 
         if (invite && !inviteErr) {
+          // 플랜 구성원 수 한도 검사
+          const { getPlanForStore } = await import('@/lib/getPlan');
+          const { PLANS } = await import('@/lib/plans');
+          const resolved = await getPlanForStore(invite.store_id);
+          const planDef = PLANS[resolved.plan];
+          const { count: currentMemberCount } = await adminSupabase
+            .from('store_members')
+            .select('*', { count: 'exact', head: true })
+            .eq('store_id', invite.store_id);
+
+          if ((currentMemberCount || 0) >= planDef.features.memberLimit) {
+            console.warn(`[Auth Callback] Member limit reached (${currentMemberCount}/${planDef.features.memberLimit}). Not auto-joining.`);
+            return NextResponse.redirect(`${origin}/dashboard?message=member_limit_exceeded`);
+          }
+
           console.log(`[Auth Callback] Matching invite found! Store: ${invite.store_id}, Role: ${invite.role}. Inserting into store_members...`)
           const { error: insertErr } = await adminSupabase
             .from('store_members')

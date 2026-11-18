@@ -11,6 +11,9 @@ import {
   COST_RATIO_THRESHOLDS,
   evaluateCostRatioRelativeAlert,
 } from '@/lib/analytics/costRatio';
+import { PlanLockOverlay } from '@/components/plan/PlanLockOverlay';
+import { SAMPLE_MENU_ANALYSIS } from '@/lib/sampleData';
+import type { PlanId } from '@/lib/plans';
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -213,6 +216,8 @@ function ShowMoreButton({ expanded, total, onToggle }: { expanded: boolean; tota
 export default function AnalyticsPage() {
   const router = useRouter();
   const [role, setRole] = useState<string | null>(null);
+  const [userPlan, setUserPlan] = useState<PlanId>('free');
+  const [isPlanLocked, setIsPlanLocked] = useState(false);
 
   useEffect(() => {
     fetch('/api/me/role')
@@ -227,6 +232,18 @@ export default function AnalyticsPage() {
       .catch(() => {
         router.replace('/dashboard');
       });
+
+    fetch('/api/me/plan')
+      .then(r => r.json())
+      .then(d => {
+        if (d?.plan) {
+          setUserPlan(d.plan);
+          if (d.plan === 'free') {
+            setIsPlanLocked(true);
+          }
+        }
+      })
+      .catch(() => {});
   }, [router]);
 
   const [section, setSection] = useState<Section>('menu');
@@ -312,7 +329,14 @@ export default function AnalyticsPage() {
     try {
       const res = await fetch(`/api/analytics/menu?${buildApiQuery(pv, includeEvent)}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? '불러오기 실패');
+      if (!res.ok) {
+        if (res.status === 403 && json?.code === 'PLAN_REQUIRED') {
+          setIsPlanLocked(true);
+          return;
+        }
+        throw new Error(json.error ?? '불러오기 실패');
+      }
+      setIsPlanLocked(false);
       setMenuData(json);
     } catch (e) {
       setMenuError(e instanceof Error ? e.message : '오류가 발생했습니다.');
@@ -691,16 +715,40 @@ export default function AnalyticsPage() {
           <>
             <p className="text-xs text-slate-500 mb-4">메뉴를 탭하면 카테고리를 지정할 수 있습니다.</p>
 
-            {menuLoading && (
+            {isPlanLocked ? (
+              <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 mb-8">
+                <div className="filter blur-[3px] opacity-40 pointer-events-none select-none space-y-6">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">매출 랭킹</h2>
+                    <div className="space-y-2">
+                      {SAMPLE_MENU_ANALYSIS.topMenus.map((item) => (
+                        <div key={item.name} className="flex items-center gap-3 rounded-xl px-2 py-2 bg-slate-800/40">
+                          <span className="w-5 text-xs text-slate-500 text-right">{item.rank}</span>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-slate-100">{item.name}</p>
+                            <p className="text-xs text-slate-400">{item.qty}개 판매</p>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-200">{item.sales.toLocaleString()}원</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <PlanLockOverlay
+                  requiredPlan="basic"
+                  title="메뉴별 매출 분석"
+                  description="메뉴별 매출 순위, 판매량, 카테고리별 비중 분석은 Basic 플랜에서 제공돼요."
+                  userRole={role}
+                  currentPlan={userPlan}
+                />
+              </div>
+            ) : menuLoading ? (
               <div className="flex items-center justify-center py-20">
                 <div className="text-slate-400 text-sm animate-pulse">불러오는 중...</div>
               </div>
-            )}
-            {menuError && (
+            ) : menuError ? (
               <div className="rounded-2xl border border-red-800 bg-red-950/40 p-4 text-red-400 text-sm">{menuError}</div>
-            )}
-
-            {!menuLoading && !menuError && menuData && (
+            ) : menuData ? (
               <>
                 {/* Sales ranking */}
                 <section className="mb-8">
@@ -1003,7 +1051,7 @@ export default function AnalyticsPage() {
                   )}
                 </section>
               </>
-            )}
+            ) : null}
           </>
         )}
 

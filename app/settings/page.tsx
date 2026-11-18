@@ -39,12 +39,29 @@ export default function SettingsPage() {
   const [cancellingSubscription, setCancellingSubscription] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [usageInfo, setUsageInfo] = useState<{
+    yearMonth: string;
+    ocr: { used: number; limit: number; remaining: number };
+    ai: { used: number; limit: number; remaining: number } | null;
+  } | null>(null);
 
   useEffect(() => {
     fetch('/api/me/role')
       .then(res => res.json())
       .then(data => {
         if (data.role) setUserRole(data.role);
+      })
+      .catch(() => {});
+
+    fetch('/api/me/plan')
+      .then(res => res.json())
+      .then(data => {
+        if (data.usage) {
+          setUsageInfo(data.usage);
+        }
+        if (data.plan && data.plan in PLANS) {
+          setPlan(data.plan);
+        }
       })
       .catch(() => {});
 
@@ -431,6 +448,62 @@ export default function SettingsPage() {
                   <span className="font-bold text-white">{PLANS[plan].name} 플랜</span>
                 </div>
                 <p className="text-[11px] text-slate-500">구독 관리는 대표 계정에서만 할 수 있습니다.</p>
+              </div>
+            )}
+
+            {/* 이번 달 사용량 게이지 */}
+            {usageInfo && (
+              <div className="mt-4 pt-3 border-t border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                  <span>이번 달 사용량 ({usageInfo.yearMonth})</span>
+                  <span className="text-[11px] font-normal text-slate-500">매월 1일 초기화</span>
+                </div>
+
+                {/* OCR 스캔 게이지 */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">영수증 OCR 스캔</span>
+                    <span className="font-medium text-slate-200">
+                      {usageInfo.ocr.used} / {usageInfo.ocr.limit}장 ({usageInfo.ocr.remaining}장 남음)
+                    </span>
+                  </div>
+                  <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        usageInfo.ocr.used >= usageInfo.ocr.limit
+                          ? 'bg-rose-500'
+                          : usageInfo.ocr.used >= usageInfo.ocr.limit * 0.9
+                          ? 'bg-amber-500'
+                          : 'bg-sky-500'
+                      }`}
+                      style={{ width: `${Math.min(100, (usageInfo.ocr.used / usageInfo.ocr.limit) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* AI 크레딧 게이지 (Pro, Premium에만) */}
+                {usageInfo.ai && usageInfo.ai.limit > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">AI 크레딧 (채팅·보고서)</span>
+                      <span className="font-medium text-slate-200">
+                        {usageInfo.ai.used} / {usageInfo.ai.limit}회 ({usageInfo.ai.remaining}회 남음)
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          usageInfo.ai.used >= usageInfo.ai.limit
+                            ? 'bg-rose-500'
+                            : usageInfo.ai.used >= usageInfo.ai.limit * 0.9
+                            ? 'bg-amber-500'
+                            : 'bg-indigo-500'
+                        }`}
+                        style={{ width: `${Math.min(100, (usageInfo.ai.used / usageInfo.ai.limit) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

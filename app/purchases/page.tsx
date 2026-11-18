@@ -347,6 +347,16 @@ export default function PurchasesInputPage() {
   const [editableResult, setEditableResult] = useState<EditablePurchase | null>(null);
   const [loadingParse, setLoadingParse] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
+  const [ocrUsage, setOcrUsage] = useState<{ used: number; limit: number; remaining: number } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/me/plan')
+      .then(r => r.json())
+      .then(d => {
+        if (d?.usage?.ocr) setOcrUsage(d.usage.ocr);
+      })
+      .catch(() => {});
+  }, []);
 
   // 수동 탭
   const [manualRecord, setManualRecord] = useState<PurchaseRecord>({
@@ -514,7 +524,13 @@ export default function PurchasesInputPage() {
       } catch {
         throw new Error('응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');
       }
-      if (!response.ok) throw new Error(body?.error ?? '파싱에 실패했습니다.');
+      if (!response.ok) {
+        if (response.status === 429) {
+          setOcrUsage(prev => prev ? { ...prev, remaining: 0 } : null);
+        }
+        throw new Error(body?.error ?? '파싱에 실패했습니다.');
+      }
+      setOcrUsage(prev => prev ? { ...prev, used: prev.used + 1, remaining: Math.max(0, prev.remaining - 1) } : null);
       const parsed = body.data as PurchaseRecord;
       setEditableResult({
         date: parsed.date ?? new Date().toISOString().split('T')[0],
@@ -932,6 +948,16 @@ export default function PurchasesInputPage() {
           ) : activeTab === 'photo' ? (
             <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
               <h2 className="text-lg font-semibold">영수증 사진</h2>
+              {ocrUsage && ocrUsage.remaining <= 0 && (
+                <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs font-semibold text-rose-300">
+                  🚫 이번 달 스캔 한도({ocrUsage.limit}장)를 모두 소진했습니다. &apos;수동&apos; 탭을 이용해 주세요.
+                </div>
+              )}
+              {ocrUsage && ocrUsage.remaining > 0 && ocrUsage.used >= ocrUsage.limit * 0.9 && (
+                <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs font-semibold text-amber-300">
+                  ⚠️ 이번 달 스캔 한도가 거의 소진되었습니다 (잔여 {ocrUsage.remaining}장 / 한도 {ocrUsage.limit}장)
+                </div>
+              )}
 
               <div className="flex gap-3">
                 <button

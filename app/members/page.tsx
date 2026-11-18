@@ -78,12 +78,19 @@ export default async function MembersPage() {
     throw new Error(`Failed to load invites: ${invitesErr.message}`);
   }
 
+  const { getPlanForStore } = await import('@/lib/getPlan');
+  const { PLANS } = await import('@/lib/plans');
+  const resolved = await getPlanForStore(store.id);
+  const planDef = PLANS[resolved.plan];
+
   return (
     <MembersClient
       storeName={store.name}
       initialMembers={initialMembers}
       initialInvites={invites || []}
       currentUserId={user.id}
+      planName={planDef.name}
+      memberLimit={planDef.features.memberLimit}
     />
   );
 }

@@ -3,6 +3,8 @@ import { createClient as createServerClient } from '@/utils/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
+import { getPlanForStore } from '@/lib/getPlan';
+import { canAccessFeature } from '@/lib/plans';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,6 +82,15 @@ export async function GET(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) {
     return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+  }
+
+  const plan = await getPlanForStore(STORE_ID);
+  if (!canAccessFeature(plan, 'basicAnalytics')) {
+    return NextResponse.json({
+      error: '기간 메뉴 비교는 Basic 플랜 이상에서 사용할 수 있습니다.',
+      code: 'PLAN_REQUIRED',
+      requiredPlan: 'basic',
+    }, { status: 403 });
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

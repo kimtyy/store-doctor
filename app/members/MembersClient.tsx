@@ -27,6 +27,8 @@ interface MembersClientProps {
   initialMembers: Member[];
   initialInvites: Invite[];
   currentUserId: string;
+  planName?: string;
+  memberLimit?: number;
 }
 
 export default function MembersClient({
@@ -34,6 +36,8 @@ export default function MembersClient({
   initialMembers,
   initialInvites,
   currentUserId,
+  planName = '무료',
+  memberLimit = 1,
 }: MembersClientProps) {
   const router = useRouter();
   const [members, setMembers] = useState<Member[]>(initialMembers);
@@ -194,54 +198,71 @@ export default function MembersClient({
 
         {/* 1. 멤버 초대 폼 */}
         <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 space-y-4">
-          <h2 className="text-lg font-semibold">새 멤버 초대</h2>
-          <form onSubmit={handleInviteSubmit} className="space-y-4">
-            <div>
-              <label className="text-xs text-slate-400">초대할 이메일</label>
-              <input
-                type="email"
-                required
-                placeholder="example@gmail.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm text-slate-100 placeholder:text-slate-600"
-              />
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-lg font-semibold">새 멤버 초대</h2>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+              현재 인원: {members.length} / {memberLimit}명 ({planName} 플랜)
+            </span>
+          </div>
+
+          {members.length >= memberLimit ? (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-2 text-xs text-amber-200 leading-relaxed">
+              <p className="font-semibold text-amber-300">
+                ⚠️ 현재 플랜({planName})에서는 구성원을 더 추가할 수 없습니다.
+              </p>
+              <p>
+                직원 초대는 <strong>Premium 플랜 (사장 + 직원 1명)</strong>에서 이용하실 수 있습니다.
+              </p>
             </div>
-            <div>
-              <label className="text-xs text-slate-400">역할 권한</label>
-              <div className="flex gap-4 mt-2">
-                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="role"
-                    value="staff"
-                    checked={inviteRole === 'staff'}
-                    onChange={() => setInviteRole('staff')}
-                    className="accent-sky-500 w-4 h-4"
-                  />
-                  <span>직원 (스태프)</span>
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="role"
-                    value="manager"
-                    checked={inviteRole === 'manager'}
-                    onChange={() => setInviteRole('manager')}
-                    className="accent-sky-500 w-4 h-4"
-                  />
-                  <span>매니저 (정산 권한 포함)</span>
-                </label>
+          ) : (
+            <form onSubmit={handleInviteSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400">초대할 이메일</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="example@gmail.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm text-slate-100 placeholder:text-slate-600"
+                />
               </div>
-            </div>
-            <button
-              type="submit"
-              disabled={loadingInvite || !inviteEmail}
-              className="w-full rounded-2xl bg-sky-500 py-3.5 text-sm font-semibold text-slate-950 hover:bg-sky-400 active:scale-[0.98] transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loadingInvite ? '초대 중...' : '초대장 발송'}
-            </button>
-          </form>
+              <div>
+                <label className="text-xs text-slate-400">역할 권한</label>
+                <div className="flex gap-4 mt-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="role"
+                      value="staff"
+                      checked={inviteRole === 'staff'}
+                      onChange={() => setInviteRole('staff')}
+                      className="accent-sky-500 w-4 h-4"
+                    />
+                    <span>직원 (스태프)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="role"
+                      value="manager"
+                      checked={inviteRole === 'manager'}
+                      onChange={() => setInviteRole('manager')}
+                      className="accent-sky-500 w-4 h-4"
+                    />
+                    <span>매니저 (정산 권한 포함)</span>
+                  </label>
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={loadingInvite || !inviteEmail}
+                className="w-full rounded-2xl bg-sky-500 py-3.5 text-sm font-semibold text-slate-950 hover:bg-sky-400 active:scale-[0.98] transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingInvite ? '초대 중...' : '초대장 발송'}
+              </button>
+            </form>
+          )}
         </div>
 
         {/* 2. 현재 멤버 목록 */}

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { callClaudeVisionWithMeta, sanitizeReportComment } from '@/lib/claude';
 import { getStoreInfo } from '@/utils/supabase/getStore';
+import { getPlanForStore } from '@/lib/getPlan';
+import { canAccessFeature } from '@/lib/plans';
+import { checkUsageLimit, recordUsage } from '@/lib/usage';
 import {
   getComparisonPeriodBounds,
   calcPeriodStats,
@@ -779,45 +783,106 @@ ${eventPromptSection}${dropPromptSection}
 특정 날씨에 사정 기간(행사·훈련·단축 등)이 겹친 경우 날씨 효과만으로 단정하지 말고 사정 영향 가능성을 함께 언급해 주세요. 기온 급락일이 있더라도 매출 하락 원인을 기온만으로 단정하지 마세요.
 ${reportFormatRule}`;
 
-    const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 600 };
-    const [aiRes, predRes, bepRes, weatherRes] = await Promise.allSettled([
-      callClaudeVisionWithMeta(aiPrompt, undefined, reportClaudeOptions),
-      callClaudeVisionWithMeta(predictionPrompt, undefined, reportClaudeOptions),
-      callClaudeVisionWithMeta(bepPrompt, undefined, reportClaudeOptions),
-      weatherStats.length > 0
-        ? callClaudeVisionWithMeta(weatherPrompt, undefined, reportClaudeOptions)
-        : Promise.resolve(null),
-    ]);
+    const plan = await getPlanForStore(STORE_ID);
+    const hasBasicAnalytics = canAccessFeature(plan, 'basicAnalytics');
+    const hasAiReport = canAccessFeature(plan, 'aiReport');
 
-    const aiFallback = '데이터 기반 진단을 생성하지 못했습니다.';
-    const predictionFallback = '예측 진단을 생성하지 못했습니다.';
-    const bepFallback = '손익분기점 진단을 생성하지 못했습니다.';
-    const weatherFallback = '날씨 진단을 생성하지 못했습니다.';
+    let aiDiagnosis: string | null = null;
+    let predictionAiDiagnosis: string | null = null;
+    let bepAiDiagnosis: string | null = null;
+    let weatherAiDiagnosis: string | null = null;
 
-    let aiDiagnosis = aiRes.status === 'fulfilled' && aiRes.value
-      ? sanitizeReportComment(aiRes.value.text, aiRes.value.stopReason, aiFallback)
-      : aiFallback;
-    if (isLowInputRate && !aiDiagnosis.includes(lowInputWarningText)) {
-      aiDiagnosis = `${lowInputWarningText} ${aiDiagnosis}`;
+    if (hasAiReport) {
+      const yearMonthStr = `${year}-${String(month).padStart(2, '0')}`;
+      const promptHash = crypto
+        .createHash('sha256')
+        .update([aiPrompt, predictionPrompt, bepPrompt, weatherPrompt].join('|||'))
+        .digest('hex');
+
+      const { data: cacheRow } = await supabase
+        .from('report_ai_cache')
+        .select('*')
+        .eq('store_id', STORE_ID)
+        .eq('year_month', yearMonthStr)
+        .maybeSingle();
+
+      if (cacheRow && cacheRow.prompt_hash === promptHash) {
+        aiDiagnosis = cacheRow.ai_diagnosis;
+        predictionAiDiagnosis = cacheRow.prediction_ai_diagnosis;
+        bepAiDiagnosis = cacheRow.bep_ai_diagnosis;
+        weatherAiDiagnosis = cacheRow.weather_ai_diagnosis;
+      } else {
+        const aiUsageCheck = await checkUsageLimit(STORE_ID, 'ai', 1);
+        if (!aiUsageCheck.allowed) {
+          aiDiagnosis = '이번 달 AI 크레딧을 모두 사용했습니다. 다음 달에 갱신되거나 플랜을 업그레이드해 주세요.';
+          predictionAiDiagnosis = null;
+          bepAiDiagnosis = null;
+          weatherAiDiagnosis = null;
+        } else {
+          const reportClaudeOptions = { timeoutMs: 20000, maxTokens: 600 };
+          const [aiRes, predRes, bepRes, weatherRes] = await Promise.allSettled([
+            callClaudeVisionWithMeta(aiPrompt, undefined, reportClaudeOptions),
+            callClaudeVisionWithMeta(predictionPrompt, undefined, reportClaudeOptions),
+            callClaudeVisionWithMeta(bepPrompt, undefined, reportClaudeOptions),
+            weatherStats.length > 0
+              ? callClaudeVisionWithMeta(weatherPrompt, undefined, reportClaudeOptions)
+              : Promise.resolve(null),
+          ]);
+
+          const aiFallback = '데이터 기반 진단을 생성하지 못했습니다.';
+          const predictionFallback = '예측 진단을 생성하지 못했습니다.';
+          const bepFallback = '손익분기점 진단을 생성하지 못했습니다.';
+          const weatherFallback = '날씨 진단을 생성하지 못했습니다.';
+
+          aiDiagnosis = aiRes.status === 'fulfilled' && aiRes.value
+            ? sanitizeReportComment(aiRes.value.text, aiRes.value.stopReason, aiFallback)
+            : aiFallback;
+          if (isLowInputRate && !aiDiagnosis.includes(lowInputWarningText)) {
+            aiDiagnosis = `${lowInputWarningText} ${aiDiagnosis}`;
+          }
+
+          predictionAiDiagnosis = predRes.status === 'fulfilled' && predRes.value
+            ? sanitizeReportComment(predRes.value.text, predRes.value.stopReason, predictionFallback)
+            : predictionFallback;
+          bepAiDiagnosis = bepRes.status === 'fulfilled' && bepRes.value
+            ? sanitizeReportComment(bepRes.value.text, bepRes.value.stopReason, bepFallback)
+            : bepFallback;
+          weatherAiDiagnosis = weatherStats.length === 0
+            ? null
+            : (weatherRes.status === 'fulfilled' && weatherRes.value
+                ? sanitizeReportComment(weatherRes.value.text, weatherRes.value.stopReason, weatherFallback)
+                : weatherFallback);
+
+          await supabase.from('report_ai_cache').upsert({
+            store_id: STORE_ID,
+            year_month: yearMonthStr,
+            prompt_hash: promptHash,
+            ai_diagnosis: aiDiagnosis,
+            prediction_ai_diagnosis: predictionAiDiagnosis,
+            bep_ai_diagnosis: bepAiDiagnosis,
+            weather_ai_diagnosis: weatherAiDiagnosis,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'store_id,year_month' });
+
+          await recordUsage(STORE_ID, 'ai', 1);
+        }
+      }
     }
-
-    const predictionAiDiagnosis = predRes.status === 'fulfilled' && predRes.value
-      ? sanitizeReportComment(predRes.value.text, predRes.value.stopReason, predictionFallback)
-      : predictionFallback;
-    const bepAiDiagnosis = bepRes.status === 'fulfilled' && bepRes.value
-      ? sanitizeReportComment(bepRes.value.text, bepRes.value.stopReason, bepFallback)
-      : bepFallback;
-    const weatherAiDiagnosis = weatherStats.length === 0
-      ? null
-      : (weatherRes.status === 'fulfilled' && weatherRes.value
-          ? sanitizeReportComment(weatherRes.value.text, weatherRes.value.stopReason, weatherFallback)
-          : weatherFallback);
 
     return NextResponse.json({
       storeName: storeInfo.name,
       year,
       month,
       generatedAt: new Date().toISOString(),
+      plan,
+      locked: !hasBasicAnalytics
+        ? {
+            basic: ['costRatio', 'flRatio', 'rentRatio', 'comparison', 'menuAnalysis', 'bepNumbers', 'predictionNumbers', 'weatherStats'],
+            pro: ['aiDiagnosis', 'predictionAi', 'bepAi', 'weatherAi'],
+          }
+        : (!hasAiReport
+            ? { pro: ['aiDiagnosis', 'predictionAi', 'bepAi', 'weatherAi'] }
+            : null),
       dataCoverage: {
         openDays: currentStats.openDays,
         expectedDays: currentStats.expectedDays,
@@ -830,8 +895,8 @@ ${reportFormatRule}`;
         serviceAmount,
         netRevenue,
         openDays,
-        avgDailySales,
-        momChangePct,
+        avgDailySales: hasBasicAnalytics ? avgDailySales : null,
+        momChangePct: hasBasicAnalytics ? momChangePct : null,
         cashAmount,
         cardAmount,
         totalRevenueVatIncluded: sales.reduce((sum, s) => sum + (s.total_revenue || 0), 0)
@@ -839,50 +904,50 @@ ${reportFormatRule}`;
       purchases: {
         totalPurchase,
         totalExpense,
-        ingredientCost: currentStats.ingredientCost,
-        costRatio,
-        laborRatio: currentStats.laborRatio,
-        flRatio: currentStats.flRatio,
-        rentRatio: currentStats.rentRatio,
-        totalCostRatio,
-        groups: currentStats.expenseGroups,
+        ingredientCost: hasBasicAnalytics ? currentStats.ingredientCost : null,
+        costRatio: hasBasicAnalytics ? costRatio : null,
+        laborRatio: hasBasicAnalytics ? currentStats.laborRatio : null,
+        flRatio: hasBasicAnalytics ? currentStats.flRatio : null,
+        rentRatio: hasBasicAnalytics ? currentStats.rentRatio : null,
+        totalCostRatio: hasBasicAnalytics ? totalCostRatio : null,
+        groups: hasBasicAnalytics ? currentStats.expenseGroups : null,
         categories: purchaseCategories
       },
       profit: {
         operatingProfit,
-        operatingProfitRatio: currentStats.operatingProfitRatio,
+        operatingProfitRatio: hasBasicAnalytics ? currentStats.operatingProfitRatio : null,
         ownerSalary,
         loanRepayment,
         nonOperatingExpenses,
         netProfit,
-        totalCostRatio
+        totalCostRatio: hasBasicAnalytics ? totalCostRatio : null
       },
-      bep: {
+      bep: hasBasicAnalytics ? {
         fixedCostsSum,
         variableCostRatio,
         bep,
         currentRevenue: totalRevenue,
         bepShortfall,
         aiDiagnosis: bepAiDiagnosis
-      },
-      topMenus,
-      menuAnalysis: {
+      } : null,
+      topMenus: hasBasicAnalytics ? topMenus : null,
+      menuAnalysis: hasBasicAnalytics ? {
         current: currentMenuAnalysis,
         prev: prevMenuAnalysis,
         lastYear: lastYearMenuAnalysis,
-      },
-      topVendors,
-      dowAverages, // 0: Sun, 1: Mon, ...
+      } : null,
+      topVendors: hasBasicAnalytics ? topVendors : null,
+      dowAverages: hasBasicAnalytics ? dowAverages : null, // 0: Sun, 1: Mon, ...
       aiDiagnosis,
       weather: {
-        stats: weatherStats,
+        stats: hasBasicAnalytics ? weatherStats : [],
         aiDiagnosis: weatherAiDiagnosis
       },
-      comparison: {
+      comparison: hasBasicAnalytics ? {
         current: currentStats,
         prev: prevStats,
         lastYear: lastYearStats
-      },
+      } : null,
       events: {
         current: currentEvents,
         prev: prevEvents,
@@ -893,10 +958,10 @@ ${reportFormatRule}`;
         hasManualEventsThisMonth,
         showEventPromptBanner,
       },
-      prediction: {
+      prediction: hasBasicAnalytics ? {
         ...prediction,
         aiDiagnosis: predictionAiDiagnosis
-      }
+      } : null
     });
   } catch (err) {
     console.error(err);

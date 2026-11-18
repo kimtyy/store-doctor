@@ -4,9 +4,26 @@ import { getStoreInfo } from '@/utils/supabase/getStore';
 import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses';
 import { calcComparisonMetricDelta } from '@/lib/analytics/periodComparison';
 import { getStoreSensitivityCached } from '@/lib/tempDropSensitivity';
+import { getPlanForStore } from '@/lib/getPlan';
+import { canAccessFeature, MAX_CHAT_INPUT_CHARS, MAX_CHAT_HISTORY_MESSAGES } from '@/lib/plans';
+import { checkUsageLimit, recordUsage } from '@/lib/usage';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
+
+const chatRateLimitMap = new Map<string, number[]>();
+
+function checkChatRateLimit(storeId: string): boolean {
+  const now = Date.now();
+  const timestamps = (chatRateLimitMap.get(storeId) ?? []).filter(t => now - t < 60000);
+  if (timestamps.length >= 5) {
+    chatRateLimitMap.set(storeId, timestamps);
+    return false;
+  }
+  timestamps.push(now);
+  chatRateLimitMap.set(storeId, timestamps);
+  return true;
+}
 
 function makeSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -319,6 +336,22 @@ export async function POST(request: Request) {
   if (!storeInfo) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const STORE_ID = storeInfo.id;
 
+  const plan = await getPlanForStore(STORE_ID);
+  if (!canAccessFeature(plan, 'aiChat')) {
+    return NextResponse.json({
+      error: 'AI 채팅은 Pro 플랜 이상에서 사용할 수 있습니다.',
+      code: 'PLAN_REQUIRED',
+      requiredPlan: 'pro',
+    }, { status: 403 });
+  }
+
+  if (!checkChatRateLimit(STORE_ID)) {
+    return NextResponse.json({
+      error: '메시지를 너무 빠르게 전송하고 있습니다. 잠시 후 다시 시도해 주세요.',
+      code: 'RATE_LIMIT',
+    }, { status: 429 });
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     const errorMsg = process.env.NODE_ENV === 'production'
@@ -335,6 +368,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '메시지가 없습니다.' }, { status: 400 });
     }
 
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+    if (lastUserMsg && lastUserMsg.content.length > MAX_CHAT_INPUT_CHARS) {
+      return NextResponse.json({
+        error: `메시지는 최대 ${MAX_CHAT_INPUT_CHARS}자까지 입력할 수 있습니다.`,
+      }, { status: 400 });
+    }
+
+    const usageCheck = await checkUsageLimit(STORE_ID, 'ai', 1);
+    if (!usageCheck.allowed) {
+      return NextResponse.json({
+        error: usageCheck.reason === 'limit_exceeded'
+          ? `이번 달 AI 크레딧(${usageCheck.limit}회)을 모두 사용했습니다. 다음 달에 갱신되거나 플랜을 업그레이드해 주세요.`
+          : 'AI 크레딧 한도를 초과했습니다.',
+        code: 'LIMIT_EXCEEDED',
+        usage: usageCheck.current,
+        limit: usageCheck.limit,
+      }, { status: 429 });
+    }
+
+    const slicedMessages = messages.slice(-MAX_CHAT_HISTORY_MESSAGES);
     const storeContext = await buildStoreContext(STORE_ID);
 
     const now = new Date();
@@ -371,7 +424,7 @@ ${storeContext}
         model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: systemPrompt,
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        messages: slicedMessages.map(m => ({ role: m.role, content: m.content })),
       }),
       signal: AbortSignal.timeout(50000),
     });
@@ -388,6 +441,8 @@ ${storeContext}
 
     const data = await response.json();
     const content = data.content?.[0]?.text ?? '';
+
+    await recordUsage(STORE_ID, 'ai', 1);
 
     return NextResponse.json({ content });
   } catch (error) {

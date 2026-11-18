@@ -1,6 +1,6 @@
 // 서버 전용 모듈: service role 키를 사용하므로 클라이언트 컴포넌트에서 import 금지
 import { createClient as createAdminClient } from '@supabase/supabase-js';
-import { ACTIVE_SUBSCRIPTION_STATUSES, PAID_PLAN_KEYS, type PlanId } from '@/lib/plans';
+import { ACTIVE_SUBSCRIPTION_STATUSES, PAID_PLAN_KEYS, type PlanId } from './plans';
 
 export type ResolvedPlan = {
   plan: PlanId;
@@ -41,12 +41,31 @@ export async function getPlanForUser(userId: string): Promise<ResolvedPlan> {
     }
   }
 
+  // 1-1. QA 및 테스트용 관리자 지정 오버라이드 확인 (subscriptions 전에 확인)
+  try {
+    const { data: override } = await admin
+      .from('plan_overrides')
+      .select('plan')
+      .eq('user_id', userId)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (override && (['free', 'basic', 'pro', 'premium'] as readonly string[]).includes(override.plan)) {
+      return { plan: override.plan as PlanId, limitExempt: false };
+    }
+  } catch (overrideErr) {
+    console.error('[getPlan] plan_overrides lookup error:', overrideErr);
+  }
+
+  // 1-2. 실제 결제 구독 확인 (중복 행 방어: 만료일 가장 늦은 1행 확정)
   const { data: sub, error } = await admin
     .from('subscriptions')
     .select('plan')
     .eq('user_id', userId)
     .in('status', [...ACTIVE_SUBSCRIPTION_STATUSES])
     .gt('expires_at', new Date().toISOString())
+    .order('expires_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {

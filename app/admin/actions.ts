@@ -182,3 +182,58 @@ export async function resolvePaymentAttempt(attemptId: string) {
   revalidatePath('/payment');
   return { success: true };
 }
+
+export async function setPlanOverride(userId: string, plan: string | null, reason?: string) {
+  await checkAdmin();
+  const adminClient = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  if (!plan) {
+    const { error } = await adminClient
+      .from('plan_overrides')
+      .delete()
+      .eq('user_id', userId);
+    if (error) throw new Error('오버라이드 해제 실패: ' + error.message);
+  } else {
+    // 30일 뒤 만료 설정 (QA/테스트 기간)
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { error } = await adminClient
+      .from('plan_overrides')
+      .upsert({
+        user_id: userId,
+        plan,
+        expires_at: expiresAt,
+        note: reason || '관리자 QA 설정',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    if (error) throw new Error('오버라이드 설정 실패: ' + error.message);
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+export async function resetUsageCounters(storeId: string, yearMonth?: string) {
+  await checkAdmin();
+  const ym = yearMonth || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()).slice(0, 7);
+
+  const adminClient = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const { error } = await adminClient
+    .from('usage_counters')
+    .delete()
+    .eq('store_id', storeId)
+    .eq('year_month', ym);
+
+  if (error) throw new Error('사용량 초기화 실패: ' + error.message);
+
+  revalidatePath('/admin');
+  revalidatePath('/settings');
+  return { success: true };
+}

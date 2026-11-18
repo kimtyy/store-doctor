@@ -1,7 +1,13 @@
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
-import { DeleteStoreButton, ExtendSubscriptionSection, ResolvePaymentAttemptButton } from './DeleteButton';
+import {
+  DeleteStoreButton,
+  ExtendSubscriptionSection,
+  ResolvePaymentAttemptButton,
+  PlanOverrideSection,
+  UsageResetButton,
+} from './DeleteButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,12 +66,43 @@ export default async function AdminPage() {
     console.warn('payment_attempts 조회 중 예외 발생:', err);
   }
 
+  // 플랜 오버라이드 및 당월 사용량 조회
+  const currentYm = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()).slice(0, 7);
+  let planOverrides: any[] = [];
+  try {
+    const { data } = await adminClient.from('plan_overrides').select('*');
+    planOverrides = data || [];
+  } catch (err) {
+    console.warn('plan_overrides 조회 실패:', err);
+  }
+
+  let usageCounters: any[] = [];
+  try {
+    const { data } = await adminClient.from('usage_counters').select('*').eq('year_month', currentYm);
+    usageCounters = data || [];
+  } catch (err) {
+    console.warn('usage_counters 조회 실패:', err);
+  }
+
   // 유저 정보 매핑
+  const nowIso = new Date().toISOString();
   const storeList = (stores || []).map(store => {
     const owner = users.find(u => u.id === store.owner_id);
+    const sub = (subscriptions || []).find(s => s.user_id === store.owner_id && s.status === 'active');
+    const override = planOverrides.find(po => po.user_id === store.owner_id && (!po.expires_at || po.expires_at > nowIso));
+    const ocrRow = usageCounters.find(uc => uc.store_id === store.id && uc.kind === 'ocr');
+    const aiRow = usageCounters.find(uc => uc.store_id === store.id && uc.kind === 'ai');
+    const basePlan = sub?.plan || 'free';
+    const effectivePlan = override?.plan || basePlan;
+
     return {
       ...store,
-      ownerEmail: owner?.email || '미상'
+      ownerEmail: owner?.email || '미상',
+      basePlan,
+      effectivePlan,
+      currentOverride: override?.plan || null,
+      ocrCount: ocrRow?.count || 0,
+      aiCount: aiRow?.count || 0,
     };
   });
 
@@ -96,7 +133,7 @@ export default async function AdminPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-6 pb-32 max-w-4xl mx-auto">
+    <div className="min-h-screen bg-slate-950 text-slate-200 p-6 pb-32 max-w-6xl mx-auto">
       <div className="mb-8 border-b border-slate-800 pb-4">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <span>👑</span> 관리자 대시보드
@@ -117,15 +154,17 @@ export default async function AdminPage() {
                   <th className="px-4 py-3 font-medium whitespace-nowrap">가입일</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">이메일</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">매장명</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap">업종</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap">지역</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">관리</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">현재 플랜</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">당월 사용량</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">플랜 QA 변경</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">리셋</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-center">삭제</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
                 {storeList.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500 whitespace-nowrap">
                       가입된 매장이 없습니다.
                     </td>
                   </tr>
@@ -137,8 +176,29 @@ export default async function AdminPage() {
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-200 whitespace-nowrap">{store.ownerEmail}</td>
                       <td className="px-4 py-3 text-sky-400 whitespace-nowrap">{store.name}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{store.category || '-'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{store.region || '-'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold uppercase ${
+                          store.currentOverride
+                            ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                            : 'bg-slate-800 text-slate-300'
+                        }`}>
+                          {store.effectivePlan}
+                          {store.currentOverride && ' (QA)'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">
+                        OCR: <span className="font-mono text-sky-400">{store.ocrCount}</span> | AI: <span className="font-mono text-purple-400">{store.aiCount}</span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <PlanOverrideSection
+                          userId={store.owner_id}
+                          storeName={store.name}
+                          currentOverride={store.currentOverride}
+                        />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <UsageResetButton storeId={store.id} storeName={store.name} />
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap text-center">
                         <DeleteStoreButton storeId={store.id} ownerId={store.owner_id} />
                       </td>

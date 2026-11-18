@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { callClaudeVision } from '../../../../lib/claude';
 import { parsePurchaseResponse } from '../../../../lib/parsers/purchase';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { checkUsageLimit, recordUsage } from '@/lib/usage';
+import { MAX_OCR_PER_REQUEST } from '@/lib/plans';
 
 
 
@@ -86,8 +88,29 @@ export async function POST(request: Request) {
     const imageUrl = payload?.imageUrl;
     const images = payload?.images;
 
-    if (!imageUrl && (!Array.isArray(images) || images.length === 0)) {
+    const imageList: string[] = Array.isArray(images) && images.length > 0
+      ? images
+      : (typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? [imageUrl] : []);
+    const imageCount = imageList.length;
+
+    if (imageCount === 0) {
       return NextResponse.json({ error: 'imageUrl 또는 images를 전달해야 합니다.' }, { status: 400 });
+    }
+
+    if (imageCount > MAX_OCR_PER_REQUEST) {
+      return NextResponse.json({ error: '사진은 한 번에 5장까지 올릴 수 있습니다.' }, { status: 400 });
+    }
+
+    const usageCheck = await checkUsageLimit(STORE_ID, 'ocr', imageCount);
+    if (!usageCheck.allowed) {
+      return NextResponse.json({
+        error: usageCheck.reason === 'limit_exceeded'
+          ? `이번 달 스캔 한도(${usageCheck.limit}장)를 모두 사용했습니다. 직접 입력하거나 플랜을 업그레이드해 주세요.`
+          : '스캔 한도를 초과했습니다.',
+        code: 'LIMIT_EXCEEDED',
+        usage: usageCheck.current,
+        limit: usageCheck.limit,
+      }, { status: 429 });
     }
 
     const prompt = `이미지는 한국 식자재·주류·소모품 납품 영수증 또는 구매 영수증입니다.
@@ -181,6 +204,8 @@ export async function POST(request: Request) {
         });
       }
     }
+
+    await recordUsage(STORE_ID, 'ocr', imageCount);
 
     return NextResponse.json({ data: parsed });
   } catch (error) {

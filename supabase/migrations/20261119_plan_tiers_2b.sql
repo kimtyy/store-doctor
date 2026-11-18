@@ -112,3 +112,4 @@ CREATE TABLE IF NOT EXISTS public.plan_overrides (
 ALTER TABLE public.plan_overrides ENABLE ROW LEVEL SECURITY;
 
 COMMIT;
+

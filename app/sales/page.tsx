@@ -194,6 +194,8 @@ export default function SalesInputPage() {
   // role 체크: staff는 본인 입력 글만 수정 가능
   const [role, setRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [ocrUsage, setOcrUsage] = useState<{ used: number; limit: number; remaining: number } | null>(null);
+
   useEffect(() => {
     fetch('/api/me/role')
       .then((r) => r.json())
@@ -205,6 +207,13 @@ export default function SalesInputPage() {
         setRole(null);
         setCurrentUserId(null);
       });
+
+    fetch('/api/me/plan')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.usage?.ocr) setOcrUsage(d.usage.ocr);
+      })
+      .catch(() => {});
   }, []);
 
   // input state
@@ -586,7 +595,15 @@ export default function SalesInputPage() {
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       let body;
       try { body = JSON.parse(text); } catch { throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.'); }
-      if (!res.ok) throw new Error(body.error || `서버 오류 (${res.status})`);
+      if (!res.ok) {
+        if (res.status === 429) {
+          setOcrUsage((prev) => (prev ? { ...prev, remaining: 0 } : null));
+        }
+        throw new Error(body.error || `서버 오류 (${res.status})`);
+      }
+      setOcrUsage((prev) =>
+        prev ? { ...prev, used: prev.used + 1, remaining: Math.max(0, prev.remaining - 1) } : null
+      );
       if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
       const p = body.data as DailySales;
       const rawDate = p.date ?? new Date().toISOString().split('T')[0];
@@ -621,7 +638,15 @@ export default function SalesInputPage() {
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       let body;
       try { body = JSON.parse(text); } catch { throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.'); }
-      if (!res.ok) throw new Error(body.error || `서버 오류 (${res.status})`);
+      if (!res.ok) {
+        if (res.status === 429) {
+          setOcrUsage((prev) => (prev ? { ...prev, remaining: 0 } : null));
+        }
+        throw new Error(body.error || `서버 오류 (${res.status})`);
+      }
+      setOcrUsage((prev) =>
+        prev ? { ...prev, used: prev.used + 1, remaining: Math.max(0, prev.remaining - 1) } : null
+      );
       if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
       const rawItems: SalesMenuItemWithMeta[] = body.data.menuItems ?? [];
       const corrected = await applyCorrections(rawItems);
@@ -788,6 +813,16 @@ export default function SalesInputPage() {
           {/* ── INPUT TAB ─────────────────────────────────────────────────────── */}
           {tab === 'input' && (
             <>
+              {ocrUsage && ocrUsage.remaining <= 0 && (
+                <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs font-semibold text-rose-300">
+                  🚫 이번 달 스캔 한도({ocrUsage.limit}장)를 모두 소진했습니다. &apos;수동 입력&apos; 모드를 이용해 주세요.
+                </div>
+              )}
+              {ocrUsage && ocrUsage.remaining > 0 && ocrUsage.used >= ocrUsage.limit * 0.9 && (
+                <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs font-semibold text-amber-300">
+                  ⚠️ 이번 달 스캔 한도가 거의 소진되었습니다 (잔여 {ocrUsage.remaining}장 / 한도 {ocrUsage.limit}장)
+                </div>
+              )}
               {error && <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>}
               {saveSuccess && <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{saveSuccess}</div>}
 

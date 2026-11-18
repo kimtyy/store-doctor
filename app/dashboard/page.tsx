@@ -17,6 +17,9 @@ import {
 } from '@/lib/analytics/costRatio';
 import CostRatioAlertCard from '@/components/diagnosis/CostRatioAlertCard';
 import AdminHeaderBadge from '@/components/ui/AdminHeaderBadge';
+import { PlanLockOverlay } from '@/components/plan/PlanLockOverlay';
+import { SAMPLE_DASHBOARD_DATA } from '@/lib/sampleData';
+import type { PlanId } from '@/lib/plans';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
 import { clampEventsToChartDates, StoreEventRecord } from '@/lib/storeEvents';
@@ -104,6 +107,9 @@ export default function DashboardPage() {
   // role 체크: owner/manager는 분석 섹션 표시, staff는 숨김
   // 'loading' 상태 동안 분석 섹션을 스켈레톤으로 표시해 깜빡임 방지
   const [role, setRole] = useState<string | 'loading'>('loading');
+  const [plan, setPlan] = useState<PlanId>('free');
+  const [planFeatures, setPlanFeatures] = useState<Record<string, boolean>>({});
+  const [tempDropLocked, setTempDropLocked] = useState(false);
 
   useEffect(() => {
     fetch('/api/me/role')
@@ -113,11 +119,22 @@ export default function DashboardPage() {
         if (d?.storeId) setStoreId(d.storeId);
       })
       .catch(() => setRole('staff'));
+
+    fetch('/api/me/plan')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.plan) setPlan(d.plan);
+        if (d?.features) setPlanFeatures(d.features);
+      })
+      .catch(() => {});
   }, []);
 
   // 분석 섹션 표시 여부: owner 또는 manager만 볼 수 있음
   const canViewAnalytics = role === 'owner' || role === 'manager';
   const isRoleLoading = role === 'loading';
+  const hasBasicAnalytics = planFeatures.basicAnalytics ?? false;
+  const hasTrendChart = planFeatures.trendChart ?? false;
+  const hasTempDropAlert = planFeatures.tempDropAlert ?? false;
 
   useEffect(() => {
     fetch('/api/stores/settings')
@@ -305,6 +322,7 @@ export default function DashboardPage() {
       const targetStoreId = data?.storeId || storeId;
 
       setHasLocation(data.hasLocation);
+      setTempDropLocked(Boolean(data.tempDropLocked));
       if (data.hasLocation && data.weather) {
         setWeather(data.weather);
         setTempDropAlerts(data.tempDropAlerts || null);
@@ -804,8 +822,35 @@ export default function DashboardPage() {
                   </div>
                 ) : null}
 
-                {/* [W-3] 기온 급락 및 한파 3일 띠 알림 카드 (3일 중 알림이 하나라도 있을 때만 표시, 전부 없으면 카드 숨김) */}
-                {(() => {
+                {/* [W-3, 2-B] 기온 급락 및 한파 3일 띠 알림 카드 */}
+                {tempDropLocked ? (
+                  <div className="relative mb-5 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                    <div className="filter blur-[3px] opacity-50 pointer-events-none select-none space-y-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🌡️</span>
+                          <span className="text-xs font-semibold text-slate-200">기온 변화 및 영업 참고 알림</span>
+                        </div>
+                        <span className="text-[11px] text-slate-400">매장 과거 영향 기반</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                        {SAMPLE_DASHBOARD_DATA.tempDropAlert.cards.map((c) => (
+                          <div key={c.date} className="rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 text-sky-100">
+                            <span className="text-xs font-bold text-slate-200">{c.date}</span>
+                            <p className="text-xs text-sky-200 font-medium mt-1 leading-relaxed">{c.desc}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <PlanLockOverlay
+                      requiredPlan="pro"
+                      title="기온 급락 및 한파 예측 알림"
+                      description="어제·오늘 기온 급락 시 매출 하락 예측과 한파 알림은 Pro 플랜에서 제공돼요."
+                      userRole={role}
+                      currentPlan={plan}
+                    />
+                  </div>
+                ) : (() => {
                   const activeAlerts = tempDropAlerts || (weatherLoading ? cachedTempDropAlerts : null);
                   if (!activeAlerts || !activeAlerts.hasAnyAlert) return null;
 
@@ -913,8 +958,47 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* 기간별 메뉴 비교 (최근 30일 vs 직전 30일 TOP5) */}
-                {(monthlyRising.length > 0 || monthlyFalling.length > 0) && (
+                {/* 기간별 메뉴 비교 (Basic 이상) */}
+                {!hasBasicAnalytics ? (
+                  <div className="relative mt-5 overflow-hidden rounded-2xl border border-slate-800/80 p-4">
+                    <div className="filter blur-[3px] opacity-50 pointer-events-none select-none space-y-4">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>📈</span>
+                          <span>최근 30일 상승 메뉴 TOP5</span>
+                        </p>
+                        <span className="text-[11px] text-slate-500">직전 30일 대비</span>
+                      </div>
+                      <div className="space-y-2">
+                        {SAMPLE_DASHBOARD_DATA.periodMenuComparison.risingGroup.map((item) => (
+                          <div
+                            key={item.name}
+                            className="flex items-center justify-between rounded-xl px-3.5 py-2.5 bg-emerald-500/10 border border-emerald-500/20"
+                          >
+                            <div className="min-w-0 flex-1 pr-2">
+                              <p className="text-sm font-semibold text-slate-100 truncate">{item.name}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {item.lastPeriodQty}개 → <span className="font-semibold text-slate-200">{item.thisPeriodQty}개</span>
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="inline-flex items-center rounded-lg bg-emerald-500/20 px-2 py-1 text-xs font-bold text-emerald-300">
+                                +{item.diff}개
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <PlanLockOverlay
+                      requiredPlan="basic"
+                      title="급상승/급하강 메뉴 분석"
+                      description="직전 30일 대비 판매량이 급증하거나 감소한 메뉴 분석은 Basic 플랜에서 제공돼요."
+                      userRole={role}
+                      currentPlan={plan}
+                    />
+                  </div>
+                ) : (monthlyRising.length > 0 || monthlyFalling.length > 0) && (
                   <div className="mt-5 border-t border-slate-800/80 pt-4 space-y-4">
                     {/* 📈 최근 30일 상승 메뉴 TOP5 */}
                     {monthlyRising.length > 0 && (
@@ -1120,16 +1204,36 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {/* ── 원가율 경고 카드 ──────────────────────────────────── */}
+              {/* ── 원가율 경고 카드 (Pro 이상) ──────────────────────────── */}
               {!isRoleLoading && canViewAnalytics && (
-                <CostRatioAlertCard
-                  ma20={latestCostRatioMa20}
-                  ma60={storeCostRatioAvg60}
-                  operatingDaysCount={costRatioBaseline60.operatingDaysCount}
-                />
+                !hasTrendChart ? (
+                  <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
+                    <div className="filter blur-[3px] opacity-50 pointer-events-none select-none">
+                      <CostRatioAlertCard
+                        ma20={36.5}
+                        ma60={32.3}
+                        operatingDaysCount={45}
+                      />
+                    </div>
+                    <PlanLockOverlay
+                      requiredPlan="pro"
+                      title="원가율 이상징후 경고"
+                      description="최근 20일 원가율의 급상승 및 위험 신호 감지는 Pro 플랜에서 제공돼요."
+                      userRole={role}
+                      currentPlan={plan}
+                      compact
+                    />
+                  </div>
+                ) : (
+                  <CostRatioAlertCard
+                    ma20={latestCostRatioMa20}
+                    ma60={storeCostRatioAvg60}
+                    operatingDaysCount={costRatioBaseline60.operatingDaysCount}
+                  />
+                )
               )}
 
-              {/* ── 이동평균선 차트 ────────────────────────────────────── */}
+              {/* ── 이동평균선 차트 (Pro 이상) ────────────────────────────── */}
               {/* role 로딩 중 → 스켈레톤 / staff → 숨김 / owner·manager → 표시 */}
               {isRoleLoading ? (
                 <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
@@ -1137,19 +1241,42 @@ export default function DashboardPage() {
                   <div className="h-48 rounded-2xl bg-slate-800/50 animate-pulse" />
                 </div>
               ) : canViewAnalytics && chartData.length >= 2 && (
-                <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
-                  <h3 className="text-lg font-semibold text-slate-100 flex items-center">
-                    이동평균선 <TermTooltip term="이동평균선" />
-                  </h3>
-                  <div className="mt-4">
-                    <MAChart
-                      data={chartData}
-                      availability={dataAvailability}
-                      storeCostRatioAvg60={storeCostRatioAvg60}
-                      events={clampedChartEvents}
+                !hasTrendChart ? (
+                  <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
+                    <h3 className="text-lg font-semibold text-slate-100 flex items-center">
+                      이동평균선 <TermTooltip term="이동평균선" />
+                    </h3>
+                    <div className="mt-4 filter blur-[3px] opacity-50 pointer-events-none select-none">
+                      <MAChart
+                        data={chartData}
+                        availability={dataAvailability}
+                        storeCostRatioAvg60={storeCostRatioAvg60}
+                        events={clampedChartEvents}
+                      />
+                    </div>
+                    <PlanLockOverlay
+                      requiredPlan="pro"
+                      title="이동평균선 추세 분석"
+                      description="7일·30일 이동평균선과 매출·원가율 추세 차트는 Pro 플랜에서 제공돼요."
+                      userRole={role}
+                      currentPlan={plan}
                     />
                   </div>
-                </div>
+                ) : (
+                  <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-5">
+                    <h3 className="text-lg font-semibold text-slate-100 flex items-center">
+                      이동평균선 <TermTooltip term="이동평균선" />
+                    </h3>
+                    <div className="mt-4">
+                      <MAChart
+                        data={chartData}
+                        availability={dataAvailability}
+                        storeCostRatioAvg60={storeCostRatioAvg60}
+                        events={clampedChartEvents}
+                      />
+                    </div>
+                  </div>
+                )
               )}
 
               {/* ── 기간별 매출 내역 ───────────────────────────────────── */}

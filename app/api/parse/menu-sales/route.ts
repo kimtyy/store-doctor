@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { callClaudeVision } from '../../../../lib/claude';
 import { parseMenuSalesResponse } from '../../../../lib/parsers/menuSales';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { checkUsageLimit, recordUsage } from '@/lib/usage';
+import { MAX_OCR_PER_REQUEST } from '@/lib/plans';
 
 export const maxDuration = 60;
 
@@ -21,10 +23,33 @@ export async function POST(request: Request) {
     const imageUrl = payload?.imageUrl;
     const images = payload?.images;
 
-    if (!imageUrl && (!Array.isArray(images) || images.length === 0)) {
+    const imageList: string[] = Array.isArray(images) && images.length > 0
+      ? images
+      : (typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? [imageUrl] : []);
+    const imageCount = imageList.length;
+
+    if (imageCount === 0) {
       return NextResponse.json({
         error: 'imageUrl 또는 images 배열을 전달해야 합니다.'
       }, { status: 400 });
+    }
+
+    if (imageCount > MAX_OCR_PER_REQUEST) {
+      return NextResponse.json({
+        error: '사진은 한 번에 5장까지 올릴 수 있습니다.'
+      }, { status: 400 });
+    }
+
+    const usageCheck = await checkUsageLimit(STORE_ID, 'ocr', imageCount);
+    if (!usageCheck.allowed) {
+      return NextResponse.json({
+        error: usageCheck.reason === 'limit_exceeded'
+          ? `이번 달 스캔 한도(${usageCheck.limit}장)를 모두 사용했습니다. 직접 입력하거나 플랜을 업그레이드해 주세요.`
+          : '스캔 한도를 초과했습니다.',
+        code: 'LIMIT_EXCEEDED',
+        usage: usageCheck.current,
+        limit: usageCheck.limit,
+      }, { status: 429 });
     }
 
     const prompt = `한국 식당 POS의 메뉴별 매출 내역 이미지를 분석해서 다음 JSON 형식으로 추출해주세요:
@@ -43,7 +68,7 @@ export async function POST(request: Request) {
 - 날짜는 YYYY-MM-DD 형식
 - 모든 메뉴 항목을 빠짐없이 포함`;
 
-    const raw = await callClaudeVision(prompt, images);
+    const raw = await callClaudeVision(prompt, imageList);
 
     if (!raw || raw.trim() === '') {
       return NextResponse.json({
@@ -111,6 +136,8 @@ export async function POST(request: Request) {
         });
       }
     }
+
+    await recordUsage(STORE_ID, 'ocr', imageCount);
 
     return NextResponse.json({ data: parsed });
 

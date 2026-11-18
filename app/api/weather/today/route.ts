@@ -4,6 +4,8 @@ import { getStoreId } from '@/utils/supabase/getStore';
 import { getWeatherInfo } from '@/lib/weather';
 import { getStoreSensitivityCached } from '@/lib/tempDropSensitivity';
 import { detectTempDropAlerts, getKstDateString, addKstDays } from '@/lib/weatherDrop';
+import { getPlanForStore } from '@/lib/getPlan';
+import { canAccessFeature } from '@/lib/plans';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -132,13 +134,18 @@ export async function GET() {
 
     const weather = getWeatherInfo(weatherCode, currentTemp, eveningTemp, tomorrowMeanTemp);
 
-    // [W-3] 매장 민감도 및 3일 띠 기온 급락·한파 판정
+    // [W-3, 2-B] 매장 민감도 및 3일 띠 기온 급락·한파 판정 (Pro 이상)
+    const plan = await getPlanForStore(storeId);
+    const hasTempDropAlert = canAccessFeature(plan, 'tempDropAlert');
+
     let tempDropAlerts = null;
-    try {
-      const sensitivity = await getStoreSensitivityCached(storeId);
-      tempDropAlerts = detectTempDropAlerts(data, sensitivity);
-    } catch (dropErr) {
-      console.warn('[Weather Today] 기온 급락 분석 실패 (날씨 조회는 정상 유지):', dropErr);
+    if (hasTempDropAlert) {
+      try {
+        const sensitivity = await getStoreSensitivityCached(storeId);
+        tempDropAlerts = detectTempDropAlerts(data, sensitivity);
+      } catch (dropErr) {
+        console.warn('[Weather Today] 기온 급락 분석 실패 (날씨 조회는 정상 유지):', dropErr);
+      }
     }
 
     return NextResponse.json({
@@ -147,6 +154,7 @@ export async function GET() {
       storeId,
       weather,
       tempDropAlerts,
+      tempDropLocked: !hasTempDropAlert,
     });
   } catch (err) {
     console.error('날씨 조회 예외 발생:', err);
