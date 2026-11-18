@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { callClaudeVision } from '../../../../lib/claude';
 import { parsePosReceiptResponse } from '../../../../lib/parsers/posReceipt';
+import { getStoreId } from '@/utils/supabase/getStore';
+
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  const STORE_ID = await getStoreId();
+  if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const payload = await request.json().catch(() => null);
 
@@ -54,6 +60,9 @@ export async function POST(request: Request) {
 - actualSales: 매출금액 = 총매출금액 - 서비스금액 (영수증에 "매출금액"으로 표시)
 - tax: 부가세
 - netRevenue: 순매출금액 = 매출금액 - 부가세
+- tablesUsed: 결제 건수 (POS 마감 정산서나 웹 정산 팝업에 표시된 "고객수", "테이블수", 또는 "결제건수" 숫자. 웹 정산서에 "고객수"만 표시되어 있으면 그 숫자를 반드시 tablesUsed에도 동일하게 입력, 없으면 0)
+- guestCount: 영수증이나 POS 웹 정산서의 "고객수" 숫자 (없으면 tablesUsed와 동일 값, 둘 다 없으면 0)
+- avgSpend: 결제 1건당 매출 = 영수증에 객단가가 적혀 있으면 그 값, 없으면 totalRevenue ÷ tablesUsed 반올림 정수 (tablesUsed가 0이면 0)
 
 주의사항:
 - 모든 금액은 숫자로만 입력 (쉼표 제거)
@@ -61,7 +70,8 @@ export async function POST(request: Request) {
 - 날짜는 YYYY-MM-DD 형식
 - 부가세는 절대 자동 계산하지 말고 영수증에 명시된 값만 사용
 - menuItems는 정산서에 있는 메뉴들만 포함 (없으면 빈 배열)
-- 서비스금액이 없으면 serviceAmount: 0, actualSales = totalRevenue`;
+- 서비스금액이 없으면 serviceAmount: 0, actualSales = totalRevenue
+- POS 웹 정산 화면 캡처에 "고객수"만 보이고 "테이블" 항목이 없다면 tablesUsed와 guestCount 둘 다에 "고객수" 값을 넣을 것`;
 
     const raw = await callClaudeVision(prompt, images);
 
@@ -79,6 +89,13 @@ export async function POST(request: Request) {
     console.error('POS receipt parsing error:', error);
 
     if (error instanceof Error) {
+      // 타임아웃 에러
+      if (error.name === 'TimeoutError' || error.name === 'AbortError' || error.message.includes('시간이 초과')) {
+        return NextResponse.json({
+          error: '응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+        }, { status: 504 });
+      }
+
       // Claude API 관련 에러
       if (error.message.includes('Claude API')) {
         return NextResponse.json({

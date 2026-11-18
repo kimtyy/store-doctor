@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses';
+import { getLatestCostRatioBaseline60 } from '@/lib/analytics/costRatio';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,14 +91,14 @@ export async function GET(request: Request) {
 
     let purchaseQuery = supabase
       .from('purchase_records')
-      .select('date, total_amount, category, vendor_name, items')
+      .select('id, date, total_amount, category, vendor_name, items')
       .eq('store_id', STORE_ID);
     if (fromStr) purchaseQuery = purchaseQuery.gte('date', fromStr);
     if (toStr) purchaseQuery = purchaseQuery.lte('date', toStr);
 
     let salesQuery = supabase
       .from('daily_sales')
-      .select('date, net_revenue')
+      .select('id, date, net_revenue')
       .eq('store_id', STORE_ID);
     if (fromStr) salesQuery = salesQuery.gte('date', fromStr);
     if (toStr) salesQuery = salesQuery.lte('date', toStr);
@@ -105,18 +108,81 @@ export async function GET(request: Request) {
       salesQuery = salesQuery.eq('is_event', false);
     }
 
-    const [{ data: purchaseData, error: purchaseError }, { data: salesData, error: salesError }] =
-      await Promise.all([purchaseQuery, salesQuery]);
+    // 60일 매장 기준 원가율(상대 경고 판정용) 계산 범위: [기준종료일 - 59일 .. 기준종료일]
+    const baselineEndDate =
+      toStr ??
+      new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
+        .toISOString()
+        .split('T')[0];
+    const [by, bm, bd] = baselineEndDate.split('-').map(Number);
+    const baselineStartDt = new Date(Date.UTC(by, bm - 1, bd - 59));
+    const baselineStartDate = `${baselineStartDt.getUTCFullYear()}-${String(
+      baselineStartDt.getUTCMonth() + 1
+    ).padStart(2, '0')}-${String(baselineStartDt.getUTCDate()).padStart(2, '0')}`;
+
+    let baseSalesQuery = supabase
+      .from('daily_sales')
+      .select('id, date, net_revenue')
+      .eq('store_id', STORE_ID)
+      .gte('date', baselineStartDate)
+      .lte('date', baselineEndDate)
+      .order('date', { ascending: true });
+    let basePurchaseQuery = supabase
+      .from('purchase_records')
+      .select('id, date, total_amount, category')
+      .eq('store_id', STORE_ID)
+      .gte('date', baselineStartDate)
+      .lte('date', baselineEndDate);
+    if (!includeEvent) {
+      baseSalesQuery = baseSalesQuery.eq('is_event', false);
+      basePurchaseQuery = basePurchaseQuery.eq('is_event', false);
+    }
+
+    const [
+      { data: purchaseData, error: purchaseError },
+      { data: salesData, error: salesError },
+      { data: baseSalesData, error: baseSalesError },
+      { data: basePurchaseData, error: basePurchaseError },
+    ] = await Promise.all([
+      fetchAll(purchaseQuery.order('date', { ascending: true }).order('id', { ascending: true })),
+      fetchAll(salesQuery.order('date', { ascending: true }).order('id', { ascending: true })),
+      fetchAll(baseSalesQuery.order('id', { ascending: true })),
+      fetchAll(basePurchaseQuery.order('id', { ascending: true })),
+    ]);
 
     if (purchaseError) return NextResponse.json({ error: purchaseError.message }, { status: 500 });
     if (salesError) return NextResponse.json({ error: salesError.message }, { status: 500 });
+    if (baseSalesError) return NextResponse.json({ error: baseSalesError.message }, { status: 500 });
+    if (basePurchaseError) return NextResponse.json({ error: basePurchaseError.message }, { status: 500 });
 
     const records = purchaseData ?? [];
 
-    // ── Summary ────────────────────────────────────────────────────────────────
-    const totalPurchase = records.reduce((s, r) => s + (r.total_amount ?? 0), 0);
+    // ── Summary (표준 비용 분류 상수 기준) ──────────────────────────────────────
     const totalRevenue = (salesData ?? []).reduce((s, r) => s + (r.net_revenue ?? 0), 0);
-    const costRatioPercent = totalRevenue > 0 ? (totalPurchase / totalRevenue) * 100 : 0;
+    const breakdown = calculateExpenseBreakdown(records, totalRevenue);
+    const totalPurchase = breakdown.totalExpense;
+    const costRatioPercent = breakdown.costRatio; // 재료비(원가) 기준 원가율
+
+    const baseIngByDate: Record<string, number> = {};
+    for (const bp of basePurchaseData ?? []) {
+      if (isIngredientCategory(bp.category)) {
+        baseIngByDate[bp.date] = (baseIngByDate[bp.date] ?? 0) + (bp.total_amount ?? 0);
+      }
+    }
+    const baseSalesByDate: Record<string, number> = {};
+    for (const sd of baseSalesData ?? []) {
+      baseSalesByDate[sd.date] = (baseSalesByDate[sd.date] ?? 0) + (sd.net_revenue ?? 0);
+    }
+    const baseDates = Array.from(
+      new Set([...Object.keys(baseSalesByDate), ...Object.keys(baseIngByDate)])
+    ).sort();
+    const baseline60 = getLatestCostRatioBaseline60(
+      baseDates.map((date) => ({
+        date,
+        revenue: baseSalesByDate[date] ?? 0,
+        ingredientCost: baseIngByDate[date] ?? 0,
+      }))
+    );
 
     // ── Category stats ─────────────────────────────────────────────────────────
     const categoryMap: Record<string, number> = {};
@@ -183,8 +249,15 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       totalPurchase,
+      totalExpense: breakdown.totalExpense,
+      ingredientCost: breakdown.ingredientCost,
       totalRevenue,
       costRatioPercent,
+      costRatio60Avg: baseline60.costRatio,
+      baselineOperatingDays: baseline60.operatingDaysCount,
+      totalCostRatioPercent: breakdown.totalCostRatio,
+      flRatioPercent: breakdown.flRatio,
+      expenseGroups: breakdown.groups,
       categoryStats,
       itemsByAmount,
       itemsByCount,

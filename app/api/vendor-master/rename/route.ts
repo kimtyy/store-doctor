@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
 
 export const dynamic = 'force-dynamic';
-
-
 
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,6 +19,11 @@ function makeClient() {
 export async function POST(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner' && role !== 'manager') {
+    return NextResponse.json({ error: '거래처 변경은 소유자·매니저만 가능합니다.' }, { status: 403 });
+  }
 
   try {
     const supabase = makeClient();

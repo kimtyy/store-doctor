@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
+import { isValidFixedCostCategory, isValidPurchaseCategory } from '@/lib/expenses';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +36,11 @@ export async function POST(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json({ error: '고정비 관리는 매장 소유자만 가능합니다.' }, { status: 403 });
+  }
+
   const supabase = makeClient();
   if (!supabase) return NextResponse.json({ error: 'Supabase 환경 변수 없음' }, { status: 500 });
 
@@ -44,6 +51,12 @@ export async function POST(request: Request) {
     const { name, amount, category, billingDay } = body;
     if (!name || amount == null || !category || !billingDay) {
       return NextResponse.json({ error: '항목명, 금액, 카테고리, 청구일이 필요합니다.' }, { status: 400 });
+    }
+    if (!isValidPurchaseCategory(category)) {
+      return NextResponse.json({ error: '허용되지 않은 비용 카테고리입니다.' }, { status: 400 });
+    }
+    if (!isValidFixedCostCategory(category)) {
+      return NextResponse.json({ error: '재료비(식자재·주류)는 고정비로 등록할 수 없습니다.' }, { status: 400 });
     }
 
     const { costType } = body;
@@ -66,6 +79,11 @@ export async function PATCH(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json({ error: '고정비 관리는 매장 소유자만 가능합니다.' }, { status: 403 });
+  }
+
   const supabase = makeClient();
   if (!supabase) return NextResponse.json({ error: 'Supabase 환경 변수 없음' }, { status: 500 });
 
@@ -74,6 +92,14 @@ export async function PATCH(request: Request) {
     if (!body?.id) return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
 
     const { id, name, amount, category, billingDay, isActive, costType } = body;
+    if (category !== undefined) {
+      if (!isValidPurchaseCategory(category)) {
+        return NextResponse.json({ error: '허용되지 않은 비용 카테고리입니다.' }, { status: 400 });
+      }
+      if (!isValidFixedCostCategory(category)) {
+        return NextResponse.json({ error: '재료비(식자재·주류)는 고정비로 등록할 수 없습니다.' }, { status: 400 });
+      }
+    }
     const fields: Record<string, unknown> = {};
     if (name !== undefined) fields.name = name;
     if (amount !== undefined) fields.amount = amount;
@@ -99,6 +125,11 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json({ error: '고정비 관리는 매장 소유자만 가능합니다.' }, { status: 403 });
+  }
 
   const supabase = makeClient();
   if (!supabase) return NextResponse.json({ error: 'Supabase 환경 변수 없음' }, { status: 500 });

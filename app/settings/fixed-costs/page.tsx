@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BottomTabNav from '../../../components/BottomTabNav';
 import { PurchaseCategory } from '../../../types/purchase';
+import {
+  FIXED_COST_CATEGORY_OPTIONS,
+  isValidFixedCostCategory,
+  PURCHASE_CATEGORY_LABELS,
+} from '../../../lib/expenses';
+import AdminHeaderBadge from '../../../components/ui/AdminHeaderBadge';
 
 type CostType = 'fixed_amount' | 'manual_input';
 
@@ -34,18 +40,7 @@ const emptyForm: FormValues = {
   costType: 'fixed_amount',
 };
 
-const categoryOptions: { value: PurchaseCategory; label: string }[] = [
-  { value: 'rent', label: '임대료' },
-  { value: 'labor', label: '인건비' },
-  { value: 'electricity', label: '전기요금' },
-  { value: 'gas', label: '가스요금' },
-  { value: 'water', label: '수도요금' },
-  { value: 'telecom', label: '통신비' },
-  { value: 'pos_fee', label: 'POS 사용료' },
-  { value: 'insurance', label: '보험료' },
-  { value: 'fuel', label: '유류비' },
-  { value: 'other', label: '기타' },
-];
+const categoryOptions = FIXED_COST_CATEGORY_OPTIONS;
 
 // Defined outside the page component so React never unmounts it on re-render
 // (defining inside causes keyboard focus loss on every keystroke)
@@ -92,7 +87,7 @@ function FormFields({
         <p className="mt-1 text-xs text-slate-500">
           {form.costType === 'fixed_amount'
             ? '매월 같은 금액으로 자동 삽입 (임대료·보험료 등)'
-            : '항목만 자동 생성, 금액은 0원 → 직접 수정 (전기·가스 등)'}
+            : '항목만 자동 생성, 금액은 0원 → 직접 수정 (전기·가스·카드/배달 수수료 등)'}
         </p>
       </div>
 
@@ -147,7 +142,15 @@ function FormFields({
             <button
               key={opt.value}
               type="button"
-              onClick={() => onChange({ ...form, category: opt.value })}
+              onClick={() =>
+                onChange({
+                  ...form,
+                  category: opt.value,
+                  ...(opt.value === 'card_fee' || opt.value === 'delivery_fee'
+                    ? { costType: 'manual_input' }
+                    : {}),
+                })
+              }
               className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                 form.category === opt.value
                   ? 'bg-sky-500 text-slate-950'
@@ -168,6 +171,7 @@ export default function FixedCostsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<FormValues>(emptyForm);
@@ -230,6 +234,17 @@ export default function FixedCostsPage() {
   }, []);
 
   useEffect(() => { fetchList(); }, [fetchList]);
+
+  useEffect(() => {
+    fetch('/api/me/role')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.role) setUserRole(data.role);
+      })
+      .catch(() => {});
+  }, []);
+
+  const isOwner = userRole === 'owner';
 
   async function handleAdd() {
     if (!addForm.name) { setError('항목명을 입력하세요.'); return; }
@@ -355,7 +370,11 @@ export default function FixedCostsPage() {
   }
 
   const categoryLabel = (cat: string) =>
-    categoryOptions.find((o) => o.value === cat)?.label ?? cat;
+    categoryOptions.find((o) => o.value === cat)?.label ??
+    PURCHASE_CATEGORY_LABELS[cat as PurchaseCategory] ??
+    cat;
+
+  const hasLegacyIngredientFixedCost = list.some((fc) => !isValidFixedCostCategory(fc.category));
 
   const costTypeLabel = (t?: CostType) =>
     t === 'manual_input' ? '매월입력' : '금액고정';
@@ -363,14 +382,23 @@ export default function FixedCostsPage() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
-        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center gap-3">
-          <a href="/settings" className="text-slate-400 hover:text-slate-200 text-sm">← 설정</a>
-          <h1 className="text-xl font-bold text-slate-100">고정비 관리</h1>
+        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <a href="/settings" className="text-slate-400 hover:text-slate-200 text-sm">← 설정</a>
+            <h1 className="text-xl font-bold text-slate-100">고정비 관리</h1>
+          </div>
+          <AdminHeaderBadge />
         </div>
       </header>
 
       <main className="bg-slate-950 text-slate-100 px-4 py-6 pb-32">
         <div className="mx-auto max-w-2xl space-y-4">
+
+          {hasLegacyIngredientFixedCost && (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+              ⚠️ 재료비는 고정비로 둘 수 없습니다. 다른 항목으로 바꿔 주세요.
+            </div>
+          )}
 
           {error && (
             <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>
@@ -379,8 +407,14 @@ export default function FixedCostsPage() {
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">{success}</div>
           )}
 
+          {userRole && !isOwner && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
+              🔒 고정비 관리는 매장 소유자(Owner)만 추가·수정·삭제할 수 있습니다. (현재 읽기 전용)
+            </div>
+          )}
+
           {/* 추가 버튼 / 폼 및 수동 적용 버튼 */}
-          {!showAdd ? (
+          {isOwner && (!showAdd ? (
             <div className="flex gap-2">
               <button
                 type="button"
@@ -420,7 +454,7 @@ export default function FixedCostsPage() {
                 </button>
               </div>
             </div>
-          )}
+          ))}
 
           {/* 목록 */}
           {loading ? (
@@ -441,8 +475,8 @@ export default function FixedCostsPage() {
                     <button
                       type="button"
                       onClick={() => handleToggle(fc)}
-                      disabled={togglingId === fc.id}
-                      className={`shrink-0 w-11 h-6 rounded-full transition-colors ${fc.is_active ? 'bg-sky-600' : 'bg-slate-700'}`}
+                      disabled={!isOwner || togglingId === fc.id}
+                      className={`shrink-0 w-11 h-6 rounded-full transition-colors ${fc.is_active ? 'bg-sky-600' : 'bg-slate-700'} ${!isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <span
                         className={`block w-5 h-5 rounded-full bg-white shadow transition-transform mx-0.5 ${
@@ -451,7 +485,7 @@ export default function FixedCostsPage() {
                       />
                     </button>
 
-                    <div className="flex-1 min-w-0" onClick={() => setEditId(editId === fc.id ? null : fc.id)}>
+                    <div className="flex-1 min-w-0" onClick={() => isOwner && setEditId(editId === fc.id ? null : fc.id)}>
                       <div className="flex items-baseline gap-2">
                         <span className="text-sm font-semibold text-slate-100 truncate">{fc.name}</span>
                         <span
@@ -470,28 +504,35 @@ export default function FixedCostsPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => { if (editId === fc.id) { setEditId(null); } else { startEdit(fc); } }}
-                        className="text-xs text-slate-400 hover:text-slate-200"
-                      >
-                        {editId === fc.id ? '접기' : '수정'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(fc.id)}
-                        disabled={deletingId === fc.id}
-                        className="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-40"
-                      >
-                        {deletingId === fc.id ? '...' : '삭제'}
-                      </button>
-                    </div>
+                    {isOwner && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => { if (editId === fc.id) { setEditId(null); } else { startEdit(fc); } }}
+                          className="text-xs text-slate-400 hover:text-slate-200"
+                        >
+                          {editId === fc.id ? '접기' : '수정'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(fc.id)}
+                          disabled={deletingId === fc.id}
+                          className="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-40"
+                        >
+                          {deletingId === fc.id ? '...' : '삭제'}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* 인라인 수정 */}
                   {editId === fc.id && (
                     <div className="border-t border-slate-800 px-4 pb-4 pt-3 space-y-4">
+                      {!isValidFixedCostCategory(editForm.category) && (
+                        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                          재료비는 고정비로 둘 수 없습니다. 다른 항목으로 바꿔 주세요.
+                        </div>
+                      )}
                       <FormFields form={editForm} onChange={setEditForm} />
                       <div className="flex gap-3">
                         <button

@@ -1,16 +1,20 @@
 export type PurchaseCategory =
   | 'food_ingredients'
   | 'alcohol'
-  | 'consumables'
   | 'labor'
   | 'rent'
+  | 'management_fee'
   | 'electricity'
   | 'gas'
   | 'water'
   | 'telecom'
   | 'pos_fee'
-  | 'insurance'
+  | 'card_fee'
+  | 'delivery_fee'
+  | 'tax_dues'
+  | 'consumables'
   | 'fuel'
+  | 'insurance'
   | 'other';
 
 export type PurchaseInputMethod = 'receipt_photo' | 'manual' | 'auto_fixed';

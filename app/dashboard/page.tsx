@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/utils/supabase/client';
 import { calculateMovingAverage } from '@/lib/analytics/movingAverage';
 import MAChart from '@/components/charts/MAChart';
@@ -8,8 +9,17 @@ import BottomTabNav from '@/components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '@/components/PeriodSelector';
 import OnboardingGuideModal from '@/components/OnboardingGuideModal';
 import TermTooltip from '@/components/ui/TermTooltip';
+import { getPaymentCount } from '@/lib/analytics/periodComparison';
+import { isIngredientCategory } from '@/lib/expenses';
+import {
+  calculateCostRatioMovingAverage,
+  getLatestCostRatioBaseline60,
+} from '@/lib/analytics/costRatio';
+import CostRatioAlertCard from '@/components/diagnosis/CostRatioAlertCard';
+import AdminHeaderBadge from '@/components/ui/AdminHeaderBadge';
 import type { MAChartDataPoint, DataAvailability } from '@/components/charts/MAChart';
 import type { DailySales } from '@/types/sales';
+import { clampEventsToChartDates, StoreEventRecord } from '@/lib/storeEvents';
 
 interface MonthlyMenuComparisonItem {
   name: string;
@@ -32,25 +42,8 @@ function calcNullableMA(values: (number | null)[], period: number): (number | nu
 }
 
 // ── Weather ──────────────────────────────────────────────────────────────────
-
-interface WeatherInfo {
-  emoji: string;
-  text: string;
-  temp: number;
-  comment: string;
-}
-
-function getWeatherInfo(code: number, temp: number): WeatherInfo {
-  if (code === 0)  return { emoji: '☀️',  text: '맑음',    temp, comment: '맑은 날씨 — 야외 활동이 늘어나는 시간대를 노려보세요' };
-  if (code <= 2)   return { emoji: '🌤',  text: '구름 조금', temp, comment: '대체로 맑아 좋은 영업 날씨예요' };
-  if (code === 3)  return { emoji: '☁️',  text: '흐림',    temp, comment: '흐린 날씨 — 평소와 비슷한 매출이 예상됩니다' };
-  if (code <= 48)  return { emoji: '🌫',  text: '안개',    temp, comment: '안개 — 이른 시간 손님이 줄 수 있어요' };
-  if (code <= 55)  return { emoji: '🌦',  text: '이슬비',   temp, comment: '이슬비 — 포장·배달 수요가 늘 수 있어요' };
-  if (code <= 65)  return { emoji: '🌧',  text: '비',      temp, comment: '비 — 포장·배달 위주로 준비하세요' };
-  if (code <= 75)  return { emoji: '❄️',  text: '눈',      temp, comment: '눈 — 도로 상황에 따라 방문이 줄 수 있어요' };
-  if (code <= 82)  return { emoji: '🌦',  text: '소나기',   temp, comment: '소나기 예보 — 우산 준비를 권장해요' };
-  return             { emoji: '⛈',   text: '천둥번개',  temp, comment: '악천후 — 매출에 영향이 있을 수 있어요' };
-}
+import { WeatherInfo, getWeatherInfo } from '@/lib/weather';
+import { ThreeDayAlertsResult } from '@/lib/weatherDrop';
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -86,14 +79,27 @@ function buildSalesApiUrl(pv: PeriodValue): string {
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<DailySales[]>([]);
   const [purchaseByDate, setPurchaseByDate] = useState<Record<string, number>>({});
+  const [ingredientByDate, setIngredientByDate] = useState<Record<string, number>>({});
   const [eventPurchaseByDate, setEventPurchaseByDate] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
+  const [cachedWeather, setCachedWeather] = useState<{
+    weather: WeatherInfo;
+    timeAgoText: string;
+  } | null>(null);
+  const [tempDropAlerts, setTempDropAlerts] = useState<ThreeDayAlertsResult | null>(null);
+  const [cachedTempDropAlerts, setCachedTempDropAlerts] = useState<ThreeDayAlertsResult | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
+  const [weatherError, setWeatherError] = useState<boolean>(false);
+  const [hasLocation, setHasLocation] = useState<boolean | null>(null);
+  const [storeId, setStoreId] = useState<string | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [includeEvent, setIncludeEvent] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [monthlyRising, setMonthlyRising] = useState<MonthlyMenuComparisonItem[]>([]);
   const [monthlyFalling, setMonthlyFalling] = useState<MonthlyMenuComparisonItem[]>([]);
+  const [storeEvents, setStoreEvents] = useState<StoreEventRecord[]>([]);
 
   // role 체크: owner/manager는 분석 섹션 표시, staff는 숨김
   // 'loading' 상태 동안 분석 섹션을 스켈레톤으로 표시해 깜빡임 방지
@@ -102,7 +108,10 @@ export default function DashboardPage() {
   useEffect(() => {
     fetch('/api/me/role')
       .then((r) => r.json())
-      .then((d) => setRole(d.role ?? 'staff')) // role 없으면 가장 제한적인 staff로 처리
+      .then((d) => {
+        setRole(d.role ?? 'staff');
+        if (d?.storeId) setStoreId(d.storeId);
+      })
       .catch(() => setRole('staff'));
   }, []);
 
@@ -114,6 +123,7 @@ export default function DashboardPage() {
     fetch('/api/stores/settings')
       .then((r) => r.json())
       .then((d) => {
+        if (d?.data?.id) setStoreId(d.data.id);
         if (d?.data && d.data.onboarding_guide_seen === false) {
           setShowGuideModal(true);
         }
@@ -226,18 +236,128 @@ export default function DashboardPage() {
     };
   }, [recentPeriodValue]);
 
+  // localStorage에서 해당 매장(storeId)의 3시간 이내 캐시된 마지막 날씨 복원
+  // storeId를 아직 모르는 시점이면 캐시 표시 생략
+  // localStorage 캐시에 KST 날짜 저장, 오늘과 다르면 알림 부분 숨김
   useEffect(() => {
-    fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=37.8&longitude=127.7' +
-      '&current=temperature_2m,weather_code&timezone=Asia%2FSeoul&forecast_days=1'
-    )
-      .then(r => r.json())
-      .then(data => {
-        const code = data.current?.weather_code ?? 0;
-        const temp = Math.round(data.current?.temperature_2m ?? 0);
-        setWeather(getWeatherInfo(code, temp));
-      })
-      .catch(() => {});
+    if (!storeId) {
+      setCachedWeather(null);
+      setCachedTempDropAlerts(null);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(`store_doctor_cached_weather:${storeId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.weather && typeof parsed?.timestamp === 'number') {
+          const ageMs = Date.now() - parsed.timestamp;
+          const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+          if (ageMs >= 0 && ageMs < THREE_HOURS_MS) {
+            const diffMinutes = Math.max(1, Math.floor(ageMs / (1000 * 60)));
+            const timeAgoText =
+              diffMinutes < 60
+                ? `${diffMinutes}분 전 기준`
+                : `${Math.floor(diffMinutes / 60)}시간 전 기준`;
+            setCachedWeather({
+              weather: parsed.weather,
+              timeAgoText,
+            });
+
+            // KST 날짜 비교: 오늘과 다르면 알림 부분 숨김
+            const nowKst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+            if (parsed?.cachedKstDate === nowKst && parsed?.tempDropAlerts) {
+              setCachedTempDropAlerts(parsed.tempDropAlerts);
+            } else {
+              setCachedTempDropAlerts(null);
+            }
+          }
+        }
+      }
+    } catch {}
+  }, [storeId]);
+
+  const loadWeather = useCallback(async (isAutoRetry = false) => {
+    if (!isAutoRetry) {
+      setWeatherLoading(true);
+      setWeatherError(false);
+    }
+    try {
+      const res = await fetch('/api/weather/today');
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        if (!isAutoRetry) {
+          // 첫 호출 실패 시 2초 뒤 자동으로 1회 다시 호출
+          if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = setTimeout(() => {
+            loadWeather(true);
+          }, 2000);
+          return;
+        }
+        setWeatherError(true);
+        setWeatherLoading(false);
+        return;
+      }
+
+      if (data?.storeId) {
+        setStoreId(data.storeId);
+      }
+      const targetStoreId = data?.storeId || storeId;
+
+      setHasLocation(data.hasLocation);
+      if (data.hasLocation && data.weather) {
+        setWeather(data.weather);
+        setTempDropAlerts(data.tempDropAlerts || null);
+        setCachedWeather(null); // 최신 응답 수신 시 캐시 상태 교체
+        setCachedTempDropAlerts(null);
+        setWeatherError(false);
+        if (targetStoreId) {
+          try {
+            const nowKst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+            localStorage.setItem(
+              `store_doctor_cached_weather:${targetStoreId}`,
+              JSON.stringify({
+                weather: data.weather,
+                tempDropAlerts: data.tempDropAlerts || null,
+                cachedKstDate: nowKst,
+                timestamp: Date.now(),
+              })
+            );
+          } catch {}
+        }
+      }
+      setWeatherLoading(false);
+    } catch (err) {
+      console.error('날씨 불러오기 실패:', err);
+      if (!isAutoRetry) {
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = setTimeout(() => {
+          loadWeather(true);
+        }, 2000);
+        return;
+      }
+      setWeatherError(true);
+      setWeatherLoading(false);
+    }
+  }, [storeId]);
+
+  useEffect(() => {
+    loadWeather(false);
+    return () => {
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
+  }, [loadWeather]);
+
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const notice = params.get('notice');
+      if (notice === 'already_subscribed') {
+        setNoticeMessage('이미 이용 중인 구독이 있습니다.');
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -253,17 +373,22 @@ export default function DashboardPage() {
 
         if (purchaseRes.ok) {
           const purchaseBody = await purchaseRes.json().catch(() => null);
-          const records: { date: string; total_amount: number; is_event?: boolean }[] = purchaseBody?.data ?? [];
+          const records: { date: string; total_amount: number; category?: string | null; is_event?: boolean }[] = purchaseBody?.data ?? [];
           const byDate: Record<string, number> = {};
+          const ingByDate: Record<string, number> = {};
           const eventByDate: Record<string, number> = {};
           for (const r of records) {
             if (!r.is_event) {
               byDate[r.date] = (byDate[r.date] ?? 0) + (r.total_amount ?? 0);
+              if (isIngredientCategory(r.category)) {
+                ingByDate[r.date] = (ingByDate[r.date] ?? 0) + (r.total_amount ?? 0);
+              }
             } else {
               eventByDate[r.date] = (eventByDate[r.date] ?? 0) + (r.total_amount ?? 0);
             }
           }
           setPurchaseByDate(byDate);
+          setIngredientByDate(ingByDate);
           setEventPurchaseByDate(eventByDate);
         }
       } catch (err) {
@@ -280,6 +405,28 @@ export default function DashboardPage() {
     () => salesData.filter((d) => !d.isEvent),
     [salesData]
   );
+
+  const costRatioDays = useMemo(() => {
+    if (nonEventSalesData.length === 0) return [];
+    const salesByDate: Record<string, number> = {};
+    for (const d of nonEventSalesData) {
+      salesByDate[d.date] = (salesByDate[d.date] ?? 0) + (d.netRevenue || 0);
+    }
+    const minSalesDate = nonEventSalesData[0].date;
+    const maxSalesDate = nonEventSalesData[nonEventSalesData.length - 1].date;
+    // 휴무일·미입력일 재료비도 해당 달력 창 안에 들어오도록 매출일 + 매입일 합집합 타임라인 구성
+    const allDates = Array.from(
+      new Set([
+        ...Object.keys(salesByDate),
+        ...Object.keys(ingredientByDate).filter((dt) => dt >= minSalesDate && dt <= maxSalesDate),
+      ])
+    ).sort();
+    return allDates.map((date) => ({
+      date,
+      revenue: salesByDate[date] ?? 0,
+      ingredientCost: ingredientByDate[date] ?? 0,
+    }));
+  }, [nonEventSalesData, ingredientByDate]);
 
   const chartData = useMemo((): MAChartDataPoint[] => {
     if (nonEventSalesData.length === 0) return [];
@@ -303,23 +450,72 @@ export default function DashboardPage() {
     const profitMa60  = calcNullableMA(profitValues, 60);
     const profitMa120 = calcNullableMA(profitValues, 120);
 
-    const crValues = nonEventSalesData.map((d) => {
-      const cost = purchaseByDate[d.date];
-      return cost !== undefined && d.netRevenue > 0 ? (cost / d.netRevenue) * 100 : null;
+    // 원가율 추세: N일간 재료비 합계(휴무·미입력일 매입 포함) ÷ N일간 매출 합계 (공통 lib 함수)
+    const crMa5All   = calculateCostRatioMovingAverage(costRatioDays, 5);
+    const crMa20All  = calculateCostRatioMovingAverage(costRatioDays, 20);
+    const crMa60All  = calculateCostRatioMovingAverage(costRatioDays, 60);
+    const crMa120All = calculateCostRatioMovingAverage(costRatioDays, 120);
+    const crMap: Record<
+      string,
+      { ma5: number | null; ma20: number | null; ma60: number | null; ma120: number | null }
+    > = {};
+    costRatioDays.forEach((d, idx) => {
+      crMap[d.date] = {
+        ma5: crMa5All[idx] ?? null,
+        ma20: crMa20All[idx] ?? null,
+        ma60: crMa60All[idx] ?? null,
+        ma120: crMa120All[idx] ?? null,
+      };
     });
-    const crMa5   = calcNullableMA(crValues, 5);
-    const crMa20  = calcNullableMA(crValues, 20);
-    const crMa60  = calcNullableMA(crValues, 60);
-    const crMa120 = calcNullableMA(crValues, 120);
 
     return nonEventSalesData.map((d, i) => ({
       date: d.date.slice(-5),
       revenueMa5: revMa5[i],   revenueMa20: revMa20[i],   revenueMa60: revMa60[i],   revenueMa120: revMa120[i],
       costMa5: costMa5[i],     costMa20: costMa20[i],     costMa60: costMa60[i],     costMa120: costMa120[i],
       profitMa5: profitMa5[i], profitMa20: profitMa20[i], profitMa60: profitMa60[i], profitMa120: profitMa120[i],
-      costRatioMa5: crMa5[i],  costRatioMa20: crMa20[i],  costRatioMa60: crMa60[i],  costRatioMa120: crMa120[i],
+      costRatioMa5: crMap[d.date]?.ma5 ?? null,
+      costRatioMa20: crMap[d.date]?.ma20 ?? null,
+      costRatioMa60: crMap[d.date]?.ma60 ?? null,
+      costRatioMa120: crMap[d.date]?.ma120 ?? null,
     }));
-  }, [nonEventSalesData, purchaseByDate]);
+  }, [nonEventSalesData, purchaseByDate, costRatioDays]);
+
+  const chartFullDates = useMemo(
+    () => nonEventSalesData.map((d) => d.date).sort(),
+    [nonEventSalesData]
+  );
+
+  useEffect(() => {
+    if (chartFullDates.length < 2) {
+      setStoreEvents([]);
+      return;
+    }
+    const from = chartFullDates[0];
+    const to = chartFullDates[chartFullDates.length - 1];
+    fetch(`/api/store-events?from=${from}&to=${to}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.data) setStoreEvents(d.data);
+      })
+      .catch(() => {});
+  }, [chartFullDates]);
+
+  const clampedChartEvents = useMemo(() => {
+    const clamped = clampEventsToChartDates(storeEvents, chartFullDates);
+    return clamped.map((ev) => ({
+      ...ev,
+      x1: ev.x1.slice(-5),
+      x2: ev.x2.slice(-5),
+    }));
+  }, [storeEvents, chartFullDates]);
+
+  const costRatioBaseline60 = useMemo(
+    () => getLatestCostRatioBaseline60(costRatioDays),
+    [costRatioDays]
+  );
+  const storeCostRatioAvg60 = costRatioBaseline60.costRatio;
+  const latestCostRatioMa20 =
+    chartData.length > 0 ? chartData[chartData.length - 1].costRatioMa20 : null;
 
   const dataAvailability = useMemo((): DataAvailability => ({
     ma5: nonEventSalesData.length >= 5,
@@ -489,13 +685,30 @@ export default function DashboardPage() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
-        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-2xl px-4 py-4 flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-sky-400">📊 매장닥터</h1>
+          <AdminHeaderBadge />
         </div>
       </header>
 
       <main className="min-h-screen bg-slate-950 px-4 py-6 pb-32">
         <div className="mx-auto max-w-2xl space-y-5">
+
+          {noticeMessage && (
+            <div className="flex items-center justify-between rounded-2xl bg-amber-500/10 border border-amber-500/30 p-4 text-sm text-amber-200">
+              <div className="flex items-center gap-2">
+                <span>ℹ️</span>
+                <span>{noticeMessage}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNoticeMessage(null)}
+                className="text-amber-400 hover:text-amber-200 ml-4 font-bold text-lg leading-none cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-8 text-center">
@@ -528,20 +741,140 @@ export default function DashboardPage() {
                 </h2>
 
                 {/* Weather */}
-                {weather ? (
+                {weatherLoading && cachedWeather ? (
+                  <div className="flex items-center gap-3 mb-5 rounded-2xl bg-slate-950/60 px-4 py-3 opacity-60 transition-opacity">
+                    <span className="text-3xl">{cachedWeather.weather.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-100 flex items-center flex-wrap gap-x-2">
+                        <span>{cachedWeather.weather.text}</span>
+                        <span className="text-slate-400 font-normal">{cachedWeather.weather.temp}°C</span>
+                        {cachedWeather.weather.eveningTemp !== undefined && (
+                          <span className="text-xs text-indigo-300 font-normal bg-indigo-950/60 border border-indigo-800/50 px-2 py-0.5 rounded-full">
+                            오늘 저녁 {cachedWeather.weather.eveningTemp}°C
+                          </span>
+                        )}
+                        <span className="text-[11px] text-slate-400 font-normal bg-slate-800/60 px-2 py-0.5 rounded-full">
+                          {cachedWeather.timeAgoText}
+                        </span>
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">{cachedWeather.weather.comment}</p>
+                    </div>
+                  </div>
+                ) : weatherLoading ? (
+                  <div className="h-16 rounded-2xl bg-slate-800/40 animate-pulse mb-5" />
+                ) : weatherError ? (
+                  <div className="flex items-center justify-between mb-5 rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3 text-xs text-slate-400">
+                    <span>날씨 정보를 불러오지 못했어요</span>
+                    <button
+                      type="button"
+                      onClick={() => loadWeather(false)}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
+                    >
+                      다시 시도
+                    </button>
+                  </div>
+                ) : hasLocation === false ? (
+                  <div className="flex items-center justify-between mb-5 rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3 text-xs text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span>📍</span>
+                      <span>설정에서 매장 위치를 입력하면 날씨가 나옵니다</span>
+                    </div>
+                    <Link
+                      href="/settings"
+                      className="text-xs text-sky-400 hover:text-sky-300 font-semibold underline shrink-0"
+                    >
+                      위치 설정 →
+                    </Link>
+                  </div>
+                ) : weather ? (
                   <div className="flex items-center gap-3 mb-5 rounded-2xl bg-slate-950/60 px-4 py-3">
                     <span className="text-3xl">{weather.emoji}</span>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-100">
-                        {weather.text}
-                        <span className="ml-2 text-slate-400 font-normal">{weather.temp}°C</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-100 flex items-center flex-wrap gap-x-2">
+                        <span>{weather.text}</span>
+                        <span className="text-slate-400 font-normal">{weather.temp}°C</span>
+                        {weather.eveningTemp !== undefined && (
+                          <span className="text-xs text-indigo-300 font-normal bg-indigo-950/60 border border-indigo-800/50 px-2 py-0.5 rounded-full">
+                            오늘 저녁 {weather.eveningTemp}°C
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">{weather.comment}</p>
                     </div>
                   </div>
-                ) : (
-                  <div className="h-16 rounded-2xl bg-slate-800/40 animate-pulse mb-5" />
-                )}
+                ) : null}
+
+                {/* [W-3] 기온 급락 및 한파 3일 띠 알림 카드 (3일 중 알림이 하나라도 있을 때만 표시, 전부 없으면 카드 숨김) */}
+                {(() => {
+                  const activeAlerts = tempDropAlerts || (weatherLoading ? cachedTempDropAlerts : null);
+                  if (!activeAlerts || !activeAlerts.hasAnyAlert) return null;
+
+                  return (
+                    <div className="mb-5 rounded-2xl border border-sky-800/40 bg-slate-950/70 p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🌡️</span>
+                          <span className="text-xs font-semibold text-slate-200">기온 변화 및 영업 참고 알림</span>
+                        </div>
+                        {activeAlerts.isEligible && (
+                          <span className="text-[11px] text-slate-400">매장 과거 영향 기반</span>
+                        )}
+                      </div>
+
+                      {/* 3일 띠 [오늘 | 내일 | 모레] */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                        {activeAlerts.days.map((day) => {
+                          const hasAlert = day.hasDropAlert || day.hasColdWave;
+                          return (
+                            <div
+                              key={day.label}
+                              className={`rounded-xl border p-3 flex flex-col justify-between transition ${
+                                hasAlert
+                                  ? 'border-sky-500/30 bg-sky-950/20 text-sky-100'
+                                  : 'border-slate-800/60 bg-slate-900/40 text-slate-400'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between gap-1 mb-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-200">
+                                    {day.label} ({day.dateDisplay})
+                                  </span>
+                                  {day.hasColdWave && (
+                                    <span className="text-[10px] font-semibold text-cyan-300 bg-cyan-950/70 border border-cyan-800/60 px-1.5 py-0.5 rounded-md">
+                                      ❄️ 저녁 체감 {day.eveningApparentTemp}°C 한파
+                                    </span>
+                                  )}
+                                </div>
+
+                                {day.hasDropAlert && day.dropMessage ? (
+                                  <p className="text-xs text-sky-200 font-medium leading-relaxed">
+                                    {day.dropMessage}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] text-slate-500 mt-1">
+                                    특이 기온 급락 없음
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* 사흘째 회복 또는 신규 매장 안내 */}
+                      {activeAlerts.days.some((d) => d.hasDropAlert) && (
+                        <div className="pt-2 border-t border-slate-800/60 flex items-start gap-1.5 text-[11px] text-slate-400 leading-relaxed">
+                          <span className="shrink-0">💡</span>
+                          <span>
+                            {activeAlerts.isEligible
+                              ? '기온 급락 영향은 보통 사흘째에 평소 수준으로 회복돼요.'
+                              : '영업 기록이 1년 이상 쌓이면 이 매장 기준 숫자로 알려드려요'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Same weekday comparison */}
                 {sameDayComparison && (
@@ -747,8 +1080,8 @@ export default function DashboardPage() {
 
                     <div className="rounded-2xl bg-slate-950/80 px-2 py-3.5 text-center flex flex-col justify-between">
                       <p className="text-xs text-slate-400 mb-1 flex items-center justify-center whitespace-nowrap">
-                        <span>총매입</span>
-                        <TermTooltip term="총매입" />
+                        <span>총비용</span>
+                        <TermTooltip term="총비용" />
                       </p>
                       <p className="text-lg sm:text-xl font-bold text-amber-400">
                         {Math.round(monthSummary.totalCost / 10000)}만
@@ -768,7 +1101,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                   </div>
-                  {/* 행사 매출/매입 별도 표시 (includeEvent ON + 데이터 있을 때) */}
+                  {/* 행사 매출/비용 별도 표시 (includeEvent ON + 데이터 있을 때) */}
                   {includeEvent && (monthSummary.eventRevenue > 0 || monthSummary.eventCost > 0) && (
                     <div className="mt-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 px-4 py-3 flex flex-wrap gap-3">
                       <span className="text-xs font-semibold text-purple-300">🎪 행사 포함</span>
@@ -779,12 +1112,21 @@ export default function DashboardPage() {
                       )}
                       {monthSummary.eventCost > 0 && (
                         <span className="text-xs text-purple-200">
-                          행사 매입 <span className="font-bold">+{Math.round(monthSummary.eventCost / 10000)}만원</span>
+                          행사 비용 <span className="font-bold">+{Math.round(monthSummary.eventCost / 10000)}만원</span>
                         </span>
                       )}
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* ── 원가율 경고 카드 ──────────────────────────────────── */}
+              {!isRoleLoading && canViewAnalytics && (
+                <CostRatioAlertCard
+                  ma20={latestCostRatioMa20}
+                  ma60={storeCostRatioAvg60}
+                  operatingDaysCount={costRatioBaseline60.operatingDaysCount}
+                />
               )}
 
               {/* ── 이동평균선 차트 ────────────────────────────────────── */}
@@ -800,7 +1142,12 @@ export default function DashboardPage() {
                     이동평균선 <TermTooltip term="이동평균선" />
                   </h3>
                   <div className="mt-4">
-                    <MAChart data={chartData} availability={dataAvailability} />
+                    <MAChart
+                      data={chartData}
+                      availability={dataAvailability}
+                      storeCostRatioAvg60={storeCostRatioAvg60}
+                      events={clampedChartEvents}
+                    />
                   </div>
                 </div>
               )}
@@ -842,7 +1189,10 @@ export default function DashboardPage() {
                               })}
                             </p>
                             <p className="mt-1 text-sm text-slate-400">
-                              테이블 {day.tablesUsed}개
+                              {(() => {
+                                const cnt = getPaymentCount(day);
+                                return cnt !== null ? `결제 ${cnt}건` : '결제 건수 미입력';
+                              })()}
                             </p>
                           </div>
                           <div className="text-right">

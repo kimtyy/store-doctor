@@ -1,6 +1,3 @@
-const anthropicKey = process.env.ANTHROPIC_API_KEY;
-const useMock = !anthropicKey;
-
 const sampleSalesResponse = JSON.stringify({
   storeName: '우리 매장',
   date: '2026-05-11',
@@ -48,9 +45,77 @@ const samplePurchaseResponse = JSON.stringify({
   ]
 });
 
-export async function callClaudeVision(prompt: string, images?: string[]) {
-  if (useMock) {
-    return mockResponseByPrompt(prompt);
+export interface CallClaudeOptions {
+  timeoutMs?: number;
+  maxTokens?: number;
+}
+
+export interface ClaudeVisionResult {
+  text: string;
+  stopReason: string | null;
+}
+
+/**
+ * 보고서 AI 코멘트 후처리:
+ * - 잔여 마크다운 기호(**, 줄 시작 # 제목 기호, 코드펜스, 파이프 표 행) 제거
+ * - stop_reason === 'max_tokens' 이면 마지막 완결 문장(., ?, ! 및 닫는 괄호/따옴표 포함)까지만 유지, 없으면 폴백 반환
+ */
+export function sanitizeReportComment(
+  rawText: string,
+  stopReason: string | null | undefined,
+  fallback: string
+): string {
+  if (!rawText || !rawText.trim()) return fallback;
+
+  // 마크다운 표(| ...) 행 및 코드블록 표식 제거, ** 및 줄 시작 # 제목 기호 제거
+  const cleanedLines = rawText
+    .replace(/```[^\n]*/g, '')
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*\|/.test(line))
+    .map((line) =>
+      line
+        .replace(/\*\*/g, '')
+        .replace(/^\s*#{1,6}\s*/, '')
+        .replace(/^\s*[-*•]\s+/, '')
+        .trim()
+    )
+    .filter((line) => line.length > 0);
+
+  let text = cleanedLines.join(' ').replace(/\s{2,}/g, ' ').trim();
+  if (!text) return fallback;
+
+  if (stopReason === 'max_tokens') {
+    // 마지막 완결 문장(., ?, ! + 선택적 닫는 괄호/따옴표) 찾기 (소수점 숫자 내부의 '.' 제외)
+    const sentenceEndRegex = /(?:[?!]|(?<!\d)\.(?!\d))[\)"'”’\]\u300d\u300f]*(?=\s|$)/g;
+    let lastEnd = -1;
+    let match: RegExpExecArray | null;
+    while ((match = sentenceEndRegex.exec(text)) !== null) {
+      lastEnd = match.index + match[0].length;
+    }
+    if (lastEnd <= 0) {
+      return fallback;
+    }
+    text = text.slice(0, lastEnd).trim();
+    if (!text) return fallback;
+  }
+
+  return text;
+}
+
+export async function callClaudeVisionWithMeta(
+  prompt: string,
+  images?: string[],
+  options?: CallClaudeOptions
+): Promise<ClaudeVisionResult> {
+  const timeoutMs = options?.timeoutMs ?? 50000;
+  const maxTokens = options?.maxTokens ?? 4096;
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('일시적인 오류입니다. 잠시 후 다시 시도해 주세요.');
+    }
+    return { text: mockResponseByPrompt(prompt), stopReason: 'end_turn' };
   }
 
   try {
@@ -88,15 +153,16 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': anthropicKey as string,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
+        max_tokens: maxTokens,
         temperature: 0,
         messages: messages
       }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!response.ok) {
@@ -126,13 +192,28 @@ export async function callClaudeVision(prompt: string, images?: string[]) {
       throw new Error('Claude API 응답 텍스트가 비어있습니다.');
     }
 
-    return content;
+    return {
+      text: content,
+      stopReason: typeof data.stop_reason === 'string' ? data.stop_reason : null,
+    };
   } catch (error) {
     if (error instanceof Error) {
+      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+        throw new Error(`Claude API 호출 시간이 초과되었습니다 (${Math.round(timeoutMs / 1000)}초).`);
+      }
       throw error;
     }
     throw new Error('알 수 없는 Claude API 오류가 발생했습니다.');
   }
+}
+
+export async function callClaudeVision(
+  prompt: string,
+  images?: string[],
+  options?: CallClaudeOptions
+) {
+  const result = await callClaudeVisionWithMeta(prompt, images, options);
+  return result.text;
 }
 
 function mockResponseByPrompt(prompt: string) {

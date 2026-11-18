@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,11 +29,14 @@ export async function GET() {
         .select('id, vendor_name, aliases')
         .eq('store_id', STORE_ID)
         .order('vendor_name'),
-      supabase
-        .from('purchase_records')
-        .select('vendor_name')
-        .eq('store_id', STORE_ID)
-        .not('vendor_name', 'is', null),
+      fetchAll(
+        supabase
+          .from('purchase_records')
+          .select('vendor_name')
+          .eq('store_id', STORE_ID)
+          .not('vendor_name', 'is', null)
+          .order('id', { ascending: true })
+      ),
     ]);
 
     if (masterRes.error) throw new Error(masterRes.error.message);
@@ -64,6 +69,11 @@ export async function POST(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = await getUserRole();
+  if (role !== 'owner' && role !== 'manager') {
+    return NextResponse.json({ error: '거래처 관리는 소유자·매니저만 가능합니다.' }, { status: 403 });
+  }
+
   try {
     const supabase = makeClient();
     const body = await request.json().catch(() => null);
@@ -91,6 +101,11 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner' && role !== 'manager') {
+    return NextResponse.json({ error: '거래처 관리는 소유자·매니저만 가능합니다.' }, { status: 403 });
+  }
 
   try {
     const supabase = makeClient();
@@ -125,6 +140,11 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const role = await getUserRole();
+  if (role !== 'owner' && role !== 'manager') {
+    return NextResponse.json({ error: '거래처 관리는 소유자·매니저만 가능합니다.' }, { status: 403 });
+  }
 
   try {
     const supabase = makeClient();

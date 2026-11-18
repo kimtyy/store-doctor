@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { getUserRole } from '@/utils/supabase/getUserRole';
+import { calcServerAvgSpend, resolvePaymentCountInput } from '@/lib/analytics/periodComparison';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,13 +38,15 @@ function mapRow(row: Record<string, unknown>) {
     note: row.note ?? null,
     createdAt: row.created_at,
     createdBy: row.created_by,
-    menuItems: (row.sales_menu_items as Record<string, unknown>[] ?? []).map((item) => ({
-      name: item.name,
-      quantity: item.quantity,
-      amount: item.amount,
-      category: item.category ?? null,
-      menuId: item.menu_id ?? null,
-    })),
+    menuItems: row.sales_menu_items !== undefined
+      ? (row.sales_menu_items as Record<string, unknown>[] ?? []).map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          amount: item.amount,
+          category: item.category ?? null,
+          menuId: item.menu_id ?? null,
+        }))
+      : undefined,
   };
 }
 
@@ -73,6 +77,7 @@ export async function PATCH(request: Request) {
         tax?: number;
         cashAmount?: number;
         cardAmount?: number;
+        tablesUsed?: number;
         guestCount?: number;
         avgSpend?: number;
         isEvent?: boolean;
@@ -102,6 +107,10 @@ export async function PATCH(request: Request) {
     }
 
     const serviceAmount = receipt.serviceAmount ?? 0;
+    const resolvedPaymentCount = resolvePaymentCountInput(receipt.tablesUsed, receipt.guestCount);
+    const resolvedGuestCount = receipt.guestCount && receipt.guestCount > 0 ? receipt.guestCount : resolvedPaymentCount;
+    // 클라이언트 avgSpend 무시: 서버에서 항상 순매출 ÷ 결제 건수로 재계산
+    const serverAvgSpend = calcServerAvgSpend(receipt.netRevenue || 0, resolvedPaymentCount);
     const updateFields: Record<string, unknown> = {
       total_revenue: receipt.totalRevenue,
       service_charge: serviceAmount,
@@ -111,8 +120,9 @@ export async function PATCH(request: Request) {
       net_revenue: receipt.netRevenue,
       cash_amount: receipt.cashAmount ?? 0,
       card_amount: receipt.cardAmount ?? 0,
-      guest_count: receipt.guestCount ?? 0,
-      avg_spend: receipt.avgSpend ?? 0,
+      tables_used: resolvedPaymentCount,
+      guest_count: resolvedGuestCount,
+      avg_spend: serverAvgSpend,
       note: receipt.note ?? null,
     };
     if (receipt.date) updateFields.date = receipt.date;
@@ -127,7 +137,8 @@ export async function PATCH(request: Request) {
 
     if (updateError) throw new Error(updateError.message);
 
-    if (Array.isArray(menuItems)) {
+    // M1: 요청에 menuItems 키가 없으면 기존 메뉴는 건드리지 않음 (배열이 명시된 경우에만 교체)
+    if ('menuItems' in body && Array.isArray(menuItems)) {
       const { error: deleteError } = await supabase
         .from('sales_menu_items').delete().eq('daily_sale_id', id);
       if (deleteError) throw new Error(deleteError.message);
@@ -185,7 +196,8 @@ export async function GET(request: Request) {
         : supabase.from('daily_sales').select('*, sales_menu_items(*)')
     )
       .eq('store_id', STORE_ID)
-      .order('date', { ascending: true });
+      .order('date', { ascending: true })
+      .order('id', { ascending: true });
 
     if (fromParam) {
       query = query.gte('date', fromParam);
@@ -199,7 +211,7 @@ export async function GET(request: Request) {
       query = query.lte('date', toParam);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await fetchAll(query);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

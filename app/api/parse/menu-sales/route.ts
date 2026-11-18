@@ -3,6 +3,8 @@ import { callClaudeVision } from '../../../../lib/claude';
 import { parseMenuSalesResponse } from '../../../../lib/parsers/menuSales';
 import { getStoreId } from '@/utils/supabase/getStore';
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -30,7 +32,7 @@ export async function POST(request: Request) {
 {
   "date": "2026-05-11",
   "menuItems": [
-    {"name": "설맥치킨", "quantity": 1, "amount": 18900},
+    {"name": "대표메뉴", "quantity": 1, "amount": 18900},
     {"name": "손살양념치킨", "quantity": 1, "amount": 10900}
   ]
 }
@@ -60,13 +62,18 @@ export async function POST(request: Request) {
       const supabase = createClient(supabaseUrl, supabaseServiceKey, {
         auth: { autoRefreshToken: false, persistSession: false },
       });
-      const { data: masters } = await supabase
+      const { data: masters, error: mastersError } = await supabase
         .from('menu_master')
         .select('menu_name, aliases, category')
         .eq('store_id', STORE_ID);
+      if (mastersError) {
+        console.error('[parse/menu-sales] menu_master 조회 실패:', mastersError.message);
+      }
 
       if (masters && masters.length > 0) {
         const { correctMenuName } = await import('../../../../lib/menuCorrection');
+        const { buildMenuMasterIndex, resolveMenuWithIndex } = await import('../../../../lib/menus');
+        const masterIndex = buildMenuMasterIndex(masters);
         parsed.menuItems = parsed.menuItems.map((item: any) => {
           const res = correctMenuName(
             item.name,
@@ -80,8 +87,8 @@ export async function POST(request: Request) {
           if (res.status === 'exact' || res.status === 'auto') {
             return {
               ...item,
-              name: res.correctedName,
-              category: res.category ?? undefined,
+              name: resolveMenuWithIndex(res.correctedName, masterIndex, res.category).canonicalName,
+              category: resolveMenuWithIndex(res.correctedName, masterIndex, res.category).rawCategory ?? undefined,
               _originalName: res.originalName,
               _correctionStatus: res.status,
             };
@@ -111,6 +118,13 @@ export async function POST(request: Request) {
     console.error('Menu sales parsing error:', error);
 
     if (error instanceof Error) {
+      // 타임아웃 에러
+      if (error.name === 'TimeoutError' || error.name === 'AbortError' || error.message.includes('시간이 초과')) {
+        return NextResponse.json({
+          error: '응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+        }, { status: 504 });
+      }
+
       // Claude API 관련 에러
       if (error.message.includes('Claude API')) {
         return NextResponse.json({

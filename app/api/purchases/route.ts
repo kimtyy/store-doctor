@@ -4,6 +4,8 @@ import { createClient as createServerClient } from '@/utils/supabase/server';
 import { getStoreId } from '@/utils/supabase/getStore';
 import { getUserRole } from '@/utils/supabase/getUserRole';
 import { applyFixedCostsForStore } from '@/lib/fixedCosts';
+import { isValidPurchaseCategory } from '@/lib/expenses';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +40,8 @@ export async function GET(request: Request) {
       .from('purchase_records')
       .select('id, date, vendor_name, total_amount, category, note, memo, items, is_event, created_by')
       .eq('store_id', STORE_ID)
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .order('id', { ascending: false });
 
     if (days > 0) {
       const since = new Date();
@@ -46,7 +49,7 @@ export async function GET(request: Request) {
       query = query.gte('date', since.toISOString().split('T')[0]);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await fetchAll(query);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -74,12 +77,13 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '요청 본문을 파싱할 수 없습니다.' }, { status: 400 });
     }
 
-    const { id, items, totalAmount, date, vendorName, memo } = body as {
+    const { id, items, totalAmount, date, vendorName, category, memo } = body as {
       id: string;
       items: { name: string; quantity: number; unitPrice: number; amount: number }[];
       totalAmount: number;
       date?: string;
       vendorName?: string;
+      category?: string;
       memo?: string;
     };
 
@@ -108,6 +112,12 @@ export async function PATCH(request: Request) {
     const updatePayload: Record<string, unknown> = { items: items ?? [], total_amount: totalAmount };
     if (date) updatePayload.date = date;
     if (vendorName !== undefined) updatePayload.vendor_name = vendorName;
+    if (category !== undefined) {
+      if (!isValidPurchaseCategory(category)) {
+        return NextResponse.json({ error: '허용되지 않은 비용 카테고리입니다.' }, { status: 400 });
+      }
+      updatePayload.category = category;
+    }
     if (memo !== undefined) updatePayload.memo = memo;
 
     const { error } = await supabase

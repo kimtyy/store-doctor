@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { fetchAll } from '@/lib/supabase/fetchAll';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,11 +20,14 @@ export async function GET() {
 
   try {
     const supabase = makeClient();
-    const { data, error } = await supabase
+    const query = supabase
       .from('daily_sales')
       .select('date')
       .eq('store_id', STORE_ID)
-      .order('date', { ascending: true });
+      .order('date', { ascending: true })
+      .order('id', { ascending: true });
+
+    const { data, error } = await fetchAll(query);
 
     if (error) throw new Error(error.message);
 

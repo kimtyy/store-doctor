@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { DailySales, SalesMenuItem } from '../../types/sales';
 import { correctMenuName, MenuMasterEntry } from '../../lib/menuCorrection';
@@ -8,6 +8,13 @@ import CameraModal from '../../components/ui/CameraModal';
 import { compressImage } from '../../lib/compressImage';
 import BottomTabNav from '../../components/BottomTabNav';
 import PeriodSelector, { PeriodValue, MonthSelection } from '../../components/PeriodSelector';
+import TermTooltip from '../../components/ui/TermTooltip';
+import {
+  calcServerAvgSpend,
+  getPaymentCount,
+  resolvePaymentCountInput,
+} from '../../lib/analytics/periodComparison';
+import { STORE_EVENT_TYPE_META, StoreEventRecord } from '../../lib/storeEvents';
 
 type Tab = 'input' | 'history';
 type ParseMode = 'full' | 'menu_only' | 'manual';
@@ -79,6 +86,7 @@ interface HistoryDraft {
   tax: number;
   cashAmount: number;
   cardAmount: number;
+  tablesUsed: number;
   guestCount: number;
   avgSpend: number;
   menuItems: SalesMenuItem[];
@@ -213,6 +221,7 @@ export default function SalesInputPage() {
     cashAmount: 0,
     cardAmount: 0,
     serviceAmount: 0,
+    tablesUsed: 0,
     guestCount: 0,
     note: '',
   });
@@ -260,12 +269,16 @@ export default function SalesInputPage() {
 
   // history state
   const [historyData, setHistoryData] = useState<DailySales[]>([]);
+  const [historyEvents, setHistoryEvents] = useState<StoreEventRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, HistoryDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [historyMsg, setHistoryMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [menuFetchErrorIds, setMenuFetchErrorIds] = useState<Record<string, boolean>>({});
+  const [menuLoadingIds, setMenuLoadingIds] = useState<Record<string, boolean>>({});
+  const historyReqIdRef = useRef<number>(0);
 
   const [historyPeriodValue, setHistoryPeriodValue] = useState<PeriodValue>(() => ({
     type: '30',
@@ -287,30 +300,33 @@ export default function SalesInputPage() {
     }
   }, [tab]);
 
-  const filteredSalesHistory = useMemo(() => {
-    let list = historyData.filter((r) => !r.isEvent);
-
-    if (historyPeriodValue.type === '7') {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 7);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
-      list = list.filter((r) => r.date >= cutoffStr);
-    } else if (historyPeriodValue.type === '30') {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
-      list = list.filter((r) => r.date >= cutoffStr);
-    } else if (historyPeriodValue.type === 'monthly' && historyPeriodValue.selectedMonth) {
-      const { year, month } = historyPeriodValue.selectedMonth;
-      const ym = `${year}-${String(month).padStart(2, '0')}`;
-      list = list.filter((r) => r.date.startsWith(ym));
-    } else if (historyPeriodValue.type === 'custom' && historyPeriodValue.customRange) {
-      const { startDate, endDate } = historyPeriodValue.customRange;
-      list = list.filter((r) => r.date >= startDate && r.date <= endDate);
+  const getHistoryUrl = useCallback((pv: PeriodValue) => {
+    if (pv.type === '7') {
+      return '/api/sales?days=7';
     }
+    if (pv.type === '30') {
+      return '/api/sales?days=30';
+    }
+    if (pv.type === 'monthly' && pv.selectedMonth) {
+      const { year, month } = pv.selectedMonth;
+      const lastDay = new Date(year, month, 0).getDate();
+      const mStr = String(month).padStart(2, '0');
+      const dStr = String(lastDay).padStart(2, '0');
+      return `/api/sales?from=${year}-${mStr}-01&to=${year}-${mStr}-${dStr}`;
+    }
+    if (pv.type === 'custom' && pv.customRange) {
+      const { startDate, endDate } = pv.customRange;
+      return `/api/sales?from=${startDate}&to=${endDate}`;
+    }
+    // 'all'
+    return '/api/sales?simple=true';
+  }, []);
 
-    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [historyData, historyPeriodValue]);
+  const filteredSalesHistory = useMemo(() => {
+    return historyData
+      .filter((r) => !r.isEvent)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [historyData]);
 
   const historySumRevenue = useMemo(
     () => filteredSalesHistory.reduce((s, r) => s + r.netRevenue, 0),
@@ -319,30 +335,89 @@ export default function SalesInputPage() {
 
   // ── history ──────────────────────────────────────────────────────────────────
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (pv: PeriodValue) => {
+    const reqId = ++historyReqIdRef.current;
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const res = await fetch('/api/sales');
+      const url = getHistoryUrl(pv);
+      const res = await fetch(url);
       const body = await res.json().catch(() => null);
+      if (reqId !== historyReqIdRef.current) return;
       if (!res.ok) throw new Error(body?.error ?? '불러오기 실패');
-      setHistoryData([...(body.data ?? [])].reverse());
+      const rows = [...(body.data ?? [])].reverse() as DailySales[];
+      setHistoryData(rows);
+      if (rows.length > 0) {
+        const dates = rows.map((r) => r.date).sort();
+        const evRes = await fetch(`/api/store-events?from=${dates[0]}&to=${dates[dates.length - 1]}`);
+        if (reqId !== historyReqIdRef.current) return;
+        if (evRes.ok) {
+          const evBody = await evRes.json().catch(() => null);
+          if (reqId === historyReqIdRef.current) {
+            setHistoryEvents(evBody?.data ?? []);
+          }
+        }
+      } else {
+        setHistoryEvents([]);
+      }
     } catch (err) {
+      if (reqId !== historyReqIdRef.current) return;
       setHistoryError(err instanceof Error ? err.message : '불러오기 실패');
     } finally {
-      setHistoryLoading(false);
+      if (reqId === historyReqIdRef.current) {
+        setHistoryLoading(false);
+      }
+    }
+  }, [getHistoryUrl]);
+
+  useEffect(() => {
+    if (tab === 'history') {
+      loadHistory(historyPeriodValue);
+    }
+  }, [tab, historyPeriodValue, loadHistory]);
+
+  const fetchDayMenu = useCallback(async (record: DailySales) => {
+    if (!record.id) return undefined;
+    const id = record.id;
+    setMenuLoadingIds((prev) => ({ ...prev, [id]: true }));
+    setMenuFetchErrorIds((prev) => ({ ...prev, [id]: false }));
+    try {
+      const res = await fetch(`/api/sales?from=${record.date}&to=${record.date}`);
+      if (!res.ok) throw new Error('조회 실패');
+      const body = await res.json().catch(() => null);
+      const found = (body?.data as DailySales[] | undefined)?.find((r) => r.id === id);
+      if (found && found.menuItems !== undefined) {
+        setHistoryData((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, menuItems: found.menuItems } : r))
+        );
+        return found.menuItems;
+      }
+      throw new Error('메뉴 데이터 없음');
+    } catch (err) {
+      console.error('메뉴 상세 조회 실패:', err);
+      setMenuFetchErrorIds((prev) => ({ ...prev, [id]: true }));
+      return undefined;
+    } finally {
+      setMenuLoadingIds((prev) => ({ ...prev, [id]: false }));
     }
   }, []);
 
-  useEffect(() => {
-    if (tab === 'history') loadHistory();
-  }, [tab, loadHistory]);
-
-  function toggleExpand(record: DailySales) {
+  async function toggleExpand(record: DailySales) {
     if (!record.id!) return;
     const id = record.id!;
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
+
+    let items = record.menuItems;
+    // 'all' 보기(simple=true) 등으로 메뉴가 아직 조회되지 않은 경우 해당 날짜 단건 조회
+    if (items === undefined) {
+      items = await fetchDayMenu(record);
+      if (items === undefined) {
+        // 메뉴 조회 실패: 편집 초안을 만들지 않고 에러 상태만 표시 (저장/편집 비활성)
+        return;
+      }
+    }
+
     if (!drafts[id]) {
       setDrafts((prev) => ({
         ...prev,
@@ -354,9 +429,40 @@ export default function SalesInputPage() {
           tax: record.tax ?? 0,
           cashAmount: record.cashAmount ?? 0,
           cardAmount: record.cardAmount ?? 0,
-          guestCount: record.guestCount ?? 0,
-          avgSpend: record.avgSpend ?? 0,
-          menuItems: record.menuItems ? [...record.menuItems] : [],
+          tablesUsed: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          guestCount: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          avgSpend: calcServerAvgSpend(
+            record.netRevenue,
+            resolvePaymentCountInput(record.tablesUsed, record.guestCount)
+          ),
+          menuItems: items ? [...items] : [],
+        },
+      }));
+    }
+  }
+
+  async function retryFetchMenu(record: DailySales) {
+    if (!record.id) return;
+    const id = record.id;
+    const items = await fetchDayMenu(record);
+    if (items !== undefined) {
+      setDrafts((prev) => ({
+        ...prev,
+        [id]: {
+          date: record.date,
+          totalRevenue: record.totalRevenue,
+          serviceAmount: record.serviceAmount ?? 0,
+          netRevenue: record.netRevenue,
+          tax: record.tax ?? 0,
+          cashAmount: record.cashAmount ?? 0,
+          cardAmount: record.cardAmount ?? 0,
+          tablesUsed: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          guestCount: resolvePaymentCountInput(record.tablesUsed, record.guestCount),
+          avgSpend: calcServerAvgSpend(
+            record.netRevenue,
+            resolvePaymentCountInput(record.tablesUsed, record.guestCount)
+          ),
+          menuItems: [...items],
         },
       }));
     }
@@ -394,15 +500,19 @@ export default function SalesInputPage() {
     setSavingId(id);
     setHistoryMsg(null);
     try {
+      const payload: Record<string, unknown> = { id, receipt: draft };
+      if (Array.isArray(draft.menuItems)) {
+        payload.menuItems = draft.menuItems;
+      }
       const res = await fetch('/api/sales', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, receipt: draft, menuItems: draft.menuItems }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? '저장 실패');
       setHistoryMsg({ type: 'success', text: '✅ 수정 저장 완료' });
-      await loadHistory();
+      await loadHistory(historyPeriodValue);
       setExpandedId(null);
     } catch (err) {
       setHistoryMsg({ type: 'error', text: err instanceof Error ? err.message : '저장 실패' });
@@ -412,6 +522,7 @@ export default function SalesInputPage() {
   }
 
   function handleAddMenuMode(record: DailySales) {
+    const payCount = resolvePaymentCountInput(record.tablesUsed, record.guestCount);
     setEditableReceipt({
       date: record.date,
       totalRevenue: record.totalRevenue,
@@ -419,7 +530,8 @@ export default function SalesInputPage() {
       cashAmount: record.cashAmount ?? 0,
       cardAmount: record.cardAmount ?? 0,
       serviceAmount: record.serviceAmount ?? 0,
-      guestCount: record.guestCount ?? 0,
+      tablesUsed: payCount,
+      guestCount: payCount,
       tax: record.tax ?? 0,
       discount: record.discount ?? 0,
       actualSales: record.actualSales ?? record.totalRevenue,
@@ -469,6 +581,7 @@ export default function SalesInputPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: [dataUrl] }),
       });
+      if (res.status === 413) throw new Error('사진 용량이 너무 큽니다. 다시 촬영하거나 잠시 후 시도해 주세요.');
       const text = await res.text();
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       let body;
@@ -477,6 +590,7 @@ export default function SalesInputPage() {
       if (!body.data) throw new Error('파싱 결과를 받지 못했습니다. 다른 사진으로 시도해주세요.');
       const p = body.data as DailySales;
       const rawDate = p.date ?? new Date().toISOString().split('T')[0];
+      const paymentCount = p.tablesUsed || p.guestCount || 0;
       setEditableReceipt({
         date: fixYear(rawDate),
         totalRevenue: p.totalRevenue ?? 0, discount: p.discount ?? 0,
@@ -486,7 +600,7 @@ export default function SalesInputPage() {
         tax: p.tax ?? 0, netRevenue: p.netRevenue ?? 0,
         cashCount: p.cashCount ?? 0, cashAmount: p.cashAmount ?? 0,
         cardCount: p.cardCount ?? 0, cardAmount: p.cardAmount ?? 0,
-        tablesUsed: p.tablesUsed ?? 0, guestCount: p.guestCount ?? 0, avgSpend: p.avgSpend ?? 0,
+        tablesUsed: paymentCount, guestCount: p.guestCount || paymentCount, avgSpend: p.avgSpend ?? 0,
         openTime: p.openTime ?? '', closeTime: p.closeTime ?? '', firstOrderTime: p.firstOrderTime ?? '',
       });
     } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
@@ -502,6 +616,7 @@ export default function SalesInputPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images: [dataUrl] }),
       });
+      if (res.status === 413) throw new Error('사진 용량이 너무 큽니다. 다시 촬영하거나 잠시 후 시도해 주세요.');
       const text = await res.text();
       if (!text?.trim()) throw new Error('서버로부터 빈 응답을 받았습니다. 잠시 후 다시 시도해주세요.');
       let body;
@@ -640,7 +755,7 @@ export default function SalesInputPage() {
         resetInput();
         setManualRecord({
           date: new Date().toISOString().split('T')[0],
-          totalRevenue: 0, netRevenue: 0, cashAmount: 0, cardAmount: 0, serviceAmount: 0, guestCount: 0, note: '',
+          totalRevenue: 0, netRevenue: 0, cashAmount: 0, cardAmount: 0, serviceAmount: 0, tablesUsed: 0, guestCount: 0, note: '',
         });
       } else throw new Error('저장 결과를 확인할 수 없습니다.');
     } catch (err) { setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'); }
@@ -764,9 +879,26 @@ export default function SalesInputPage() {
                                 <div><label className="text-xs text-slate-400">순매출</label><input type="number" value={editableReceipt.netRevenue} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, netRevenue: Number(e.target.value) } : c)} className={iCls} /></div>
                                 <div><label className="text-xs text-slate-400">현금</label><input type="number" value={editableReceipt.cashAmount} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cashAmount: Number(e.target.value) } : c)} className={iCls} /></div>
                                 <div><label className="text-xs text-slate-400">카드</label><input type="number" value={editableReceipt.cardAmount} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cardAmount: Number(e.target.value) } : c)} className={iCls} /></div>
-                                <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={editableReceipt.guestCount ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, guestCount: Number(e.target.value) } : c)} className={iCls} /></div>
+                                <div>
+                                  <label className="text-xs text-slate-400">결제 건수 <TermTooltip term="결제 건수" /></label>
+                                  <input
+                                    type="number"
+                                    value={editableReceipt.tablesUsed ?? editableReceipt.guestCount ?? 0}
+                                    disabled={receiptSaved}
+                                    onChange={(e) => {
+                                      const v = Number(e.target.value);
+                                      setEditableReceipt((c) => c ? { ...c, tablesUsed: v, guestCount: v } : c);
+                                    }}
+                                    className={iCls}
+                                  />
+                                </div>
                                 <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={editableReceipt.tax ?? 0} disabled={receiptSaved} onChange={(e) => setEditableReceipt((c) => c ? { ...c, tax: Number(e.target.value) } : c)} className={iCls} /></div>
                               </div>
+                              {(editableReceipt.tablesUsed ?? editableReceipt.guestCount ?? 0) === 0 && !receiptSaved && (
+                                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                                  ⚠️ 고객수를 읽지 못했습니다. 정산서의 고객수(결제 건수)를 직접 입력해주세요.
+                                </p>
+                              )}
                             </div>
 
                             {!receiptSaved && (
@@ -918,7 +1050,18 @@ export default function SalesInputPage() {
                           <div><label className="text-xs text-slate-400">서비스금액</label><input type="number" value={editableReceipt.serviceAmount ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, serviceAmount: Number(e.target.value) } : c)} className={iCls} /></div>
                           <div><label className="text-xs text-slate-400">현금</label><input type="number" value={editableReceipt.cashAmount} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cashAmount: Number(e.target.value) } : c)} className={iCls} /></div>
                           <div><label className="text-xs text-slate-400">카드</label><input type="number" value={editableReceipt.cardAmount} onChange={(e) => setEditableReceipt((c) => c ? { ...c, cardAmount: Number(e.target.value) } : c)} className={iCls} /></div>
-                          <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={editableReceipt.guestCount ?? 0} onChange={(e) => setEditableReceipt((c) => c ? { ...c, guestCount: Number(e.target.value) } : c)} className={iCls} /></div>
+                          <div>
+                            <label className="text-xs text-slate-400">결제 건수 <TermTooltip term="결제 건수" /></label>
+                            <input
+                              type="number"
+                              value={editableReceipt.tablesUsed ?? editableReceipt.guestCount ?? 0}
+                              onChange={(e) => {
+                                const v = Number(e.target.value);
+                                setEditableReceipt((c) => c ? { ...c, tablesUsed: v, guestCount: v } : c);
+                              }}
+                              className={iCls}
+                            />
+                          </div>
                         </div>
                       </div>
 
@@ -987,8 +1130,16 @@ export default function SalesInputPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-slate-300">고객수 (선택)</label>
-                      <input type="number" value={manualRecord.guestCount || ''} onChange={(e) => setManualRecord({ ...manualRecord, guestCount: Number(e.target.value) })} className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100" />
+                      <label className="text-sm font-medium text-slate-300">결제 건수 (선택) <TermTooltip term="결제 건수" /></label>
+                      <input
+                        type="number"
+                        value={manualRecord.tablesUsed || manualRecord.guestCount || ''}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setManualRecord({ ...manualRecord, tablesUsed: v, guestCount: v });
+                        }}
+                        className="w-full mt-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-3 text-base text-slate-100"
+                      />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-slate-300">메모 (선택)</label>
@@ -1065,31 +1216,92 @@ export default function SalesInputPage() {
                     const isExpanded = expandedId === record.id!;
                     const draft = drafts[record.id!];
                     const menuCount = record.menuItems?.length ?? 0;
+                    const dayEvents = historyEvents.filter(
+                      (ev) => ev.start_date <= record.date && record.date <= ev.end_date
+                    );
+                    const primaryEventMeta =
+                      dayEvents.length > 0
+                        ? STORE_EVENT_TYPE_META[dayEvents[0].type] ?? STORE_EVENT_TYPE_META.other
+                        : null;
                     return (
-                      <div key={record.id!} className="rounded-2xl border border-slate-800 bg-slate-900/90">
+                      <div
+                        key={record.id!}
+                        className={`rounded-2xl border bg-slate-900/90 ${
+                          primaryEventMeta ? 'border-purple-500/30 bg-purple-950/10' : 'border-slate-800'
+                        }`}
+                      >
                         <button className="w-full p-4 flex items-center justify-between text-left" onClick={() => toggleExpand(record)}>
                           <div className="min-w-0">
-                            <p className="font-semibold text-slate-100 flex items-center gap-2">
+                            <p className="font-semibold text-slate-100 flex flex-wrap items-center gap-2">
                               <span>{new Date(record.date + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' })}</span>
-                              {menuCount === 0 && (
+                              {record.menuItems !== undefined && menuCount === 0 && (
                                 <span className="rounded bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-400 border border-orange-500/30">
                                   📋 메뉴 미입력
                                 </span>
                               )}
+                              {dayEvents.map((ev) => {
+                                const meta = STORE_EVENT_TYPE_META[ev.type] ?? STORE_EVENT_TYPE_META.other;
+                                return (
+                                  <span
+                                    key={ev.id}
+                                    className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${meta.darkBadgeClass}`}
+                                  >
+                                    {meta.shortLabel}: {ev.title}
+                                  </span>
+                                );
+                              })}
                             </p>
                             <p className="mt-0.5 text-sm text-slate-400">
                               순매출 {(record.netRevenue / 10000).toFixed(1)}만원
                               {(record.serviceAmount ?? 0) > 0 && ` · 서비스 ${((record.serviceAmount ?? 0) / 10000).toFixed(1)}만원`}
                             </p>
-                            <p className="mt-0.5 text-xs text-slate-600">
-                              현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · 고객 {record.guestCount ?? 0}명{menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
-                            </p>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                              <span>
+                                현금 {Math.round((record.cashAmount ?? 0) / 10000)}만 · 카드 {Math.round((record.cardAmount ?? 0) / 10000)}만 · {getPaymentCount(record) !== null ? `결제 ${getPaymentCount(record)}건` : '결제 건수 미입력'} · 결제 1건당 {(record.avgSpend ?? 0) > 0 ? `${(record.avgSpend ?? 0).toLocaleString()}원` : '-'}{record.menuItems !== undefined && menuCount > 0 ? ` · 메뉴 ${menuCount}개` : ''}
+                              </span>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(`/settings/events?start_date=${record.date}&add=1`);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.stopPropagation();
+                                    router.push(`/settings/events?start_date=${record.date}&add=1`);
+                                  }
+                                }}
+                                className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-sky-300 hover:bg-slate-700 cursor-pointer"
+                              >
+                                + 사정 기록
+                              </span>
+                            </div>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
                             <p className="text-lg font-bold text-sky-400">{(record.totalRevenue / 10000).toFixed(0)}만원</p>
                             <span className="text-slate-500 text-sm">{isExpanded ? '▲' : '▼'}</span>
                           </div>
                         </button>
+
+                        {isExpanded && menuLoadingIds[record.id!] && (
+                          <div className="border-t border-slate-800 p-4 text-center text-xs text-slate-400 animate-pulse">
+                            메뉴 정보를 불러오는 중입니다...
+                          </div>
+                        )}
+
+                        {isExpanded && menuFetchErrorIds[record.id!] && !draft && (
+                          <div className="border-t border-slate-800 p-4 text-center space-y-2">
+                            <p className="text-sm text-rose-400 font-medium">메뉴를 불러오지 못했어요</p>
+                            <button
+                              type="button"
+                              onClick={() => retryFetchMenu(record)}
+                              className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 text-sky-400 hover:bg-slate-700 transition"
+                            >
+                              다시 시도
+                            </button>
+                          </div>
+                        )}
 
                         {isExpanded && draft && (role === 'owner' || role === 'manager' || record.createdBy === currentUserId) && (
                           <div className="border-t border-slate-800 p-4 space-y-4">
@@ -1102,8 +1314,30 @@ export default function SalesInputPage() {
                               <div><label className="text-xs text-slate-400">부가세</label><input type="number" value={draft.tax} onChange={(e) => patchDraft(record.id!, { tax: Number(e.target.value) })} className={iClsDark} /></div>
                               <div><label className="text-xs text-slate-400">현금</label><input type="number" value={draft.cashAmount} onChange={(e) => patchDraft(record.id!, { cashAmount: Number(e.target.value) })} className={iClsDark} /></div>
                               <div><label className="text-xs text-slate-400">카드</label><input type="number" value={draft.cardAmount} onChange={(e) => patchDraft(record.id!, { cardAmount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">고객수</label><input type="number" value={draft.guestCount} onChange={(e) => patchDraft(record.id!, { guestCount: Number(e.target.value) })} className={iClsDark} /></div>
-                              <div><label className="text-xs text-slate-400">객단가</label><input type="number" value={draft.avgSpend} onChange={(e) => patchDraft(record.id!, { avgSpend: Number(e.target.value) })} className={iClsDark} /></div>
+                              <div>
+                                <label className="text-xs text-slate-400">결제 건수 <TermTooltip term="결제 건수" /></label>
+                                <input
+                                  type="number"
+                                  value={draft.tablesUsed ?? draft.guestCount ?? 0}
+                                  onChange={(e) => {
+                                    const v = Number(e.target.value);
+                                    patchDraft(record.id!, { tablesUsed: v, guestCount: v });
+                                  }}
+                                  className={iClsDark}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-400">결제 1건당 매출 <TermTooltip term="결제 1건당 매출" /></label>
+                                {(() => {
+                                  const draftPayCnt = resolvePaymentCountInput(draft.tablesUsed, draft.guestCount);
+                                  const computedAvg = calcServerAvgSpend(draft.netRevenue, draftPayCnt);
+                                  return (
+                                    <div className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900/70 p-2.5 text-sm font-semibold text-slate-300">
+                                      {draftPayCnt > 0 ? `${computedAvg.toLocaleString()}원` : '-'}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
                             </div>
 
                             <div>

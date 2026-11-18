@@ -3,8 +3,11 @@
 import { useMemo, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  Tooltip, Legend, ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts';
+import { COST_RATIO_THRESHOLDS } from '@/lib/analytics/costRatio';
+import { detectCrosses } from '@/lib/analytics/movingAverage';
+import { ClampedChartEventArea, STORE_EVENT_TYPE_META } from '@/lib/storeEvents';
 
 export interface MAChartDataPoint {
   date: string;
@@ -36,6 +39,8 @@ export interface DataAvailability {
 export interface MAChartProps {
   data: MAChartDataPoint[];
   availability: DataAvailability;
+  storeCostRatioAvg60?: number | null;
+  events?: ClampedChartEventArea[];
 }
 
 type TabKey = 'revenue' | 'cost' | 'profit' | 'costRatio';
@@ -63,7 +68,7 @@ const TABS: TabConfig[] = [
   },
   {
     key: 'cost',
-    label: '매입',
+    label: '총비용',
     keys: ['costMa5', 'costMa20', 'costMa60', 'costMa120'],
     colors: LINE_COLORS,
     activeClass: 'bg-amber-600 text-white',
@@ -90,42 +95,64 @@ const TABS: TabConfig[] = [
 const MA_LABELS = ['5일', '20일', '60일', '120일'] as const;
 const AVAIL_KEYS: (keyof DataAvailability)[] = ['ma5', 'ma20', 'ma60', 'ma120'];
 
-function detectCrosses(
-  data: MAChartDataPoint[],
-  ma5Key: keyof MAChartDataPoint,
-  ma20Key: keyof MAChartDataPoint,
-): ('golden' | 'death' | null)[] {
-  return data.map((point, i) => {
-    if (i === 0) return null;
-    const prev = data[i - 1];
-    const cur5 = point[ma5Key] as number | null;
-    const prev5 = prev[ma5Key] as number | null;
-    const cur20 = point[ma20Key] as number | null;
-    const prev20 = prev[ma20Key] as number | null;
-    if (cur5 == null || prev5 == null || cur20 == null || prev20 == null) return null;
-    if (prev5 <= prev20 && cur5 > cur20) return 'golden';
-    if (prev5 >= prev20 && cur5 < cur20) return 'death';
-    return null;
-  });
-}
-
 type MAKey = 'ma5' | 'ma20' | 'ma60' | 'ma120';
 
-export default function MAChart({ data, availability }: MAChartProps) {
+const DEFAULT_VISIBLE_BY_TAB: Record<TabKey, Record<MAKey, boolean>> = {
+  revenue: { ma5: true, ma20: true, ma60: false, ma120: false },
+  cost: { ma5: true, ma20: true, ma60: false, ma120: false },
+  profit: { ma5: true, ma20: true, ma60: false, ma120: false },
+  costRatio: { ma5: false, ma20: true, ma60: true, ma120: false },
+};
+
+export default function MAChart({ data, availability, storeCostRatioAvg60 = null, events = [] }: MAChartProps) {
   const [tab, setTab] = useState<TabKey>('revenue');
   const cfg = TABS.find((t) => t.key === tab)!;
-  const [visibleMAs, setVisibleMAs] = useState<Record<MAKey, boolean>>({
-    ma5: true, ma20: true, ma60: false, ma120: false,
-  });
+  const [visibleByTab, setVisibleByTab] =
+    useState<Record<TabKey, Record<MAKey, boolean>>>(DEFAULT_VISIBLE_BY_TAB);
+  const visibleMAs = visibleByTab[tab];
   function toggleMA(key: MAKey) {
-    setVisibleMAs(prev => ({ ...prev, [key]: !prev[key] }));
-  };
+    setVisibleByTab((prev) => ({
+      ...prev,
+      [tab]: { ...prev[tab], [key]: !prev[tab][key] },
+    }));
+  }
+
+  // 원가율 탭: 100% 상한에 맞춰 그린 뒤 툴팁에는 실제 원본 값을 표시
+  const chartPlotData = useMemo(() => {
+    if (!cfg.isCostRatio) return data;
+    return data.map((d) => ({
+      ...d,
+      _rawCostRatioMa5: d.costRatioMa5,
+      _rawCostRatioMa20: d.costRatioMa20,
+      _rawCostRatioMa60: d.costRatioMa60,
+      _rawCostRatioMa120: d.costRatioMa120,
+      costRatioMa5: d.costRatioMa5 !== null ? Math.min(d.costRatioMa5, 100) : null,
+      costRatioMa20: d.costRatioMa20 !== null ? Math.min(d.costRatioMa20, 100) : null,
+      costRatioMa60: d.costRatioMa60 !== null ? Math.min(d.costRatioMa60, 100) : null,
+      costRatioMa120: d.costRatioMa120 !== null ? Math.min(d.costRatioMa120, 100) : null,
+    }));
+  }, [data, cfg.isCostRatio]);
+
+  const costRatioAvailability = useMemo<DataAvailability>(
+    () => ({
+      ma5: data.some((d) => d.costRatioMa5 !== null),
+      ma20: data.some((d) => d.costRatioMa20 !== null),
+      ma60: data.some((d) => d.costRatioMa60 !== null),
+      ma120: data.some((d) => d.costRatioMa120 !== null),
+    }),
+    [data]
+  );
+
+  const effectiveAvailability = cfg.isCostRatio ? costRatioAvailability : availability;
 
   const crosses = useMemo(
-    () => (data.length > 0 ? detectCrosses(data, cfg.keys[0], cfg.keys[1]) : []),
+    () =>
+      !cfg.isCostRatio && data.length > 0
+        ? detectCrosses(data, cfg.keys[0], cfg.keys[1])
+        : [],
     // cfg.keys is a new array reference each render, so stringify key parts
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, cfg.keys[0], cfg.keys[1]]
+    [data, cfg.keys[0], cfg.keys[1], cfg.isCostRatio]
   );
 
   if (data.length === 0) return null;
@@ -134,11 +161,67 @@ export default function MAChart({ data, availability }: MAChartProps) {
     ? (v: number) => `${Math.round(v)}%`
     : (v: number) => `${Math.round(v / 10000)}만`;
 
-  const tooltipFormatter = cfg.isCostRatio
-    ? (v: unknown) => (v != null ? `${(v as number).toFixed(1)}%` : '-')
-    : (v: unknown) => (v != null ? `${((v as number) / 10000).toFixed(1)}만원` : '-');
+  const renderTooltipContent = (tooltipProps: {
+    active?: boolean;
+    label?: string;
+    payload?: Array<{
+      dataKey?: string;
+      name?: string;
+      value?: number | null;
+      color?: string;
+      payload?: Record<string, unknown>;
+    }>;
+  }) => {
+    const { active, label, payload } = tooltipProps;
+    if (!active || !payload || payload.length === 0) return null;
 
-  // Custom dot for 5일선: shows ↑ golden cross, ↓ death cross
+    let hasOver100 = false;
+    const rows = payload
+      .filter((entry) => entry.value != null)
+      .map((entry) => {
+        if (!cfg.isCostRatio) {
+          return {
+            name: entry.name ?? '',
+            color: entry.color ?? '#e2e8f0',
+            text: `${((entry.value as number) / 10000).toFixed(1)}만원`,
+          };
+        }
+        const rawKey = `_raw${String(entry.dataKey).charAt(0).toUpperCase()}${String(
+          entry.dataKey
+        ).slice(1)}`;
+        const rawVal = entry.payload?.[rawKey];
+        const actual = typeof rawVal === 'number' ? rawVal : (entry.value as number);
+        if (actual > 100) hasOver100 = true;
+        return {
+          name: entry.name ?? '',
+          color: entry.color ?? '#e2e8f0',
+          text: `${actual.toFixed(1)}%${actual > 100 ? ' (상한 초과)' : ''}`,
+        };
+      });
+
+    if (rows.length === 0) return null;
+
+    return (
+      <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-lg">
+        <p className="mb-1 text-slate-400">{label}</p>
+        <div className="space-y-0.5">
+          {rows.map((r) => (
+            <div key={r.name} className="flex items-center justify-between gap-3">
+              <span style={{ color: r.color }}>{r.name}</span>
+              <span className="font-semibold text-slate-100">{r.text}</span>
+            </div>
+          ))}
+        </div>
+        {hasOver100 && (
+          <p className="mt-1.5 border-t border-slate-800 pt-1 text-[11px] text-amber-300">
+            매출 입력이 적은 구간 (100% 상단 고정)
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  // Custom dot for 5일선: shows ↑ golden cross, ↓ death cross (매출·총비용·순이익 탭 전용)
   const renderCrossDot = (dotProps: Record<string, unknown>) => {
     const cx = dotProps.cx as number | undefined;
     const cy = dotProps.cy as number | undefined;
@@ -175,7 +258,7 @@ export default function MAChart({ data, availability }: MAChartProps) {
       {/* 차트 */}
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 10, right: 4, left: 0, bottom: 0 }}>
+          <LineChart data={chartPlotData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis
               dataKey="date"
@@ -188,37 +271,55 @@ export default function MAChart({ data, availability }: MAChartProps) {
               tick={{ fill: '#64748b', fontSize: 10 }}
               tickFormatter={yFormatter}
               width={40}
-              domain={cfg.isCostRatio ? [0, 'auto'] : ['auto', 'auto']}
+              domain={cfg.isCostRatio ? [0, 100] : ['auto', 'auto']}
+              ticks={cfg.isCostRatio ? [0, 25, 50, 75, 100] : undefined}
             />
-            <Tooltip
-              contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px', fontSize: '12px' }}
-              labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
-              formatter={tooltipFormatter}
-            />
+            <Tooltip content={renderTooltipContent as never} />
             <Legend
               wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
               formatter={(value) => <span style={{ color: '#94a3b8' }}>{value}</span>}
             />
+            {events.map((ev) => (
+              <ReferenceArea
+                key={ev.id}
+                x1={ev.x1}
+                x2={ev.x2}
+                fill={ev.fill}
+                stroke={ev.stroke}
+                strokeOpacity={0.5}
+                ifOverflow="extendDomain"
+              />
+            ))}
             {cfg.isCostRatio && (
               <>
-                <ReferenceLine y={55} stroke="#f59e0b" strokeDasharray="4 3" label={{ value: '주의 55%', fill: '#f59e0b', fontSize: 9, position: 'insideTopRight' }} />
-                <ReferenceLine y={70} stroke="#f43f5e" strokeDasharray="4 3" label={{ value: '위험 70%', fill: '#f43f5e', fontSize: 9, position: 'insideTopRight' }} />
+                <ReferenceLine
+                  y={COST_RATIO_THRESHOLDS.INDUSTRY_REFERENCE_PCT}
+                  stroke="#94a3b8"
+                  strokeDasharray="4 3"
+                />
+                {storeCostRatioAvg60 != null && storeCostRatioAvg60 <= 100 && (
+                  <ReferenceLine
+                    y={storeCostRatioAvg60}
+                    stroke="#38bdf8"
+                    strokeDasharray="2 2"
+                  />
+                )}
               </>
             )}
-            {visibleMAs.ma5 && (
+            {visibleMAs.ma5 && effectiveAvailability.ma5 && (
               <Line
                 type="monotone"
                 dataKey={cfg.keys[0]}
                 stroke={cfg.colors[0]}
                 strokeWidth={2.5}
-                dot={renderCrossDot as unknown as boolean}
+                dot={cfg.isCostRatio ? false : (renderCrossDot as unknown as boolean)}
                 activeDot={{ r: 4 }}
                 name={MA_LABELS[0]}
                 isAnimationActive={false}
                 connectNulls={false}
               />
             )}
-            {visibleMAs.ma20 && (
+            {visibleMAs.ma20 && effectiveAvailability.ma20 && (
               <Line
                 type="monotone"
                 dataKey={cfg.keys[1]}
@@ -230,7 +331,7 @@ export default function MAChart({ data, availability }: MAChartProps) {
                 connectNulls={false}
               />
             )}
-            {visibleMAs.ma60 && availability.ma60 && (
+            {visibleMAs.ma60 && effectiveAvailability.ma60 && (
               <Line
                 type="monotone"
                 dataKey={cfg.keys[2]}
@@ -242,7 +343,7 @@ export default function MAChart({ data, availability }: MAChartProps) {
                 connectNulls={false}
               />
             )}
-            {visibleMAs.ma120 && availability.ma120 && (
+            {visibleMAs.ma120 && effectiveAvailability.ma120 && (
               <Line
                 type="monotone"
                 dataKey={cfg.keys[3]}
@@ -259,12 +360,52 @@ export default function MAChart({ data, availability }: MAChartProps) {
         </ResponsiveContainer>
       </div>
 
+      {/* 이벤트 기간 음영 범례 */}
+      {events.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-1 pt-0.5 text-[11px] text-slate-400">
+          <span className="text-slate-500">매장 사정:</span>
+          {Array.from(new Set(events.map((e) => e.type))).map((type) => {
+            const meta = STORE_EVENT_TYPE_META[type] ?? STORE_EVENT_TYPE_META.other;
+            return (
+              <span key={type} className="inline-flex items-center gap-1">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm border"
+                  style={{ backgroundColor: meta.chartFill, borderColor: meta.chartStroke }}
+                />
+                <span>{meta.shortLabel}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 원가율 기준선 범례 및 안내 문구 (차트 바깥 분리로 선 겹침 방지) */}
+      {cfg.isCostRatio && (
+        <div className="space-y-1.5 px-1">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-4 border-t border-dashed border-slate-400" />
+              <span>일반 참고 {COST_RATIO_THRESHOLDS.INDUSTRY_REFERENCE_PCT}%</span>
+            </span>
+            {storeCostRatioAvg60 != null && (
+              <span className="inline-flex items-center gap-1.5 text-sky-300">
+                <span className="inline-block w-4 border-t border-dotted border-sky-400" />
+                <span>매장 60일 평균 {storeCostRatioAvg60.toFixed(1)}%</span>
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500">
+            재료는 며칠에 한 번 몰아 사기 때문에 짧은 기간 원가율은 크게 흔들립니다. 20일 이상 흐름을 보세요.
+          </p>
+        </div>
+      )}
+
       {/* MA 선 토글 */}
       <div className="flex gap-2 flex-wrap">
         {(AVAIL_KEYS as MAKey[]).map((key, i) => {
           const active = visibleMAs[key];
           const lineColor = LINE_COLORS[i];
-          const hasData = availability[key];
+          const hasData = effectiveAvailability[key];
           return (
             <button
               key={key}

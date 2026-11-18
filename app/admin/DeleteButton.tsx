@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { deleteStore, extendSubscription } from './actions';
+import { deleteStore, extendSubscription, resolvePaymentAttempt } from './actions';
 
 export function DeleteStoreButton({ storeId, ownerId }: { storeId: string, ownerId: string | null }) {
   const [loading, setLoading] = useState(false);
@@ -157,5 +157,69 @@ export function ExtendSubscriptionSection({ userId, userEmail }: { userId: strin
         onExtendSuccess={() => setReason('')}
       />
     </div>
+  );
+}
+
+export function ResolvePaymentAttemptButton({
+  attemptId,
+  orderId,
+  status,
+  createdAt,
+}: {
+  attemptId: string;
+  orderId?: string;
+  status?: string;
+  createdAt?: string;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  const isRecentProcessing =
+    status === 'processing' &&
+    Boolean(createdAt) &&
+    Date.now() - new Date(createdAt!).getTime() < 30 * 60 * 1000;
+
+  async function handleResolve() {
+    if (isRecentProcessing) {
+      alert('결제 진행 중일 수 있어 30분 후 해제 가능');
+      return;
+    }
+
+    const orderHint = orderId ? ` (${orderId})` : '';
+    if (
+      !window.confirm(
+        `토스 상점관리자에서 이 orderId 의 결제 여부를 먼저 확인하셨나요?${orderHint}\n\n이 결제 대기 상태를 해제하시겠습니까?\n해제하면 사용자가 다시 결제할 수 있습니다.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await resolvePaymentAttempt(attemptId);
+      if (result && result.success === false) {
+        alert(result.message || '이미 해제되었거나 상태가 바뀌었습니다. 새로고침 해 주세요.');
+        return;
+      }
+      alert('결제 대기 상태가 정상적으로 해제되었습니다.');
+    } catch (e: any) {
+      alert(e.message || '해제 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleResolve}
+      disabled={loading}
+      title={isRecentProcessing ? '결제 진행 중일 수 있어 30분 후 해제 가능' : undefined}
+      className={`px-2.5 py-1 rounded text-xs transition border whitespace-nowrap cursor-pointer disabled:opacity-50 ${
+        isRecentProcessing
+          ? 'bg-slate-800/50 text-slate-400 border-slate-700 hover:bg-slate-800'
+          : 'bg-amber-600/30 hover:bg-amber-600 text-amber-300 hover:text-white border-amber-500/50'
+      }`}
+    >
+      {loading ? '해제중...' : '대기 해제'}
+    </button>
   );
 }

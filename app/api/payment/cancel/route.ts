@@ -130,8 +130,8 @@ export async function POST() {
           await notifyAdmin({ subject, text });
         }
       }
-    } catch (notifyErr) {
-      console.error('[Cancel] Failed to trigger admin notification on cancellation:', notifyErr);
+    } catch (notifyErr: any) {
+      console.error('[Cancel] Failed to trigger admin notification on cancellation:', notifyErr?.name || 'Error', notifyErr?.message || String(notifyErr));
     }
 
     return NextResponse.json({
@@ -140,7 +140,7 @@ export async function POST() {
       expiresAt: subscription.expires_at,
     });
   } catch (err: any) {
-    console.error('Cancel subscription error:', err);
+    console.error('Cancel subscription error:', err?.name || 'Error', err?.message || String(err));
     return NextResponse.json({ error: err?.message || '구독 해지 중 오류가 발생했습니다.' }, { status: 500 });
   }
 }

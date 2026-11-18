@@ -5,6 +5,19 @@ export default function OnboardingPage({
 }: {
   searchParams: { message?: string; plan?: string }
 }) {
+  const rawMessage = searchParams?.message
+
+  const ONBOARDING_ERROR_MESSAGES: Record<string, string> = {
+    store_create_failed: '매장 등록에 실패했습니다. 다시 시도해 주세요.',
+    missing_fields: '필수 매장 정보를 모두 입력해 주세요.',
+  }
+
+  const DEFAULT_ONBOARDING_MESSAGE = '매장 등록에 실패했습니다. 다시 시도해 주세요.'
+
+  const messageText = rawMessage
+    ? ONBOARDING_ERROR_MESSAGES[rawMessage] || DEFAULT_ONBOARDING_MESSAGE
+    : null
+
   return (
     <div className="flex-1 flex flex-col w-full px-8 sm:max-w-xl justify-center min-h-screen mx-auto py-10 text-slate-800">
       <div className="text-center mb-8">
@@ -12,9 +25,9 @@ export default function OnboardingPage({
         <p className="text-slate-500 mt-2">AI 매장 진단을 시작하기 전, 매장 정보를 입력해주세요.</p>
       </div>
 
-      {searchParams?.message && (
+      {messageText && (
         <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 text-center rounded-lg text-sm font-medium">
-          {searchParams.message}
+          {messageText}
         </div>
       )}
 
@@ -28,7 +41,7 @@ export default function OnboardingPage({
               name="name"
               required
               className="w-full bg-white text-slate-800 placeholder-slate-400 rounded-md px-4 py-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="예: 설맥 현리점"
+              placeholder="예: 우리동네 분식"
             />
           </div>
 
@@ -71,6 +84,22 @@ export default function OnboardingPage({
       </div>
 
       <div className="space-y-4">
+        <div className="bg-sky-50 border border-sky-100 rounded-xl p-5">
+          <h3 className="font-bold text-sky-900 mb-2 flex items-center gap-2">
+            <span>📂</span> POS 과거 매출이 있으신가요? (현재 OKPOS 지원)
+          </h3>
+          <p className="text-sm text-sky-800 leading-relaxed mb-3">
+            OKPOS 웹의 &quot;메뉴별×일자&quot; 엑셀 파일이 있다면, 몇 년치 매출과 메뉴 판매 이력을 한 번에 올려 즉시 기간 비교 및 120일 이동평균선 분석을 확인하실 수 있습니다.
+          </p>
+          <a
+            href="/settings/import"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700 bg-white border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50 transition"
+          >
+            <span>POS 과거 매출 올리기</span>
+            <span>→</span>
+          </a>
+        </div>
+
         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
           <h3 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
             <span>💡</span> 데이터 입력 안내

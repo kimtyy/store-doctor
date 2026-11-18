@@ -25,6 +25,7 @@ function PaymentContent() {
 
   // role 체크: owner만 결제 페이지 접근 가능
   const [role, setRole] = useState<string | null | 'loading'>('loading');
+  const [hasServerPending, setHasServerPending] = useState(false);
 
   useEffect(() => {
     fetch('/api/me/role')
@@ -33,10 +34,34 @@ function PaymentContent() {
       .catch(() => setRole(null));
   }, []);
 
+  const noticeParam = searchParams.get('notice');
+  const isPaymentPending = noticeParam === 'payment_pending' || hasServerPending;
   const errorParam = searchParams.get('error');
-  const errorParamMessage = searchParams.get('message');
+  const tossCode = searchParams.get('code');
+  const tossMessage = searchParams.get('message');
 
-  // 1. 사용자 세션 체크 (비로그인 시 로그인 페이지로 리디렉션)
+  // 토스 또는 URL 쿼리의 message/code는 화면에 직접 출력하지 않고 console에만 기록 (문구 변조 방지)
+  useEffect(() => {
+    if (tossCode || tossMessage) {
+      console.warn(`[Payment] URL query parameters received: code=${tossCode || 'none'}, message=${tossMessage || 'none'}`);
+    }
+  }, [tossCode, tossMessage]);
+
+  const ERROR_MESSAGES: Record<string, string> = {
+    card_auth_failed: '카드 등록 및 인증에 실패했습니다. 다시 시도해 주세요.',
+    payment_failed: '결제가 완료되지 않았습니다. 다시 시도해 주세요.',
+    payment_cancelled: '결제가 취소되었습니다. 다시 시도해 주세요.',
+    missing_params: '카드 등록 및 결제 필수 정보가 누락되었습니다.',
+    server_error: '결제 처리 중 서버 오류가 발생했습니다. 관리자에게 문의해 주세요.',
+  };
+
+  const DEFAULT_ERROR_MESSAGE = '결제가 완료되지 않았습니다. 다시 시도해 주세요.';
+
+  const resolvedErrorMessage = errorParam
+    ? ERROR_MESSAGES[errorParam] || DEFAULT_ERROR_MESSAGE
+    : null;
+
+  // 1. 사용자 세션 체크 (비로그인 시 로그인 페이지로 리디렉션) 및 서버 결제 대기 상태 확인
   useEffect(() => {
     async function checkUser() {
       const {
@@ -45,6 +70,24 @@ function PaymentContent() {
       if (user) {
         setUser(user);
         setLoading(false);
+
+        // 서버 payment_attempts 테이블에서 현재 사용자의 pending 또는 processing 행 확인 (RLS: 본인 행만 조회)
+        try {
+          const { data: activeAttempt, error: attemptErr } = await supabase
+            .from('payment_attempts')
+            .select('id, status')
+            .eq('user_id', user.id)
+            .in('status', ['pending', 'processing'])
+            .limit(1)
+            .maybeSingle();
+
+          if (!attemptErr && activeAttempt) {
+            setHasServerPending(true);
+          }
+        } catch (attemptCheckErr: any) {
+          // 테이블 미생성(마이그레이션 전) 또는 조회 오류 시 URL notice 파라미터로만 폴백
+          console.warn('[Payment] Failed to check payment_attempts on server:', attemptCheckErr?.name || 'Error', attemptCheckErr?.message || String(attemptCheckErr));
+        }
       } else {
         const redirectPath = encodeURIComponent(`/payment?plan=${selectedPlan}`);
         router.replace(`/login?redirect=${redirectPath}`);
@@ -55,6 +98,10 @@ function PaymentContent() {
 
   // 2. 카드 등록 및 빌링 인증창 호출
   const handleStartBilling = async () => {
+    if (isPaymentPending) {
+      return;
+    }
+
     if (!user) {
       const redirectPath = encodeURIComponent(`/payment?plan=${selectedPlan}`);
       router.push(`/login?redirect=${redirectPath}`);
@@ -89,7 +136,7 @@ function PaymentContent() {
       const payment = tossPayments.payment({ customerKey });
 
       const successUrl = `${window.location.origin}/api/payment/confirm?plan=${selectedPlan}`;
-      const failUrl = `${window.location.origin}/payment?plan=${selectedPlan}&error=true&message=카드+등록이+취소되었거나+실패했습니다.`;
+      const failUrl = `${window.location.origin}/payment?plan=${selectedPlan}&error=card_auth_failed`;
 
       // 토스 빌링 인증창 호출
       await payment.requestBillingAuth({
@@ -98,7 +145,7 @@ function PaymentContent() {
         failUrl,
       });
     } catch (err: any) {
-      console.error('Billing auth error:', err);
+      console.error('Billing auth error:', err?.name || 'Error', err?.message || String(err));
       if (err?.code !== 'USER_CANCEL') {
         setErrorMessageState(err?.message || '카드 등록 요청 중 오류가 발생했습니다. 다시 시도해 주세요.');
       }
@@ -188,12 +235,26 @@ function PaymentContent() {
           </p>
         </div>
 
-        {errorParam && (
+        {/* 결제 확인 중 노란색/중립 안내 배너 */}
+        {isPaymentPending && (
+          <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-amber-400 font-bold text-lg">⏳</span>
+            <div>
+              <h4 className="text-sm font-semibold text-amber-400">결제 확인 중</h4>
+              <p className="text-xs text-amber-300/90 mt-1 leading-relaxed">
+                결제 확인이 지연되고 있습니다. 확인 후 결제가 완료된 경우 구독을 반영하거나 취소해 드립니다. 다시 결제하지 마시고 잠시 후 확인해 주세요. 문의: 031-5175-8887
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* 결제 및 카드 등록 실패 빨간색 배너 */}
+        {!isPaymentPending && resolvedErrorMessage && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
             <span className="text-red-400 font-bold text-lg">⚠️</span>
             <div>
               <h4 className="text-sm font-semibold text-red-400">결제 및 카드 등록 실패</h4>
-              <p className="text-xs text-red-400/80 mt-1">{errorParamMessage || '알 수 없는 오류가 발생했습니다. 다시 시도해 주세요.'}</p>
+              <p className="text-xs text-red-400/80 mt-1">{resolvedErrorMessage}</p>
             </div>
           </div>
         )}
@@ -284,13 +345,21 @@ function PaymentContent() {
         {/* ── 카드 등록하고 구독 시작 버튼 ── */}
         <button
           onClick={handleStartBilling}
-          disabled={!TOSS_CLIENT_KEY || !agreedToRecurring || isSubmitting}
+          disabled={!TOSS_CLIENT_KEY || !agreedToRecurring || isSubmitting || isPaymentPending}
           className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold rounded-xl transition-all shadow-[0_4px_20px_rgba(16,185,129,0.2)] disabled:opacity-40 disabled:cursor-not-allowed text-base cursor-pointer"
         >
-          {isSubmitting
+          {isPaymentPending
+            ? '결제 확인 진행 중'
+            : isSubmitting
             ? '카드 등록창 준비 중...'
             : '카드 등록하고 구독 시작'}
         </button>
+
+        {isPaymentPending && (
+          <p className="text-center text-xs text-amber-400/90 mt-2 font-medium">
+            확인이 끝날 때까지 결제를 진행할 수 없습니다.
+          </p>
+        )}
 
         <div className="text-center mt-6">
           <button

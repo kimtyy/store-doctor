@@ -122,3 +122,63 @@ export async function extendSubscription(userId: string, months: number, reason:
   revalidatePath('/admin');
   return { success: true };
 }
+
+export async function resolvePaymentAttempt(attemptId: string) {
+  await checkAdmin();
+
+  const adminClient = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  // 현재 행 상태 및 생성 시각 확인 (processing 상태이면서 30분 미만이면 해제 차단)
+  const { data: attempt, error: fetchErr } = await adminClient
+    .from('payment_attempts')
+    .select('id, status, created_at')
+    .eq('id', attemptId)
+    .maybeSingle();
+
+  if (fetchErr) {
+    console.error('Fetch payment attempt error:', fetchErr);
+    throw new Error('결제 대기 내역 조회 중 오류가 발생했습니다.');
+  }
+
+  if (!attempt) {
+    throw new Error('해당 결제 대기 내역을 찾을 수 없습니다.');
+  }
+
+  if (attempt.status === 'processing') {
+    const elapsedMs = Date.now() - new Date(attempt.created_at).getTime();
+    if (elapsedMs < 30 * 60 * 1000) {
+      throw new Error('결제 진행 중일 수 있어 30분 후 해제 가능');
+    }
+  }
+
+  const { data: updatedRows, error } = await adminClient
+    .from('payment_attempts')
+    .update({
+      status: 'resolved',
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', attemptId)
+    .in('status', ['pending', 'processing'])
+    .select('id');
+
+  if (error) {
+    console.error('Resolve payment attempt error:', error);
+    throw new Error('결제 대기 해제 중 오류가 발생했습니다: ' + error.message);
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    console.warn(`[Admin] resolvePaymentAttempt(${attemptId}) matched 0 rows.`);
+    revalidatePath('/admin');
+    return {
+      success: false,
+      message: '이미 해제되었거나 상태가 바뀌었습니다. 새로고침 해 주세요.',
+    };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/payment');
+  return { success: true };
+}

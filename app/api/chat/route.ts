@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreInfo } from '@/utils/supabase/getStore';
+import { calculateExpenseBreakdown, isIngredientCategory } from '@/lib/expenses';
+import { calcComparisonMetricDelta } from '@/lib/analytics/periodComparison';
+import { getStoreSensitivityCached } from '@/lib/tempDropSensitivity';
 
 export const dynamic = 'force-dynamic';
-
-
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+export const maxDuration = 60;
 
 function makeSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,8 +38,8 @@ function krw(n: number): string {
   return n.toLocaleString('ko-KR') + '원';
 }
 
-interface SaleRow { date: string; net_revenue: number; }
-interface PurchaseRow { date: string; total_amount: number; }
+interface SaleRow { date: string; net_revenue: number; temperature?: number | null; }
+interface PurchaseRow { date: string; total_amount: number; category?: string | null; }
 interface MenuItemRow { name: string; quantity: number; amount: number; }
 interface SaleWithMenus { id: string; date: string; sales_menu_items: MenuItemRow[]; }
 
@@ -76,12 +77,12 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
 
   const [sales60Res, purchaseRes, menuRes] = await Promise.all([
     supabase.from('daily_sales')
-      .select('date, net_revenue')
+      .select('date, net_revenue, temperature')
       .eq('store_id', STORE_ID)
       .gte('date', from60)
       .order('date', { ascending: true }),
     supabase.from('purchase_records')
-      .select('date, total_amount')
+      .select('date, total_amount, category')
       .eq('store_id', STORE_ID)
       .gte('date', prevRange.from),
     // Fetch 2 months of menu data in one query
@@ -101,23 +102,35 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
   const salesPrevMonth = sales60.filter(d => d.date >= prevRange.from && d.date <= prevRange.to);
   const salesLast30 = sales60.filter(d => d.date >= from30);
 
-  // Purchase maps
-  const purchaseByDate: Record<string, number> = {};
+  // Purchase maps (총비용 및 재료비 구분)
+  const totalExpenseByDate: Record<string, number> = {};
+  const ingredientByDate: Record<string, number> = {};
   for (const p of purchases) {
-    purchaseByDate[p.date] = (purchaseByDate[p.date] ?? 0) + (p.total_amount ?? 0);
+    const amt = p.total_amount ?? 0;
+    totalExpenseByDate[p.date] = (totalExpenseByDate[p.date] ?? 0) + amt;
+    if (isIngredientCategory(p.category)) {
+      ingredientByDate[p.date] = (ingredientByDate[p.date] ?? 0) + amt;
+    }
   }
 
-  function monthPurchase(fromDate: string, toDate: string): number {
-    return purchases
-      .filter(p => p.date >= fromDate && p.date <= toDate)
-      .reduce((s, p) => s + (p.total_amount ?? 0), 0);
+  function monthPurchases(fromDate: string, toDate: string): PurchaseRow[] {
+    return purchases.filter(p => p.date >= fromDate && p.date <= toDate);
   }
 
-  // Monthly totals
+  // Monthly totals & standard expense breakdown
   const thisMthRevenue = salesThisMonth.reduce((s, d) => s + (d.net_revenue ?? 0), 0);
-  const thisMthPurchase = monthPurchase(thisRange.from, thisRange.to);
+  const thisMthPurchaseRows = monthPurchases(thisRange.from, thisRange.to);
   const prevMthRevenue = salesPrevMonth.reduce((s, d) => s + (d.net_revenue ?? 0), 0);
-  const prevMthPurchase = monthPurchase(prevRange.from, prevRange.to);
+  const prevMthPurchaseRows = monthPurchases(prevRange.from, prevRange.to);
+
+  const prevBreakdown = calculateExpenseBreakdown(prevMthPurchaseRows, prevMthRevenue);
+  const thisBreakdown = calculateExpenseBreakdown(
+    thisMthPurchaseRows,
+    thisMthRevenue,
+    prevBreakdown.groupTotals
+  );
+  const thisMthPurchase = thisBreakdown.totalExpense;
+  const prevMthPurchase = prevBreakdown.totalExpense;
 
   // MA5 / MA20 from 60-day window
   const rev60 = sales60.map(d => d.net_revenue ?? 0);
@@ -145,22 +158,42 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
   // This month
   lines.push(`[${thisYear}년 ${thisMonth}월 현황] (${salesThisMonth.length}일 영업)`);
   lines.push(`- 총매출: ${krw(thisMthRevenue)}`);
-  lines.push(`- 총매입: ${krw(thisMthPurchase)}${thisMthPurchase === 0 ? ' (매입 미기록)' : ''}`);
+  lines.push(`- 총비용(전체 지출): ${krw(thisMthPurchase)}${thisMthPurchase === 0 ? ' (지출 미기록)' : ''}`);
   if (thisMthRevenue > 0) {
-    lines.push(`- 순이익 추정: ${krw(thisMthRevenue - thisMthPurchase)}`);
+    lines.push(`- 남은 돈(영업이익 = 매출 − 총비용): ${krw(thisBreakdown.operatingProfit)} (영업이익률 ${thisBreakdown.operatingProfitRatio.toFixed(1)}%)`);
     lines.push(`- 일평균 매출: ${krw(Math.round(thisMthRevenue / Math.max(salesThisMonth.length, 1)))}`);
-    if (thisMthPurchase > 0) lines.push(`- 원가율: ${((thisMthPurchase / thisMthRevenue) * 100).toFixed(1)}%`);
+    if (thisMthPurchase > 0) {
+      lines.push(`- 원가율(재료비 기준 = 식자재·주류 ÷ 매출): ${thisBreakdown.costRatio.toFixed(1)}%`);
+      lines.push(`- 인건비율: ${thisBreakdown.laborRatio.toFixed(1)}%`);
+      lines.push(`- FL 비율((재료비+인건비) ÷ 매출): ${thisBreakdown.flRatio.toFixed(1)}%`);
+      lines.push(`- 임대료율: ${thisBreakdown.rentRatio.toFixed(1)}%`);
+      lines.push(`- 총비용률(총비용 ÷ 매출): ${thisBreakdown.totalCostRatio.toFixed(1)}%`);
+      lines.push(`- 비용 그룹별 상세: ${thisBreakdown.groups.map(g => `${g.shortLabel} ${krw(g.amount)}(${g.ratioPct.toFixed(1)}%)`).join(', ')}`);
+      if (prevMthRevenue > 0) {
+        const revDelta = calcComparisonMetricDelta(thisMthRevenue, prevMthRevenue, 'amount', true).formatted;
+        const expDelta = calcComparisonMetricDelta(thisMthPurchase, prevMthPurchase, 'amount', true).formatted;
+        const crDelta = calcComparisonMetricDelta(thisBreakdown.costRatio, prevBreakdown.costRatio, 'ratio', true).formatted;
+        const lrDelta = calcComparisonMetricDelta(thisBreakdown.laborRatio, prevBreakdown.laborRatio, 'ratio', true).formatted;
+        const flDelta = calcComparisonMetricDelta(thisBreakdown.flRatio, prevBreakdown.flRatio, 'ratio', true).formatted;
+        lines.push(`- 전월 대비 금액 변화: 매출 ${revDelta}, 총비용 ${expDelta}`);
+        lines.push(`- 전월 대비 비율 변화(%p): 원가율 ${crDelta}, 인건비율 ${lrDelta}, FL비율 ${flDelta}`);
+      }
+    }
   }
   lines.push('');
 
   // Prev month
   lines.push(`[${prevYear}년 ${prevMonth}월 현황] (${salesPrevMonth.length}일 영업)`);
   lines.push(`- 총매출: ${krw(prevMthRevenue)}`);
-  lines.push(`- 총매입: ${krw(prevMthPurchase)}${prevMthPurchase === 0 ? ' (매입 미기록)' : ''}`);
+  lines.push(`- 총비용(전체 지출): ${krw(prevMthPurchase)}${prevMthPurchase === 0 ? ' (지출 미기록)' : ''}`);
   if (prevMthRevenue > 0) {
-    lines.push(`- 순이익 추정: ${krw(prevMthRevenue - prevMthPurchase)}`);
+    lines.push(`- 남은 돈(영업이익): ${krw(prevBreakdown.operatingProfit)} (영업이익률 ${prevBreakdown.operatingProfitRatio.toFixed(1)}%)`);
     lines.push(`- 일평균 매출: ${krw(Math.round(prevMthRevenue / Math.max(salesPrevMonth.length, 1)))}`);
-    if (prevMthPurchase > 0) lines.push(`- 원가율: ${((prevMthPurchase / prevMthRevenue) * 100).toFixed(1)}%`);
+    if (prevMthPurchase > 0) {
+      lines.push(`- 원가율(재료비 기준): ${prevBreakdown.costRatio.toFixed(1)}%`);
+      lines.push(`- FL 비율: ${prevBreakdown.flRatio.toFixed(1)}%`);
+      lines.push(`- 총비용률: ${prevBreakdown.totalCostRatio.toFixed(1)}%`);
+    }
   }
   lines.push('');
 
@@ -206,11 +239,76 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
   }
 
   // Daily table (last 30 days)
-  lines.push('[최근 30일 일별 매출 / 매입]');
+  lines.push('[최근 30일 일별 매출 / 총비용·재료비]');
   for (const d of salesLast30) {
-    const purchase = purchaseByDate[d.date];
-    const purchaseStr = purchase ? ` | 매입 ${krw(purchase)}` : '';
-    lines.push(`${d.date}: 매출 ${krw(d.net_revenue ?? 0)}${purchaseStr}`);
+    const exp = totalExpenseByDate[d.date] ?? 0;
+    const ing = ingredientByDate[d.date] ?? 0;
+    const costStr = exp > 0 ? ` | 총비용 ${krw(exp)} (재료비 ${krw(ing)})` : '';
+    lines.push(`${d.date}: 매출 ${krw(d.net_revenue ?? 0)}${costStr}`);
+  }
+  lines.push('');
+
+  // [W-3] 최근 7일 기온 급락 및 매장 민감도 정보
+  try {
+    const from7 = dateStrDaysAgo(7);
+    interface DropInfo {
+      date: string;
+      prevTemp: number;
+      currTemp: number;
+      delta: number;
+    }
+    const recentDrops: DropInfo[] = [];
+
+    for (let i = 1; i < sales60.length; i++) {
+      const prev = sales60[i - 1];
+      const curr = sales60[i];
+      if (curr.date < from7) continue;
+
+      if (
+        prev.temperature !== null &&
+        prev.temperature !== undefined &&
+        curr.temperature !== null &&
+        curr.temperature !== undefined
+      ) {
+        const dPrev = new Date(prev.date);
+        const dCurr = new Date(curr.date);
+        const diff = Math.round((dCurr.getTime() - dPrev.getTime()) / (1000 * 60 * 60 * 24));
+        if (diff === 1) {
+          const drop = Math.round((prev.temperature - curr.temperature) * 10) / 10;
+          if (drop >= 3.0) {
+            recentDrops.push({
+              date: curr.date,
+              prevTemp: prev.temperature,
+              currTemp: curr.temperature,
+              delta: drop,
+            });
+          }
+        }
+      }
+    }
+
+    const sensitivity = await getStoreSensitivityCached(STORE_ID);
+    lines.push('[최근 기온 급락]');
+    if (recentDrops.length > 0) {
+      for (const d of recentDrops) {
+        lines.push(`- ${d.date}: 전날 ${d.prevTemp}°C → 당일 ${d.currTemp}°C (${d.delta}°C 하락)`);
+      }
+      if (sensitivity.isEligible) {
+        const st1 = sensitivity.stages[1];
+        const st2 = sensitivity.stages[2];
+        const parts: string[] = [];
+        if (st1 && st1.hasSignificantEffect) parts.push(`다음 날(1단계) 약 ${Math.abs(st1.roundedPercent)}% 감소 (지난 급락 ${st1.n}회 평균)`);
+        if (st2 && st2.hasSignificantEffect) parts.push(`이틀 뒤(2단계) 약 ${Math.abs(st2.roundedPercent)}% 감소 (지난 급락 ${st2.n}회 평균)`);
+        lines.push(`- 매장 과거 평균 영향: ${parts.join(', ')}`);
+      } else {
+        lines.push('- 매장 과거 영향: 데이터 부족(영업 1년 미만 또는 급락 20회 미만)으로 수치 산출 제외');
+      }
+    } else {
+      lines.push('- 최근 7일간 3.0°C 이상 기온 급락 없음');
+    }
+    lines.push('');
+  } catch (dropErr) {
+    console.warn('[Chat] 최근 기온 급락 조회 실패 (컨텍스트 구성은 정상 진행):', dropErr);
   }
 
   return lines.join('\n');
@@ -221,8 +319,12 @@ export async function POST(request: Request) {
   if (!storeInfo) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const STORE_ID = storeInfo.id;
 
-  if (!ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'AI 기능이 설정되지 않았습니다. ANTHROPIC_API_KEY를 확인하세요.' }, { status: 500 });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    const errorMsg = process.env.NODE_ENV === 'production'
+      ? '일시적인 오류입니다. 잠시 후 다시 시도해 주세요.'
+      : 'AI 기능이 설정되지 않았습니다. ANTHROPIC_API_KEY를 확인하세요.';
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 
   try {
@@ -245,7 +347,12 @@ export async function POST(request: Request) {
 ${storeContext}
 
 === 답변 지침 ===
-- 사장님께 친근하고 실용적으로 답변해 주세요
+- 반드시 존댓말(~습니다)로 친근하고 실용적으로 답변해 주세요
+- 원가율은 반드시 재료비(주류+식자재) 합계 ÷ 매출 기준으로만 사용하고, 인건비·임대료·공과금 등 전체 총비용을 원가율로 부르지 마세요
+- 비율 지표(원가율, 인건비율, FL 비율, 임대료율, 총비용률, 영업이익률)의 전월 대비 변화는 %p 차이로 말하고, 금액 변화율(%)과 섞지 마세요
+- 프롬프트에 주어진 숫자만 사용하고, 직접 계산한 퍼센트를 만들지 마세요
+- 공과금(전기·가스·수도)은 납부 시점이 사용 월과 다를 수 있으므로 전월 대비 공과금 증감을 운영 문제로 단정하지 마세요
+- 기온 급락 데이터가 언급되더라도, 매출이 떨어진 이유를 기온 탓으로 단정하지 마세요. 최근 3일 안 급락이면 하락 해석 시 가능성으로만 언급하세요 ("기온 급락의 영향일 가능성도 있습니다" 등 단정 금지). 요일, 마케팅, 메뉴 구성 등 복합적인 요인을 함께 고려해 설명하세요
 - 위 데이터의 구체적인 수치를 인용하며 조언해 주세요
 - 한국어로 답변하고, 사장님을 "사장님"으로 호칭해 주세요
 - 핵심만 간결하게 답변해 주세요 (너무 길지 않게)
@@ -257,7 +364,7 @@ ${storeContext}
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -266,6 +373,7 @@ ${storeContext}
         system: systemPrompt,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
       }),
+      signal: AbortSignal.timeout(50000),
     });
 
     if (!response.ok) {
@@ -283,6 +391,9 @@ ${storeContext}
 
     return NextResponse.json({ content });
   } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError' || error.message.includes('시간이 초과'))) {
+      return NextResponse.json({ error: '응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.' }, { status: 504 });
+    }
     const msg = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
     return NextResponse.json({ error: msg }, { status: 500 });
   }

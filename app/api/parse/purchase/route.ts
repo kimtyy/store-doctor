@@ -75,6 +75,8 @@ function similarity(a: string, b: string): number {
 }
 
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -182,6 +184,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ data: parsed });
   } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError' || error.message.includes('시간이 초과'))) {
+      return NextResponse.json({ error: '응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.' }, { status: 504 });
+    }
     const msg = error instanceof Error ? error.message : '파싱 중 오류가 발생했습니다.';
     return NextResponse.json({ error: msg }, { status: 500 });
   }

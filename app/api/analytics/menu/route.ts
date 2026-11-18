@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreId } from '@/utils/supabase/getStore';
+import { getUserRole } from '@/utils/supabase/getUserRole';
+import { fetchAll, IN_QUERY_CHUNK_SIZE } from '@/lib/supabase/fetchAll';
+import { buildMenuMasterIndex, resolveMenuWithIndex } from '@/lib/menus';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,18 +64,32 @@ export async function GET(request: Request) {
       query = query.eq('is_event', false);
     }
 
-    const { data, error } = await query.order('date', { ascending: false });
+    const [{ data, error }, { data: masterRows, error: masterError }] = await Promise.all([
+      fetchAll(query.order('date', { ascending: false }).order('id', { ascending: false })),
+      supabase
+        .from('menu_master')
+        .select('menu_name, category, liquor_sub_category, aliases')
+        .eq('store_id', STORE_ID),
+    ]);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    if (masterError) {
+      return NextResponse.json(
+        { error: `메뉴 마스터를 불러오지 못했습니다: ${masterError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const masterIndex = buildMenuMasterIndex(masterRows ?? []);
 
     // 메뉴별매출내역(sales_menu_items.amount)은 부가세 포함 금액이고,
     // 포스마감정산서의 net_revenue는 부가세 제외 금액이라 기준이 달랐다.
     // 일별로 (net_revenue / 해당일 품목 합계) 비율을 구해 각 품목 금액에
     // 곱해서 부가세 제외 기준으로 환산 — 카테고리/랭킹 합계가 손익 요약의
     // 총매출(net_revenue 합)과 정확히 일치하도록 맞춘다.
-    const nameMap: Record<string, { totalAmount: number; totalQuantity: number; category: string | null }> = {};
+    const nameMap: Record<string, { name: string; totalAmount: number; totalQuantity: number; category: string | null }> = {};
 
     for (const sale of (data ?? []) as RawSale[]) {
       const items = sale.sales_menu_items ?? [];
@@ -82,19 +99,26 @@ export async function GET(request: Request) {
 
       for (const item of items) {
         if (!item.name) continue;
-        if (!nameMap[item.name]) {
-          nameMap[item.name] = { totalAmount: 0, totalQuantity: 0, category: null };
+        const resolved = resolveMenuWithIndex(item.name, masterIndex, item.category);
+        const key = resolved.canonicalKey || resolved.canonicalName;
+        if (!nameMap[key]) {
+          nameMap[key] = {
+            name: resolved.canonicalName,
+            totalAmount: 0,
+            totalQuantity: 0,
+            category: resolved.rawCategory,
+          };
         }
-        nameMap[item.name].totalAmount += (item.amount ?? 0) * scale;
-        nameMap[item.name].totalQuantity += item.quantity ?? 0;
-        if (item.category && !nameMap[item.name].category) {
-          nameMap[item.name].category = item.category;
+        nameMap[key].totalAmount += (item.amount ?? 0) * scale;
+        nameMap[key].totalQuantity += item.quantity ?? 0;
+        if (resolved.rawCategory && !nameMap[key].category) {
+          nameMap[key].category = resolved.rawCategory;
         }
       }
     }
 
-    const menuStats = Object.entries(nameMap).map(([name, stats]) => ({
-      name,
+    const menuStats = Object.values(nameMap).map((stats) => ({
+      name: stats.name,
       totalAmount: Math.round(stats.totalAmount),
       totalQuantity: stats.totalQuantity,
       category: stats.category,
@@ -124,6 +148,14 @@ export async function PATCH(request: Request) {
   const STORE_ID = await getStoreId();
   if (!STORE_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const role = await getUserRole();
+  if (role !== 'owner') {
+    return NextResponse.json(
+      { error: '메뉴 수정은 매장 소유자만 가능합니다.' },
+      { status: 403 }
+    );
+  }
+
   const supabase = makeClient();
   if (!supabase) {
     return NextResponse.json({ error: 'Supabase 환경 변수가 설정되지 않았습니다.' }, { status: 500 });
@@ -136,10 +168,13 @@ export async function PATCH(request: Request) {
     }
 
     // Get all daily_sales IDs for this store
-    const { data: salesRows, error: salesError } = await supabase
-      .from('daily_sales')
-      .select('id')
-      .eq('store_id', STORE_ID);
+    const { data: salesRows, error: salesError } = await fetchAll(
+      supabase
+        .from('daily_sales')
+        .select('id')
+        .eq('store_id', STORE_ID)
+        .order('id', { ascending: true })
+    );
 
     if (salesError) {
       return NextResponse.json({ error: salesError.message }, { status: 500 });
@@ -155,14 +190,24 @@ export async function PATCH(request: Request) {
       updateFields.name = newName.trim();
     }
 
-    const { error: updateError } = await supabase
-      .from('sales_menu_items')
-      .update(updateFields)
-      .eq('name', menuName)
-      .in('daily_sale_id', salesIds);
+    // Chunk salesIds to avoid PostgREST query param size limit (IN_QUERY_CHUNK_SIZE at a time)
+    const totalChunks = Math.ceil(salesIds.length / IN_QUERY_CHUNK_SIZE);
+    for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+      const slice = salesIds.slice(
+        chunkIdx * IN_QUERY_CHUNK_SIZE,
+        (chunkIdx + 1) * IN_QUERY_CHUNK_SIZE
+      );
+      const { error: updateError } = await supabase
+        .from('sales_menu_items')
+        .update(updateFields)
+        .eq('name', menuName)
+        .in('daily_sale_id', slice);
 
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      if (updateError) {
+        return NextResponse.json({
+          error: `메뉴 업데이트 실패 (${chunkIdx}/${totalChunks} 청크 적용됨): ${updateError.message}`,
+        }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true });
