@@ -816,7 +816,9 @@ export default function DashboardPage() {
                           <span className="text-base">🌡️</span>
                           <span className="text-xs font-semibold text-slate-200">기온 변화 및 영업 참고 알림</span>
                         </div>
-                        <span className="text-[11px] text-slate-400">매장 과거 영향 기반</span>
+                        {activeAlerts.isEligible && (
+                          <span className="text-[11px] text-slate-400">매장 과거 영향 기반</span>
+                        )}
                       </div>
 
                       {/* 3일 띠 [오늘 | 내일 | 모레] */}
@@ -859,11 +861,15 @@ export default function DashboardPage() {
                         })}
                       </div>
 
-                      {/* 사흘째 회복 안내 */}
+                      {/* 사흘째 회복 또는 신규 매장 안내 */}
                       {activeAlerts.days.some((d) => d.hasDropAlert) && (
                         <div className="pt-2 border-t border-slate-800/60 flex items-start gap-1.5 text-[11px] text-slate-400 leading-relaxed">
                           <span className="shrink-0">💡</span>
-                          <span>기온 급락 영향은 보통 사흘째에 평소 수준으로 회복돼요.</span>
+                          <span>
+                            {activeAlerts.isEligible
+                              ? '기온 급락 영향은 보통 사흘째에 평소 수준으로 회복돼요.'
+                              : '영업 기록이 1년 이상 쌓이면 이 매장 기준 숫자로 알려드려요'}
+                          </span>
                         </div>
                       )}
                     </div>

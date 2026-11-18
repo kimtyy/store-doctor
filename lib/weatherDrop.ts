@@ -19,6 +19,7 @@ export interface DayWeatherAlert {
 export interface ThreeDayAlertsResult {
   hasAnyAlert: boolean; // 3일 중 하나라도 알림이 있으면 true, 전부 없으면 false (카드 숨김)
   kstToday: string;
+  isEligible: boolean; // 매장 민감도 자격 충족 여부 (spanDays >= 365 && totalDrops >= 20)
   days: [DayWeatherAlert, DayWeatherAlert, DayWeatherAlert]; // 오늘, 내일, 모레
   recoveryNotice?: string; // 기온 급락 시 사흘째 회복 안내
 }
@@ -65,6 +66,7 @@ export function detectTempDropAlerts(
   sensitivity: StoreSensitivityResult | null,
   nowDate: Date = new Date()
 ): ThreeDayAlertsResult {
+  const isEligible = sensitivity?.isEligible ?? false;
   const todayStr = getKstDateString(nowDate);
   const tomorrowStr = addKstDays(todayStr, 1);
   const dayAfterTomorrowStr = addKstDays(todayStr, 2);
@@ -181,29 +183,40 @@ export function detectTempDropAlerts(
       candidates.push({ stage: stage1, k: 1, dropDate: dateMinus1, dropAmount: delta1 });
     }
 
-    // k = 2: 그제(T-2) 급락
-    const dateMinus2 = addKstDays(T, -2);
-    const delta2 = deltaMap.get(dateMinus2);
-    if (delta2 !== undefined && delta2 >= 3.0) {
-      const month2 = parseInt(dateMinus2.slice(5, 7), 10);
-      const isWinter = [12, 1, 2].includes(month2);
-      const stage2 =
-        isWinter && sensitivity?.winterStage2
-          ? sensitivity.winterStage2
-          : sensitivity?.stages?.[2] ?? {
-              k: 2,
-              effect: 0,
-              roundedPercent: 0,
-              n: 0,
-              hasSignificantEffect: true,
-            };
-      candidates.push({ stage: stage2, k: 2, dropDate: dateMinus2, dropAmount: delta2 });
+    // k = 2: 그제(T-2) 급락 (자격 충족 매장만. 자격 미달은 숫자 없이 의미 없으므로 제외)
+    if (isEligible) {
+      const dateMinus2 = addKstDays(T, -2);
+      const delta2 = deltaMap.get(dateMinus2);
+      if (delta2 !== undefined && delta2 >= 3.0) {
+        const month2 = parseInt(dateMinus2.slice(5, 7), 10);
+        const isWinter = [12, 1, 2].includes(month2);
+        const stage2 =
+          isWinter && sensitivity?.winterStage2
+            ? sensitivity.winterStage2
+            : sensitivity?.stages?.[2] ?? {
+                k: 2,
+                effect: 0,
+                roundedPercent: 0,
+                n: 0,
+                hasSignificantEffect: true,
+              };
+        candidates.push({ stage: stage2, k: 2, dropDate: dateMinus2, dropAmount: delta2 });
+      }
     }
 
-    // 후보 중 여러 개면 가장 큰 감소(effect가 가장 작은 음수) 하나 선택
+    // 후보 중 여러 개면 하나 선택
     let chosen: Candidate | null = null;
     if (candidates.length > 0) {
-      candidates.sort((a, b) => a.stage.effect - b.stage.effect);
+      if (isEligible) {
+        // 자격 충족: 가장 큰 감소(effect가 가장 작은 음수) 선택
+        candidates.sort((a, b) => a.stage.effect - b.stage.effect);
+      } else {
+        // 자격 미달 매장: 1단계(급락 다음 날) 우선, 같으면 하락폭 큰 것
+        candidates.sort((a, b) => {
+          if (b.k !== a.k) return b.k - a.k;
+          return b.dropAmount - a.dropAmount;
+        });
+      }
       chosen = candidates[0];
     }
 
@@ -215,8 +228,6 @@ export function detectTempDropAlerts(
     let dropAmount: number | null = null;
 
     if (chosen) {
-      const isEligible = sensitivity?.isEligible ?? false;
-
       if (isEligible) {
         // 자격 충족 매장: 효과가 -5% 이하로 유의미할 때만 표시
         if (chosen.stage.effect <= -0.05) {
@@ -242,23 +253,34 @@ export function detectTempDropAlerts(
           }
         }
       } else {
-        // 자격 미달 매장: 숫자 없이 사실만 알림
+        // 자격 미달 매장: 숫자 없이 사실만 알림 (후보 k=0, 1)
         hasDropAlert = true;
         dropStage = chosen.k;
         dropAmount = chosen.dropAmount;
         const dropAmountStr = chosen.dropAmount.toFixed(1);
 
-        if (label === '오늘') {
-          const dropWhen = chosen.k === 1 ? '어제' : chosen.k === 0 ? '오늘' : '그제';
-          dropMessage = `${dropWhen} 기온이 많이 떨어졌어요 (${dropAmountStr}°C 하락)`;
-        } else if (label === '내일') {
-          const dropWhen = chosen.k === 1 ? '오늘' : '내일';
-          const verb = chosen.k === 1 ? '많이 떨어졌어요' : '크게 떨어질 예정이에요';
-          const suffix = chosen.k === 0 ? ' 예상' : '';
-          dropMessage = `${dropWhen} 기온이 ${verb} (${dropAmountStr}°C 하락${suffix})`;
+        // 급락 날짜(dropDate)와 오늘(todayStr)의 차이(일 단위)
+        const [y1, m1, d1] = chosen.dropDate.split('-').map(Number);
+        const [y0, m0, d0] = todayStr.split('-').map(Number);
+        const dtDrop = Date.UTC(y1, m1 - 1, d1);
+        const dtToday = Date.UTC(y0, m0 - 1, d0);
+        const diffDays = Math.round((dtDrop - dtToday) / (1000 * 60 * 60 * 24));
+
+        let dateWord = '';
+        if (diffDays === -1) dateWord = '어제';
+        else if (diffDays === 0) dateWord = '오늘';
+        else if (diffDays === 1) dateWord = '내일';
+        else if (diffDays === 2) dateWord = '모레';
+        else if (diffDays < -1) dateWord = `${Math.abs(diffDays)}일 전`;
+        else dateWord = `${diffDays}일 후`;
+
+        const verb = diffDays <= 0 ? '떨어졌어요' : '떨어질 예정이에요';
+
+        if (chosen.k === 0) {
+          dropMessage = `${dateWord} 기온이 ${dropAmountStr}°C ${verb}`;
         } else {
-          // 모레
-          dropMessage = `모레 기온이 크게 떨어질 예정이에요 (${dropAmountStr}°C 하락 예상)`;
+          // chosen.k === 1 (급락 다음 날)
+          dropMessage = `${dateWord} 기온이 ${dropAmountStr}°C ${verb}. 급락 다음 날은 손님이 줄 수 있어요.`;
         }
       }
     }
@@ -286,7 +308,8 @@ export function detectTempDropAlerts(
   return {
     hasAnyAlert,
     kstToday: todayStr,
+    isEligible,
     days: [results[0], results[1], results[2]],
-    recoveryNotice: hasAnyDropAlert ? '기온 급락 영향은 보통 사흘째에 평소 수준으로 회복돼요.' : undefined,
+    recoveryNotice: hasAnyDropAlert && isEligible ? '기온 급락 영향은 보통 사흘째에 평소 수준으로 회복돼요.' : undefined,
   };
 }

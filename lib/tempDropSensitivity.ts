@@ -274,18 +274,29 @@ export async function getStoreSensitivityCached(
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
+    const from1095 = new Date();
+    from1095.setDate(from1095.getDate() - 1095);
+    const from1095Str = from1095.toISOString().slice(0, 10);
+
     const { data: rows, error } = await fetchAll<RawSaleRecord>(
       () =>
         adminClient
           .from('daily_sales')
           .select('date, net_revenue, total_revenue, temperature')
           .eq('store_id', storeId)
+          .gte('date', from1095Str)
           .order('date', { ascending: true })
           .order('id'),
       { pageSize: 1000, maxRows: 20000 }
     );
 
-    if (error || !rows || rows.length === 0) {
+    if (error) {
+      throw new Error(
+        `[tempDropSensitivity] DB error fetching daily_sales for store ${storeId}: ${error.message || JSON.stringify(error)}`
+      );
+    }
+
+    if (!rows || rows.length === 0) {
       return {
         storeId,
         spanDays: 0,

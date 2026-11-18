@@ -297,8 +297,8 @@ async function buildStoreContext(STORE_ID: string): Promise<string> {
         const st1 = sensitivity.stages[1];
         const st2 = sensitivity.stages[2];
         const parts: string[] = [];
-        if (st1) parts.push(`다음 날(1단계) 약 ${Math.abs(st1.roundedPercent)}% 감소 (지난 급락 ${st1.n}회 평균)`);
-        if (st2) parts.push(`이틀 뒤(2단계) 약 ${Math.abs(st2.roundedPercent)}% 감소 (지난 급락 ${st2.n}회 평균)`);
+        if (st1 && st1.hasSignificantEffect) parts.push(`다음 날(1단계) 약 ${Math.abs(st1.roundedPercent)}% 감소 (지난 급락 ${st1.n}회 평균)`);
+        if (st2 && st2.hasSignificantEffect) parts.push(`이틀 뒤(2단계) 약 ${Math.abs(st2.roundedPercent)}% 감소 (지난 급락 ${st2.n}회 평균)`);
         lines.push(`- 매장 과거 평균 영향: ${parts.join(', ')}`);
       } else {
         lines.push('- 매장 과거 영향: 데이터 부족(영업 1년 미만 또는 급락 20회 미만)으로 수치 산출 제외');
